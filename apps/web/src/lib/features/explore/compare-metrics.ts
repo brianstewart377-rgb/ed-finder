@@ -14,6 +14,11 @@ export interface CompareMetricRow {
   cells: CompareCell[];
 }
 
+export interface CompareMetricOptions {
+  /** F4b hides unlike search-reference distances until F4c defines comparability. */
+  suppressDistance?: boolean;
+}
+
 const archetypeLabels: Readonly<Record<string, string>> = {
   refinery_industrial: 'Refinery / Industrial Megacomplex',
   extraction_refinery: 'Extraction / Refinery Mining Hub',
@@ -88,7 +93,9 @@ function status(entry: CompareEntry): string {
 /** Normalize legacy snapshots at the display boundary without changing stored data. */
 export function buildCompareRows(
   entries: readonly CompareEntry[],
+  options?: CompareMetricOptions,
 ): CompareMetricRow[] {
+  const suppressDistance = options?.suppressDistance ?? false;
   const plain = (
     label: string,
     render: (entry: CompareEntry) => string,
@@ -159,16 +166,21 @@ export function buildCompareRows(
         text(entry.primary_economy) ??
         UNAVAILABLE,
     ),
-    numeric(
-      'Distance from ref',
-      (entry) => {
-        const distance = finite(entry.distance);
-        // Legacy searches can use zero when no reference was chosen.
-        return distance !== null && distance > 0 ? distance : null;
-      },
-      (value) => (value === null ? UNAVAILABLE : `${value.toFixed(2)} LY`),
-      false,
-    ),
+    ...(!suppressDistance
+      ? [
+          numeric(
+            'Distance from ref',
+            (entry) => {
+              const distance = finite(entry.distance);
+              // Legacy searches can use zero when no reference was chosen.
+              return distance !== null && distance > 0 ? distance : null;
+            },
+            (value) =>
+              value === null ? UNAVAILABLE : `${value.toFixed(2)} LY`,
+            false,
+          ),
+        ]
+      : []),
     plain('Population', population),
     plain('Status', status),
     plain(
@@ -190,7 +202,10 @@ export function buildCompareRows(
   ];
 }
 
-export function compareCsv(entries: readonly CompareEntry[]): string {
+export function compareCsv(
+  entries: readonly CompareEntry[],
+  options?: CompareMetricOptions,
+): string {
   const quote = (value: string | number) => {
     const safe =
       typeof value === 'string' && /^[=+\-@\t\r]/.test(value)
@@ -200,7 +215,7 @@ export function compareCsv(entries: readonly CompareEntry[]): string {
   };
   return [
     ['Metric', ...entries.map((entry) => entry.name)],
-    ...buildCompareRows(entries).map((row) => [
+    ...buildCompareRows(entries, options).map((row) => [
       row.label === 'Distance from ref' ? 'Distance from ref LY' : row.label,
       ...row.cells.map((cell) => cell.csvValue),
     ]),

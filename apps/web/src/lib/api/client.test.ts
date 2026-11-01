@@ -1,4 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  buildExploreGalaxyScene,
+  mapExploreSystemPoint,
+} from '$lib/spatial/explore-scene';
+
+const finderFeature = vi.hoisted(() => ({ enabled: false }));
+
+vi.mock('$lib/config', () => ({
+  get FINDER_F4_ENABLED() {
+    return finderFeature.enabled;
+  },
+}));
 
 // Partial mock (preserving every other real export via loadOriginal, per the
 // $lib/api/client mocking convention in SystemDetail.test.ts /
@@ -38,12 +50,130 @@ import {
 // (interceptors) the facade installs, on a route the facade does not wrap.
 import { statusApiStatusGet } from './generated/sdk.gen';
 import * as sdk from './generated/sdk.gen';
+import { v3System } from './v3-system-fixtures';
 
 const jsonResponse = (body: unknown, init: ResponseInit = {}) =>
   new Response(JSON.stringify(body), {
     ...init,
     headers: { 'content-type': 'application/json', ...init.headers },
   });
+
+describe('getSystem F4 canonical origin guard', () => {
+  beforeEach(() => {
+    finderFeature.enabled = true;
+  });
+
+  afterEach(() => {
+    finderFeature.enabled = false;
+    vi.restoreAllMocks();
+  });
+
+  function serveSystem(
+    id64: string,
+    name: string,
+    coords = { x: 0, y: 0, z: 0 },
+  ) {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const path = new URL((input as Request).url).pathname;
+      if (path === '/api/v1/generation') {
+        return jsonResponse({
+          generation_id: 'origin-guard-generation',
+          publication_sequence: '1',
+        });
+      }
+      if (path === `/api/v1/systems/${id64}`) {
+        return jsonResponse(
+          v3System({
+            id64,
+            name,
+            x_ly: coords.x,
+            y_ly: coords.y,
+            z_ly: coords.z,
+          }),
+        );
+      }
+      return jsonResponse([]);
+    });
+  }
+
+  it.each([
+    ['42', 'Sol'],
+    ['9007199254740993', 'Lossless origin'],
+  ])(
+    'retains non-Sol selection %s without inventing an origin point',
+    async (rawId, name) => {
+      const id64 = parseId64(rawId);
+      serveSystem(id64, name);
+
+      const detail = await getSystem(id64);
+      expect(detail).toMatchObject({ id64, name });
+      expect(detail.x).toBeUndefined();
+      expect(detail.y).toBeUndefined();
+      expect(detail.z).toBeUndefined();
+
+      // Use the ordinary mapper, which trusts facade coordinates, rather than
+      // the selected-point mapper's independent defensive origin guard.
+      const selectedPoint = mapExploreSystemPoint({
+        id64: detail.id64,
+        name: detail.name,
+        coords: { x: detail.x, y: detail.y, z: detail.z },
+      });
+      expect(selectedPoint).toBeNull();
+      const scene = buildExploreGalaxyScene([], id64, 1, { selectedPoint });
+      expect(scene.selection).toEqual([{ kind: 'system', systemId64: id64 }]);
+      expect(scene.contributions.map(({ id }) => id)).toEqual([
+        'finder-results',
+      ]);
+      expect(scene.contributions[0]?.layers[0]?.payload).toEqual({
+        systems: [],
+      });
+    },
+  );
+
+  it('emits canonical Sol at the origin', async () => {
+    const id64 = parseId64('10477373803');
+    serveSystem(id64, 'Sol');
+
+    const detail = await getSystem(id64);
+    expect(detail).toMatchObject({ id64, x: 0, y: 0, z: 0 });
+    const selectedPoint = mapExploreSystemPoint({
+      id64: detail.id64,
+      name: detail.name,
+      coords: { x: detail.x, y: detail.y, z: detail.z },
+    });
+    expect(selectedPoint?.positionLy).toEqual({ x: 0, y: 0, z: 0 });
+    const scene = buildExploreGalaxyScene([], id64, 1, { selectedPoint });
+    expect(scene.selection).toEqual([{ kind: 'system', systemId64: id64 }]);
+    expect(scene.contributions[1]?.id).toBe('finder-selection');
+    expect(scene.contributions[1]?.layers[0]?.payload).toEqual({
+      systems: [selectedPoint],
+    });
+  });
+
+  it.each([
+    { x: 1, y: 0, z: 0 },
+    { x: 0, y: -1, z: 0 },
+    { x: 0, y: 0, z: 1 },
+  ])('preserves a nonzero coordinate triple %j', async (coords) => {
+    const id64 = parseId64('42');
+    serveSystem(id64, 'Known position', coords);
+
+    await expect(getSystem(id64)).resolves.toMatchObject({ id64, ...coords });
+  });
+
+  it('preserves existing non-Sol origin coordinates with F4 disabled', async () => {
+    finderFeature.enabled = false;
+    const id64 = parseId64('42');
+    serveSystem(id64, 'Legacy origin');
+
+    await expect(getSystem(id64)).resolves.toMatchObject({
+      id64,
+      x: 0,
+      y: 0,
+      z: 0,
+    });
+  });
+});
 
 describe('typed V3 API facade over the generated Hey API SDK', () => {
   beforeEach(() => {

@@ -50,6 +50,27 @@ def test_cypress_gate_preserves_browser_accessibility_visual_and_renderer_covera
     assert "account/home-" in foundation_spec
 
 
+def test_finder_f4_opt_in_is_confined_to_the_product_bundle_build_step():
+    workflow_text = _read(WORKFLOWS / "cypress-parity.yml")
+    workflow = yaml.safe_load(workflow_text)
+    steps = workflow["jobs"]["cypress-release-gate"]["steps"]
+    builds = [step for step in steps if step.get("name") == "Build Svelte static bundle"]
+
+    assert len(builds) == 1
+    assert builds[0]["working-directory"] == "apps/web"
+    assert builds[0]["run"] == "pnpm build"
+    assert builds[0]["env"]["VITE_FINDER_F4_ENABLED"] == "1"
+    # The single occurrence also rejects job/global env, preview env and shell
+    # assignments, including an opt-in placed elsewhere through a YAML alias.
+    assert workflow_text.count("VITE_FINDER_F4_ENABLED") == 1
+    assert "VITE_FINDER_F4_ENABLED" not in workflow.get("env", {})
+    for job in workflow["jobs"].values():
+        assert "VITE_FINDER_F4_ENABLED" not in job.get("env", {})
+        for step in job.get("steps", []):
+            if step is not builds[0]:
+                assert "VITE_FINDER_F4_ENABLED" not in step.get("env", {})
+
+
 def test_system_detail_escape_uses_the_modal_window_keyboard_path():
     overlay = _read(WEB / "src" / "lib" / "components" / "SystemOverlay.svelte")
 
