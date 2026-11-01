@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { normalizeAnySearchRow } from '$lib/api/client';
 import { parseId64 } from '$lib/domain/id64';
 import type { CompareEntry } from '$lib/persistence/storage';
 import { ARCHETYPES } from './archetypes';
@@ -12,6 +13,7 @@ import {
   snapshotProvenanceSummary,
   snapshotScoreSummary,
 } from './compare-metrics';
+import { snapshotFromExplore } from './shortlist';
 
 const entry = (
   id: string,
@@ -210,7 +212,7 @@ describe('F4 mode- and reference-safe comparison', () => {
       }),
     ];
     expect(metric(entries, 'Best Colony Potential')?.cells).toEqual([
-      { display: '70', csvValue: 70, best: false },
+      { display: '70 · Tier S', csvValue: 70, best: false },
       { display: '90', csvValue: 90, best: true },
     ]);
     expect(metric(entries, 'Paradise World fit')).toBeUndefined();
@@ -289,9 +291,63 @@ describe('F4 mode- and reference-safe comparison', () => {
       metric(entries, 'Paradise World fit')?.cells.map((cell) => cell.display),
     ).toEqual(['90 · Tier C', '89', '88']);
     expect(
-      metric([modern('4')], 'Best Colony Potential')?.cells[0].display,
+      metric([modern('4', { ranking_tier: null })], 'Best Colony Potential')
+        ?.cells[0].display,
     ).toBe('80');
   });
+
+  it.each(['S', 'A', 'B', 'C', 'D'] as const)(
+    'retains API Tier %s in Any-mode snapshot comparisons and summaries',
+    (tier) => {
+      const snapshot = snapshotFromExplore(
+        normalizeAnySearchRow(
+          {
+            id64: '1' as unknown as number,
+            name: 'Any-mode system',
+            overall_development_potential: 99,
+            archetype_score: 99,
+            archetype_tier: tier,
+          },
+          null,
+          provenance,
+        ),
+      );
+      expect(snapshot).not.toHaveProperty('best_tier');
+      expect(
+        metric([snapshot], 'Best Colony Potential')?.cells[0].display,
+      ).toBe(`99 · Tier ${tier}`);
+      expect(snapshotScoreSummary(snapshot)).toBe(
+        `Best Colony Potential 99 · Tier ${tier}`,
+      );
+    },
+  );
+
+  it.each([undefined, 'D'] as const)(
+    'keeps the selected-fit tier separate from overall best_tier %s',
+    (bestTier) => {
+      const snapshot = snapshotFromExplore({
+        id64: parseId64('1'),
+        name: 'Selected-fit system',
+        overall_development_potential: 99,
+        ranking_score: 90,
+        ranking_tier: 'C',
+        score_kind: 'selected_fit',
+        selected_archetype: 'paradise',
+        ranking_provenance: provenance,
+        ...(bestTier ? { best_tier: bestTier } : {}),
+      });
+      const overall = bestTier ? '99 · Tier D' : '99';
+      expect(
+        metric([snapshot], 'Best Colony Potential')?.cells[0].display,
+      ).toBe(overall);
+      expect(metric([snapshot], 'Paradise World fit')?.cells[0].display).toBe(
+        '90 · Tier C',
+      );
+      expect(snapshotScoreSummary(snapshot)).toBe(
+        `Best Colony Potential ${overall}; Paradise World fit 90 · Tier C`,
+      );
+    },
+  );
 
   it.each([
     'ranking_version',

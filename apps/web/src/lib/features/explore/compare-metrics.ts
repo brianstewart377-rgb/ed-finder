@@ -154,13 +154,23 @@ function apiScore(value: number | null, tier: unknown): string {
   return `${value}${isTier(tier) ? ` · ${tierLabel(tier)}` : ''}`;
 }
 
+/** Any-mode ranking tiers belong to overall potential, never selected fit. */
+function snapshotOverallTier(entry: CompareEntry): unknown {
+  const identity = snapshotRankingIdentity(entry);
+  return identity.score_kind === 'overall_potential'
+    ? (identity.ranking_tier ?? entry.best_tier)
+    : entry.best_tier;
+}
+
 /** Stored values remain readable even when they cannot enter a comparison. */
 export function snapshotScoreSummary(entry: CompareEntry): string {
   const identity = snapshotRankingIdentity(entry);
   const parts: string[] = [];
   const overall = finite(entry.overall_development_potential);
   if (overall !== null)
-    parts.push(`Best Colony Potential ${apiScore(overall, entry.best_tier)}`);
+    parts.push(
+      `Best Colony Potential ${apiScore(overall, snapshotOverallTier(entry))}`,
+    );
   if (identity.score_kind === 'selected_fit') {
     const label = archetypeLabel(text(entry.selected_archetype));
     parts.push(
@@ -303,7 +313,7 @@ export function buildCompareRows(
                 numeric(
                   'Best Colony Potential',
                   (entry) => entry.overall_development_potential,
-                  (value, entry) => apiScore(value, entry.best_tier),
+                  (value, entry) => apiScore(value, snapshotOverallTier(entry)),
                 ),
               ]
             : []),
