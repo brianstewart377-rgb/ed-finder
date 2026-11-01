@@ -18,7 +18,7 @@ from psycopg.conninfo import make_conninfo
 import pytest
 
 from tests import test_v3_purge_copy_and_drop as copy_tests
-from tests.ratings_v4_pg_fixture import canonical_database
+from tests.helpers.purge_pg import canonical_database, connect
 from tests.test_v3_governed_derived_purge import MIGRATIONS, RELATIONS, SURVIVOR, installed_purge
 from tests.test_v3_purge_copy_and_drop import (
     _authorize, _owner, abandon, build, chunk, events, finish, prepare, staged, vacuum, verify,
@@ -268,8 +268,8 @@ def test_installation_refuses_a_second_time(before_022):
 
 def test_installation_requires_the_owner_of_the_replaced_functions(before_022):
     c = _owner(before_022[0])
-    admin = psycopg.connect(make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'],
-                                          dbname=c.info.dbname), autocommit=True)
+    admin = connect(make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'],
+                                  dbname=c.info.dbname), autocommit=True)
     try:
         admin.execute('DROP ROLE IF EXISTS keyset_outsider')
         admin.execute('CREATE ROLE keyset_outsider NOLOGIN')
