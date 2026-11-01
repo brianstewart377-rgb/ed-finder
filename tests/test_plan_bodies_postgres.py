@@ -97,14 +97,19 @@ async def test_plan_bodies_match_canonical_membership_and_facts(pool, system_id)
             for row in await pool.fetch(f'SELECT {column}, display_name FROM v3_vocab.{table}')
         }
     ring_rows = await pool.fetch(
-        f'SELECT ring_pk, body_pk, kind FROM {schema}.rings WHERE system_id64=$1', system_id)
-    ring_bodies = {row['body_pk'] for row in ring_rows if row['kind'] == 'RING'}
+        f'''SELECT ring_pk, body_pk, kind, lifecycle_state FROM {schema}.rings
+             WHERE system_id64=$1''', system_id)
+    ring_bodies = {
+        row['body_pk'] for row in ring_rows
+        if row['kind'] == 'RING' and row['lifecycle_state'] == 'ACTIVE'
+    }
     belt_only_bodies = {row['body_pk'] for row in ring_rows if row['kind'] == 'BELT'} - ring_bodies
     expected_belts = await pool.fetch(
         f'''SELECT ring.ring_pk::text AS belt_id, ring.name,
                    ring.body_pk::text AS parent_body_id,
                    ring_type.display_name AS ring_type, reserve_type.display_name AS reserve,
-                   ring.mass_mt, ring.inner_radius_km, ring.outer_radius_km
+                   ring.mass_mt, ring.inner_radius_km, ring.outer_radius_km,
+                   ring.lifecycle_state
               FROM {schema}.rings ring
               LEFT JOIN v3_vocab.ring_type ring_type USING(ring_type_id)
               LEFT JOIN v3_vocab.reserve_type reserve_type USING(reserve_type_id)
@@ -177,11 +182,46 @@ async def test_plan_bodies_match_canonical_membership_and_facts(pool, system_id)
 
 
 @pytest.mark.asyncio
-async def test_plan_belts_preserve_null_ring_type_and_resolve_reserve(pool):
+@pytest.mark.parametrize('lifecycle_state', ('MISSING_CANDIDATE', 'RETIRED'))
+async def test_plan_bodies_ignore_non_current_rings(pool, lifecycle_state):
+    publication = await _published(pool)
+    schema = publication['relation_schema']
+    body_pk = await pool.fetchval(
+        f'''SELECT body_pk FROM {schema}.rings
+             WHERE system_id64=$1 AND kind='RING' AND lifecycle_state='ACTIVE'
+             ORDER BY ring_pk LIMIT 1''', SOL)
+    assert body_pk is not None
+    rings = await pool.fetch(
+        f'''SELECT ring_pk, lifecycle_state, retired_at FROM {schema}.rings
+             WHERE body_pk=$1 AND kind='RING' ORDER BY ring_pk''', body_pk)
+    assert rings
+    try:
+        await pool.execute(
+            f'''UPDATE {schema}.rings SET lifecycle_state=$2,
+                       retired_at=CASE WHEN $2='RETIRED' THEN CURRENT_TIMESTAMP ELSE retired_at END
+                 WHERE body_pk=$1 AND kind='RING' ''', body_pk, lifecycle_state)
+        assert not await pool.fetchval(
+            f'''SELECT EXISTS(SELECT 1 FROM {schema}.rings
+                 WHERE body_pk=$1 AND kind='RING' AND lifecycle_state='ACTIVE')''', body_pk)
+        async with _client(pool) as client:
+            response = await client.get(f'/api/v1/plan/systems/{SOL}/bodies')
+        assert response.status_code == 200, response.text
+        body = next(row for row in response.json()['bodies'] if row['body_id'] == str(body_pk))
+        assert body['has_rings'] is False
+    finally:
+        await pool.executemany(
+            f'UPDATE {schema}.rings SET lifecycle_state=$2, retired_at=$3 WHERE ring_pk=$1',
+            [(ring['ring_pk'], ring['lifecycle_state'], ring['retired_at']) for ring in rings])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('lifecycle_state', ('MISSING_CANDIDATE', 'RETIRED'))
+async def test_plan_belts_preserve_lifecycle_null_ring_type_and_resolve_reserve(pool, lifecycle_state):
     publication = await _published(pool)
     schema = publication['relation_schema']
     belt = await pool.fetchrow(
-        f'''SELECT ring_pk, ring_type_id, reserve_type_id FROM {schema}.rings
+        f'''SELECT ring_pk, ring_type_id, reserve_type_id, lifecycle_state, retired_at
+              FROM {schema}.rings
              WHERE system_id64=$1 AND kind='BELT' ORDER BY ring_pk LIMIT 1''', SOL)
     assert belt is not None
     reserve = await pool.fetchrow(
@@ -189,8 +229,12 @@ async def test_plan_belts_preserve_null_ring_type_and_resolve_reserve(pool):
     assert reserve is not None
     try:
         await pool.execute(
-            f'''UPDATE {schema}.rings SET ring_type_id=NULL, reserve_type_id=$2
-                 WHERE ring_pk=$1''', belt['ring_pk'], reserve['reserve_type_id'])
+            f'''UPDATE {schema}.rings
+                   SET ring_type_id=NULL, reserve_type_id=$2, lifecycle_state=$3,
+                       retired_at=CASE WHEN $3='RETIRED' THEN CURRENT_TIMESTAMP ELSE retired_at END
+                 WHERE ring_pk=$1''', belt['ring_pk'], reserve['reserve_type_id'], lifecycle_state)
+        expected_lifecycle = await pool.fetchval(
+            f'SELECT lifecycle_state FROM {schema}.rings WHERE ring_pk=$1', belt['ring_pk'])
         async with _client(pool) as client:
             response = await client.get(f'/api/v1/plan/systems/{SOL}/bodies')
         assert response.status_code == 200, response.text
@@ -198,10 +242,13 @@ async def test_plan_belts_preserve_null_ring_type_and_resolve_reserve(pool):
                       if row['belt_id'] == str(belt['ring_pk']))
         assert result['ring_type'] is None
         assert result['reserve'] == reserve['display_name']
+        assert result['lifecycle_state'] == expected_lifecycle == lifecycle_state
     finally:
         await pool.execute(
-            f'''UPDATE {schema}.rings SET ring_type_id=$2, reserve_type_id=$3
-                 WHERE ring_pk=$1''', belt['ring_pk'], belt['ring_type_id'], belt['reserve_type_id'])
+            f'''UPDATE {schema}.rings
+                   SET ring_type_id=$2, reserve_type_id=$3, lifecycle_state=$4, retired_at=$5
+                 WHERE ring_pk=$1''', belt['ring_pk'], belt['ring_type_id'],
+            belt['reserve_type_id'], belt['lifecycle_state'], belt['retired_at'])
 
 
 @pytest.mark.asyncio

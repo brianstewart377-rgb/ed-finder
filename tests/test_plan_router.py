@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.routing import APIRoute
 import httpx
 import pytest
+from pydantic import ValidationError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -306,6 +307,19 @@ async def test_explanations_include_plan_check_rules_and_demolished_steps(client
     assert body['summary']['IGNORED'] == 1
 
 
+@pytest.mark.parametrize('lifecycle_state', ('ACTIVE', 'MISSING_CANDIDATE', 'RETIRED'))
+def test_plan_belt_lifecycle_is_required_and_preserved(lifecycle_state):
+    belt = {
+        'belt_id': '1', 'name': 'Test A Belt', 'parent_body_id': '2',
+        'ring_type': None, 'reserve': None, 'mass_mt': None,
+        'inner_radius_km': None, 'outer_radius_km': None,
+    }
+    with pytest.raises(ValidationError, match='lifecycle_state'):
+        plan.PlanSystemBeltV1(**belt)
+    parsed = plan.PlanSystemBeltV1(**belt, lifecycle_state=lifecycle_state)
+    assert parsed.model_dump()['lifecycle_state'] == lifecycle_state
+
+
 def test_openapi_documents_operations_invalid_response_and_database_dependencies():
     app = _test_app()
     operations = app.openapi()['paths']
@@ -316,6 +330,9 @@ def test_openapi_documents_operations_invalid_response_and_database_dependencies
         '$ref': '#/components/schemas/PlanBodiesV1',
     }
     assert 'belts' in app.openapi()['components']['schemas']['PlanBodiesV1']['properties']
+    belt_schema = app.openapi()['components']['schemas']['PlanSystemBeltV1']
+    assert belt_schema['properties']['lifecycle_state']['type'] == 'string'
+    assert 'lifecycle_state' in belt_schema['required']
     system_id = next(parameter for parameter in bodies['parameters'] if parameter['name'] == 'system_id')
     assert system_id['in'] == 'path'
     assert system_id['required'] is True
