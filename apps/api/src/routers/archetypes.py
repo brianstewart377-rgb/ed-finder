@@ -37,16 +37,18 @@ Route scope:
     Development rerank and archetype endpoints live under /api/archetypes/*.
 """
 
+from collections.abc import Mapping
 import hashlib
 import math
 from pathlib import Path as FilePath
 import re
 import time
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Optional
 import uuid
 
 import asyncpg
 from fastapi import APIRouter, HTTPException, Path, Query, Request
+from pydantic import AfterValidator
 
 from shared_contracts import v3_system_archetype_model as archetype_model
 from shared_contracts.v3_system_archetype_model import (
@@ -380,12 +382,22 @@ async def _archetype_rankings_v3(
     }
 
 
+def best_rival(scores: Mapping[str, int], picked: str) -> tuple[str, int]:
+    """Return the best other non-Flexible fit, breaking ties by key order."""
+    rival = max(
+        (key for key in ARCHETYPE_KEYS if key != picked and key != 'flexible'),
+        key=scores.__getitem__,
+    )
+    return rival, scores[rival]
+
+
 def _build_v3_ranking_row(row: asyncpg.Record, archetype: str) -> dict:
     """Shape one `build_ranked_query` row into an `ArchetypeRankingRow`.
 
     `build_ranked_query` selects `s.*` (the `v3_app.system_search` columns)
     plus the selected wide-row score, stored tier, confidence and weighted
-    ordering key, and the summary aliases
+    ordering key, all eight stored scores as `picked_<key>_score`, and the
+    summary aliases
     (`summary_primary_archetype`/`summary_secondary_archetype`/
     `summary_best_colony_potential`/`summary_archetype_confidence`).
 
@@ -420,6 +432,10 @@ def _build_v3_ranking_row(row: asyncpg.Record, archetype: str) -> dict:
     )
 
     score = float(row['primary_score']) if row['primary_score'] is not None else 0.0
+    rival_archetype, rival_score = best_rival(
+        {key: int(row[f'picked_{key}_score']) for key in ARCHETYPE_KEYS},
+        archetype,
+    )
     elw_count = row.get('elw_count')
 
     return {
@@ -433,6 +449,8 @@ def _build_v3_ranking_row(row: asyncpg.Record, archetype: str) -> dict:
         # potential, read from the summary (finding #20) -- not the requested
         # archetype. The requested one is exposed as `selected_archetype`.
         'selected_archetype':  archetype,
+        'rival_archetype':     rival_archetype,
+        'rival_score':         rival_score,
         'primary_archetype':   row.get('summary_primary_archetype'),
         'secondary_archetype': row.get('summary_secondary_archetype'),
         'archetype_confidence': archetype_confidence,
@@ -454,6 +472,13 @@ def _build_v3_ranking_row(row: asyncpg.Record, archetype: str) -> dict:
     }
 
 
+def _indexed_score_floor(value: int) -> int:
+    """Restrict the score floor after parsing the query string as an integer."""
+    if value not in ACCEPTED_ARCHETYPE_SCORE_FLOORS:
+        raise ValueError('Input should be 60, 76 or 88')
+    return value
+
+
 @router.get(
     '/rankings',
     response_model=ArchetypeRankingsResponse,
@@ -468,7 +493,11 @@ def _build_v3_ranking_row(row: asyncpg.Record, archetype: str) -> dict:
 async def get_archetype_rankings(
     request: Request,
     archetype:       str            = Query(..., description='Colony archetype key'),
-    min_score:       Literal[60, 76, 88] = Query(ARCHETYPE_SCORE_FLOOR_DEFAULT),
+    min_score: Annotated[
+        int,
+        AfterValidator(_indexed_score_floor),
+        Query(json_schema_extra={'enum': list(ACCEPTED_ARCHETYPE_SCORE_FLOORS)}),
+    ] = ARCHETYPE_SCORE_FLOOR_DEFAULT,
     galaxy_region:   Optional[int]  = Query(None, ge=0, le=2_147_483_647),
     max_distance_ly: Optional[float]= Query(None, ge=0),
     has_elw:         Optional[bool] = Query(None),
