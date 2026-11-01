@@ -11,6 +11,58 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — Cross-platform shared-package lint command
+
+`pnpm shared:lint` now uses a Node launcher and ESLint's API, removing the POSIX
+binary-shim path that failed on Windows. The existing shared config and both
+source directories are unchanged; the repository root remains the flat-config
+base. The command reports its linted file count (89 on this revision), and CI
+keeps its existing invocation. Regression tests compare the exact file set with
+the former CLI command and verify a temporary planner lint error fails the
+launcher, including when started from an unrelated directory.
+
+## 2026-11-01 — Public Ratings V4 smoke receipt after governed releases
+
+Adds a standard-library CPython 3.14 check of public health, published generation
+and ratings/explanations for Sol, Achenar and Alioth. Bounded read-only GETs
+validate response fields, seven economy scores, confidence and generation
+identity, and write a JSON receipt with build identity and per-request timing.
+Failures exit non-zero. Local stub tests cover success, generation mismatch,
+invalid scores, HTTP failures and timeouts without contacting production.
+
+The production release runbook now requires the owner to run this check after
+each accepted governed promotion, compare the served build with the accepted
+SHA, and commit the actual receipt in the release record PR. Failed attempts
+need an explicit disposition and a fresh run after a remedy. This closes the
+2026-10-31 audit's missing repeatable smoke procedure; it does not claim a new
+public verification or change deployment acceptance gates.
+
+## 2026-11-01 — Roadmap opening status summary
+
+Added “Where things stand (2026-11-01)” directly below the roadmap title,
+linking current release, schema, purge, backup, product and next-work evidence.
+It records the unrun A5 restore practice and open owner decisions, and makes
+missing detailed redesign, S5c and ingestion-enablement records explicit. It
+also records the live system-name search outage and its pending fix (PR #978),
+and the body-filter and refresh-safe-anchor work in review. The F4 design's
+section 9 now records the owner's 2026-11-01 answer to question 2 (future custom
+weights are URL-only) and points question 3 at the enablement decision, leaving
+only question 4 open. All existing roadmap content is unchanged. No opening-line
+contract test exists, so no test was added or changed. `pnpm shared:test` still
+uses the POSIX binary path and remains a Windows follow-up.
+
+## 2026-11-01 — V2 API retirement inventory; profile-sync owner decision required
+
+Added the [mounted-route inventory](docs/development/v3-v2-route-retirement.md)
+for the V2 retirement sweep and Colony Planner S7, tracing database relations
+against the V3 migration lineage and callers in `apps/web`. Retirement is
+stopped under the task's caller guard: the handwritten profile-sync service
+calls `GET` and `PUT /api/profile/sync/{sync_key}`, whose `profile_sync` table
+is absent from V3. Both operations are recorded as **needs owner decision**;
+the service is exported but is not currently instantiated by a page. This
+change documents the candidates and exclusions without changing API behavior
+or generated clients.
+
 ## 2026-11-01 — V3 system name autocomplete prefix index
 
 Autocomplete now reads the published V3 Search generation through an explicit

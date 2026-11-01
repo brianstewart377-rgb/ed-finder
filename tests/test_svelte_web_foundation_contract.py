@@ -112,6 +112,14 @@ def test_v3_web_uses_locked_lint_and_format_tooling():
     assert "eslint-plugin-svelte" in eslint_config
 
 
+def test_shared_lint_uses_the_cross_platform_node_launcher():
+    package = _package_json(WEB / "package.json")
+
+    assert package["scripts"]["shared:lint"] == "node scripts/lint-shared.mjs"
+    assert (WEB / "scripts" / "lint-shared.mjs").is_file()
+    assert "'scripts/**/*.test.ts'" in _read("apps", "web", "vite.config.ts")
+
+
 def test_bootstrap_client_is_a_typed_facade_over_the_shared_lossless_transport():
     client = _read("apps", "web", "src", "lib", "api", "client.ts")
     transport = _read("packages", "api-client", "src", "core.ts")
