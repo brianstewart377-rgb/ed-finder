@@ -163,3 +163,17 @@ def test_protected_parity_lane_builds_the_real_web_image_without_publishing() ->
     assert "org.opencontainers.image.revision" in parity_job
     assert "/usr/share/nginx/html/index.html" in parity_job
     assert "/usr/share/nginx/html/200.html" in parity_job
+
+
+def test_governed_release_web_image_enables_finder_f4_and_backend_does_not() -> None:
+    """Owner enablement decision 2026-11-01: only the release web image opts in."""
+    workflow = _read(ROOT / ".github" / "workflows" / "v3-application-release.yml")
+    backend_job = workflow.split("  build-backend:", 1)[1].split("\n  build-web:", 1)[0]
+    web_job = workflow.split("  build-web:", 1)[1].split("\n  manifest:", 1)[0]
+
+    assert "file: apps/web/Dockerfile" in web_job
+    assert web_job.count("VITE_FINDER_F4_ENABLED=1\n") == 1
+    assert "VITE_FINDER_F4_ENABLED" not in backend_job
+    assert workflow.count("VITE_FINDER_F4_ENABLED") == 1
+    # Every other build keeps the Dockerfile default of 0.
+    assert "ARG VITE_FINDER_F4_ENABLED=0\n" in _read(DOCKERFILE)
