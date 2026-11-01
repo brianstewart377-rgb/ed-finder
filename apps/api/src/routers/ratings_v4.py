@@ -28,7 +28,7 @@ _BODY_FIELDS = ('body_class', 'spectral_class', 'luminosity_class', 'rings',
 _VECTOR_FIELDS = ('potential', 'quality', 'quality_min', 'quality_max', 'completeness', 'confidence')
 EXPLANATION_CACHE_SIZE = 256
 # Accessed only on the event loop; published ratings generations are immutable.
-_explanation_cache: OrderedDict[tuple[str, str, str, str, int], dict[str, Any]] = OrderedDict()
+_explanation_cache: OrderedDict[tuple[str, int, str, str, str, int], dict[str, Any]] = OrderedDict()
 
 
 class RatingSummaryResponse(BaseModel):
@@ -250,9 +250,12 @@ async def _read_system(pool: asyncpg.Pool, system_id64: int, *, explanation: boo
                     return None
                 if not explanation:
                     return _system_response(current, vector, system_id64)
+                # The publication sequence is part of the response and changes when a
+                # retired generation is republished, so it belongs in the key too.
                 cache_key = (
-                    str(current['derived_generation_id']), current['scorer_version'],
-                    current['mechanics_version'], current['adapter_version'], system_id64,
+                    str(current['derived_generation_id']), current['publication_sequence'],
+                    current['scorer_version'], current['mechanics_version'],
+                    current['adapter_version'], system_id64,
                 )
                 cached = _explanation_cache.get(cache_key)
                 if cached is not None:

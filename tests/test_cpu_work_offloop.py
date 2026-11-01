@@ -311,6 +311,21 @@ async def test_explanation_cache_key_includes_generation_and_every_version(clien
         assert response.json()[field] == pool.current[field]
 
 
+async def test_republished_generation_returns_its_new_publication_sequence(client, pool, monkeypatch):
+    # migration 015 lets a RETIRED generation be republished with a higher
+    # publication_sequence; a cached explanation must not keep the old one.
+    replay = Mock(wraps=ratings_v4.rate_all)
+    monkeypatch.setattr(ratings_v4, 'rate_all', replay)
+    first = await client.get(_explanation())
+    assert first.status_code == 200, first.text
+    assert first.json()['publication_sequence'] == 1
+    pool.current['publication_sequence'] = 3
+    second = await client.get(_explanation())
+    assert second.status_code == 200, second.text
+    assert second.json()['publication_sequence'] == 3
+    assert replay.call_count == 2
+
+
 async def test_explanation_cache_evicts_oldest_after_257_distinct_keys(client, monkeypatch):
     replay = Mock(wraps=ratings_v4.rate_all)
     monkeypatch.setattr(ratings_v4, 'rate_all', replay)
