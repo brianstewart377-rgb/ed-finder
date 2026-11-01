@@ -206,14 +206,17 @@ describe('Inspect Explore navigation', () => {
       expect(mockedPage.state).toEqual({});
       mounted.unmount();
       renderExplore();
-      await waitFor(() =>
-        expect(api.searchExploreSystems).toHaveBeenCalledWith(
-          { galaxy_wide: true, sort_by: 'development', size: 50, from: 0 },
-          expect.any(AbortSignal),
-          null,
-          50,
-        ),
-      );
+      expect(
+        await screen.findByRole('heading', { name: 'Systems' }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText('Search for a system above to see what is near it.'),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole('list', { name: 'System results' }),
+      ).not.toBeInTheDocument();
+      expect(api.searchExploreSystems).not.toHaveBeenCalled();
+      expect(api.getArchetypeRankings).not.toHaveBeenCalled();
     },
   );
 

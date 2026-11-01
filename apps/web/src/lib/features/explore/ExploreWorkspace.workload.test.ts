@@ -174,7 +174,8 @@ function deferred<T>() {
  * Baseline captured by copying this harness/host into git-archive snapshots of
  * main 13bc0e69dc7cbc7c53bf14702c1eaad2aef7bca6 and branch 5790f05f,
  * then running Vitest with the same locked dependencies and Node 24. The main
- * values below are measured, not inferred from the implementation under test.
+ * values were measured, not inferred from the implementation under test. The
+ * current counts include the empty initial page and an explicit anchor choice.
  *
  * The real Svelte components, TanStack observers, scene mapper, managed runtime,
  * Babylon scene construction, and camera state machine run throughout. Only
@@ -364,9 +365,31 @@ describe('Explore load and interaction work budget', () => {
       nebulaResponse.resolve(nebulae);
       await settle();
       expect(
-        screen.getByRole('list', { name: 'System results' }),
+        screen.getByRole('heading', { name: 'Systems' }),
       ).toBeInTheDocument();
+      expect(
+        screen.queryByRole('list', { name: 'System results' }),
+      ).not.toBeInTheDocument();
+      expect(api.searchExploreSystems).not.toHaveBeenCalled();
+      expect(api.getArchetypeRankings).not.toHaveBeenCalled();
       const loaded = work();
+
+      vi.mocked(api.autocompleteSystems).mockResolvedValueOnce({
+        results: [
+          { id64: systems[1].id64, name: 'Workload 2', x: 20, y: 2, z: 40 },
+        ],
+      });
+      await fireEvent.input(
+        screen.getByRole('combobox', { name: 'System name' }),
+        { target: { value: 'Workload 2' } },
+      );
+      await settle();
+      await fireEvent.click(screen.getByRole('option', { name: /Workload 2/ }));
+      await settle();
+      expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
+      expect(
+        screen.getByRole('heading', { name: 'Near Workload 2' }),
+      ).toBeInTheDocument();
 
       // Selecting a real result exercises fly-to, exact-star loading, and the
       // late-data camera protection through the real Babylon camera controller.
@@ -411,22 +434,30 @@ describe('Explore load and interaction work budget', () => {
         auth: 0,
       };
       expect(loaded).toEqual({
-        builds: enabled ? 7 : 22,
+        builds: enabled ? 6 : 21,
         rendererScenes: enabled ? 5 : 6,
         loads: enabled ? 5 : 6,
         patches: enabled ? 1 : 0,
         activeQueries: enabled ? 7 : 6,
         transitions: 1,
-        api: { ...idleApi, finder: 1, catalogue: 3, density: 2 },
+        api: { ...idleApi, finder: 0, catalogue: 3, density: 2 },
       });
+      // The explicit anchor adds autocomplete, a fly-to and its local viewport
+      // work before the original result-selection and overview interactions.
       expect(interacted).toEqual({
-        builds: enabled ? 9 : 43,
-        rendererScenes: enabled ? 6 : 13,
-        loads: enabled ? 7 : 13,
+        builds: enabled ? 14 : 51,
+        rendererScenes: enabled ? 12 : 16,
+        loads: enabled ? 13 : 16,
         patches: enabled ? 1 : 0,
         activeQueries: enabled ? 7 : 6,
-        transitions: 3,
-        api: { ...idleApi, finder: 2, catalogue: 3, density: 5 },
+        transitions: enabled ? 6 : 5,
+        api: {
+          ...idleApi,
+          autocomplete: 1,
+          finder: 2,
+          catalogue: enabled ? 5 : 4,
+          density: enabled ? 4 : 5,
+        },
       });
       if (!enabled) return;
 
@@ -508,13 +539,20 @@ describe('Explore load and interaction work budget', () => {
       await settle();
       expect(visualWork()).toEqual(returned);
       expect(work()).toEqual({
-        builds: 12,
-        rendererScenes: 9,
-        loads: 10,
+        builds: 17,
+        rendererScenes: 15,
+        loads: 16,
         patches: 1,
         activeQueries: 7,
-        transitions: 3,
-        api: { ...idleApi, finder: 6, rankings: 1, catalogue: 3, density: 5 },
+        transitions: 6,
+        api: {
+          ...idleApi,
+          autocomplete: 1,
+          finder: 6,
+          rankings: 1,
+          catalogue: 5,
+          density: 4,
+        },
       });
     },
     30_000,

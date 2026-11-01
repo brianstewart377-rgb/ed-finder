@@ -11,6 +11,14 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — Explore waits for a requested search
+
+Fresh Explore visits now show “Systems” and an invitation to choose a system,
+without requesting results or adding result markers. Choosing an anchor loads
+nearby systems; clearing it removes the previous list. Galaxy layers and saved
+systems remain available. Restored anchors and explicit Finder links still load
+results, as do archetype rankings behind the existing default-off F4 flag.
+
 ## 2026-11-01 — Colony Planner S3b: surface slot predictions
 
 The planner bodies route now returns surface slot predictions from the canonical

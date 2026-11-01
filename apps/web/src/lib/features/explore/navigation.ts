@@ -17,6 +17,8 @@ declare global {
   namespace App {
     interface PageState {
       anchor?: ExploreAnchor | null;
+      /** Explicit Finder URL intent retained when default parameters are removed. */
+      finderRequested?: boolean;
     }
   }
 }

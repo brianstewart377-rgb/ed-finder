@@ -198,6 +198,14 @@
     !FINDER_F4_ENABLED ||
       (page.url.search === canonicalSearch && !invalidAnchorState),
   );
+  const hasResultsIntent = $derived(
+    anchor !== null ||
+      (FINDER_F4_ENABLED &&
+        (rankingState.archetype !== 'any' ||
+          hasRankingSearchParams(page.url.searchParams) ||
+          page.state.finderRequested === true)),
+  );
+  const resultsEnabled = $derived(rankingUrlReady && hasResultsIntent);
   const finderRequest = $derived(
     selectFinderRequest(
       rankingState,
@@ -208,7 +216,7 @@
   const anchorReference = $derived<DistanceAnchor | null>(
     anchor ? { id64: anchor.id64, name: anchor.name } : null,
   );
-  // Keep the disabled query identical to main: no F4 request/state wrapping,
+  // Keep the default-off request shape: no F4 request/state wrapping,
   // placeholder observer options, or additional response-normalization pass.
   const searchRequest = $derived.by((): ExploreSearchRequest => {
     if (
@@ -249,6 +257,7 @@
         queryKey: queryKeys.explore(searchRequest, anchorReference),
         queryFn: ({ signal }) =>
           searchExploreSystems(searchRequest, signal, anchorReference),
+        enabled: resultsEnabled,
         retry: 0,
       };
     // Capture the complete request identity with its envelope. Placeholder rows
@@ -271,7 +280,7 @@
         finderState: state,
         finderIdentity: identity,
       }),
-      enabled: rankingUrlReady,
+      enabled: resultsEnabled,
       staleTime: 0,
       placeholderData: (previous: FinderResponse | undefined) => previous,
       retry: 0,
@@ -281,16 +290,19 @@
   // would give retained rows a different identity and rebuild their map layer.
   let retainedResults = $state.raw<FinderResponse>();
   $effect(() => {
-    if (FINDER_F4_ENABLED && results.data && !results.isPlaceholderData) {
+    if (!hasResultsIntent) retainedResults = undefined;
+    else if (FINDER_F4_ENABLED && results.data && !results.isPlaceholderData) {
       retainedResults = results.data;
     }
   });
   const displayedResults = $derived(
-    results.data ?? (FINDER_F4_ENABLED ? retainedResults : undefined),
+    hasResultsIntent
+      ? (results.data ?? (FINDER_F4_ENABLED ? retainedResults : undefined))
+      : undefined,
   );
   const currentResponse = $derived(
     FINDER_F4_ENABLED &&
-      rankingUrlReady &&
+      resultsEnabled &&
       !results.isPlaceholderData &&
       results.data?.finderIdentity === finderIdentity &&
       results.data.page.page_size === rankingState.pageSize &&
@@ -303,6 +315,7 @@
   );
   const updatingResults = $derived(
     FINDER_F4_ENABLED &&
+      hasResultsIntent &&
       !results.isError &&
       (results.isFetching || !currentResponse || pageCorrection !== null),
   );
@@ -328,7 +341,13 @@
   });
 
   $effect(() => {
-    if (!FINDER_F4_ENABLED) return;
+    if (!FINDER_F4_ENABLED) {
+      // History can restore an anchor even in the default-off build.
+      const restoredAnchor = readExploreAnchor(page.state);
+      legacyAnchor = restoredAnchor;
+      query = restoredAnchor?.name ?? '';
+      return;
+    }
     const current = page.url;
     const restoredAnchor = anchor;
     const identity = restoredAnchor ? JSON.stringify(restoredAnchor) : '';
@@ -353,7 +372,14 @@
         `${current.pathname}${canonicalSearch}${current.hash}`,
         {
           replaceState: true,
-          ...(invalidAnchorState ? { state: { anchor: null } } : {}),
+          state: {
+            ...(invalidAnchorState ? { anchor: null } : {}),
+            // Explicit default/ignored URL parameters can canonicalize away.
+            // Keep that link's search intent in its history entry.
+            finderRequested:
+              hasRankingSearchParams(current.searchParams) ||
+              page.state.finderRequested === true,
+          },
         },
       );
     }
@@ -366,7 +392,10 @@
       { ...rankingState, offset: pageCorrection },
       page.url.searchParams,
     );
-    void navigateWithAnchor(exploreDestination(params), { replaceState: true });
+    void navigateWithAnchor(exploreDestination(params), {
+      replaceState: true,
+      state: { finderRequested: true },
+    });
   });
 
   function exploreDestination(params: URLSearchParams): string {
@@ -390,6 +419,14 @@
       exploreDestination(
         serializeRankingSearchParams(state, page.url.searchParams),
       ),
+      {
+        state: {
+          // Paging back to defaults can remove the last URL parameter too.
+          finderRequested:
+            (patch.offset !== undefined || patch.pageSize !== undefined) &&
+            hasResultsIntent,
+        },
+      },
     );
   }
 
@@ -414,9 +451,11 @@
       page.url.searchParams,
     );
     await navigateWithAnchor(exploreDestination(params), {
-      state: { anchor: null },
+      state: { anchor: null, finderRequested: false },
     });
-    rankingNotice = 'Anchor cleared; searching galaxy-wide.';
+    rankingNotice = hasResultsIntent
+      ? 'Anchor cleared; searching galaxy-wide.'
+      : '';
     searchInput?.focus();
   }
 
@@ -652,14 +691,16 @@
     })),
   );
   const systems = $derived(
-    displayedResults?.results ?? (FINDER_F4_ENABLED ? [] : viewportSystems),
+    hasResultsIntent
+      ? (displayedResults?.results ??
+          (FINDER_F4_ENABLED ? [] : viewportSystems))
+      : [],
   );
   let finderSequence = 0;
   const finderRevision = $derived.by(() => {
-    if (!FINDER_F4_ENABLED)
-      return results.dataUpdatedAt || appliedCatalogueRevision;
     // Freshness, placeholder and retained-envelope changes do not change the
     // map. TanStack preserves the row array's identity when its data is equal.
+    // Clearing must advance the revision even before a response has arrived.
     void systems;
     return ++finderSequence;
   });
@@ -717,7 +758,7 @@
       !selectedOnPage &&
       (retainedSelectedSystem?.id64 !== urlSelection ||
         !mapExploreSelectedSystemPoint(retainedSelectedSystem)) &&
-      !results.isPending,
+      (!hasResultsIntent || !results.isPending),
   );
   const selectedDetail = FINDER_F4_ENABLED
     ? createQuery(() => {
@@ -951,6 +992,8 @@
 
   function handleQueryInput(event: Event): void {
     if (!FINDER_F4_ENABLED) legacyAnchor = null;
+    else if (!(event.currentTarget as HTMLInputElement).value.trim() && anchor)
+      void clearAnchor();
     autocompleteOpen =
       (event.currentTarget as HTMLInputElement).value.trim().length >= 2;
     activeSuggestion = -1;
@@ -1322,9 +1365,10 @@
     <section
       class="results-panel"
       aria-labelledby="results-title"
-      aria-busy={FINDER_F4_ENABLED
-        ? updatingResults
-        : results.isFetching || catalogueStars.isFetching}
+      aria-busy={hasResultsIntent &&
+        (FINDER_F4_ENABLED
+          ? updatingResults
+          : results.isFetching || catalogueStars.isFetching)}
     >
       <div class="panel-heading">
         <div>
@@ -1334,9 +1378,9 @@
               ? `Galaxy-wide ${activeArchetypeLabel} ranking`
               : anchor
                 ? `Near ${anchor.name}`
-                : FINDER_F4_ENABLED
+                : hasResultsIntent
                   ? 'Galaxy-wide opportunities'
-                  : 'Near Sol'}
+                  : 'Systems'}
           </h2>
         </div>
         {#if FINDER_F4_ENABLED && displayedResults}
@@ -1348,7 +1392,7 @@
         {:else}<span>{systems.length} shown</span>{/if}
       </div>
 
-      {#if FINDER_F4_ENABLED}
+      {#if FINDER_F4_ENABLED && hasResultsIntent}
         <div role="status" aria-live="polite" class="ranking-status">
           {#if rankingNotice}<p>{rankingNotice}</p>{/if}
           {#if updatingResults}
@@ -1415,7 +1459,11 @@
         {/if}
       {/if}
 
-      {#if !FINDER_F4_ENABLED && results.isPending && catalogueStars.isPending}
+      {#if !hasResultsIntent}
+        <div class="state-card">
+          <p>Search for a system above to see what is near it.</p>
+        </div>
+      {:else if !FINDER_F4_ENABLED && results.isPending && catalogueStars.isPending}
         <div class="state-card" role="status">
           <Sparkles aria-hidden="true" />
           <p>Building a real-system shortlist…</p>
