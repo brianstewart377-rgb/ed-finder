@@ -957,8 +957,11 @@ newer dated source wins).
   three Plan buttons stay and the `/plan` page is to say plainly that planning
   is being rebuilt (a visual change, so it needs visual validation); (D4) the
   journal research export is to be paused (switched off, with a note saying
-  why) until it can carry colonisation events the CRE can use — as of this
-  entry the export route is still mounted and has not been switched off. None
+  why) until it can carry colonisation events the CRE can use — paused on
+  **2026-11-01** by `RESEARCH_EXPORT_PAUSED` in
+  `apps/api/src/routers/v3_journal_research.py`: new exports and new grants
+  are refused with 503 `research_export_paused`; withdrawal and reads are
+  unchanged. None
   of these decisions changes the go-live sequence or any gate: steps 8′ → 9′
   and the F4 gates above stand as written. **D1 progress 2026-10-27:** the CRE
   published its first rulebook (`cre-knowledge-v0.3.0`, 27 rules with stable
