@@ -11,6 +11,22 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — Fifth F2d release `3fd8e719` accepted in production
+
+Owner-approved, after the post-purge Sunday full backup finished. Release run
+41293253404 (source `3fd8e719`) passed preflight run 41293445849 and was
+accepted by promotion run 41293577222 at 2026-11-01T09:33:27Z to slot green:
+staging, active and public smoke 200, F2d image contract, OpenAPI bounds, 422
+rejections and behavioural probes passed; no migration, no database writes,
+protected resources unchanged. It carries the Colony Planner `/plan` page
+through S5a, the 2026-10-31 audit fixes A1–A4 (#956, #957, #958, #962), the
+Finder F4b work behind its default-off flag and the journal export pause. The
+accepted F2d operator-code identity is now `8696feb8…`; ranking identity is
+unchanged. `deploy/v3-production/target-authority.json` records it as the
+accepted release, attested for the installed through-022 set; `1e748c9d` is the
+recorded rollback artifact and `f667bb4d` stays the minimum schema-compatible
+image. Receipts are under `docs/operations/evidence/2026-11-01-v3-production-*`.
+
 ## 2026-11-01 — Finder F4b: picker, ranked cards and browser contracts behind the default-off flag
 
 F4b implements the archetype picker, selected-only minimum tier, ranked cards,

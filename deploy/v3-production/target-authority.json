@@ -24,17 +24,17 @@
     }
   },
   "observed_runtime": {
-    "api_container": "edfinder-v3-production-api-blue",
-    "api_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:7498c1ee965dd658bdc5dedc44fa5c90259c0dc732fe757a042c23709bcd3449",
-    "api_build_sha": "1e748c9d968b3b5988af833db1dc175ee35e73f2",
-    "web_slot_container": "edfinder-v3-production-web-blue",
-    "web_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:8f23b37a280cfaf9f4d0f4df2743cbd46d2c9ea67df7589e5b99dbdcd2eb3749",
+    "api_container": "edfinder-v3-production-api-green",
+    "api_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:7d446a8982e17bfbd211cbc300820e2b44072505a8556b55cf22581c067709c3",
+    "api_build_sha": "3fd8e7195447501c4ca6354a2551c241fc8f2f15",
+    "web_slot_container": "edfinder-v3-production-web-green",
+    "web_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:44afd28dd3ba3b3165b95830c7ceda74a49a978ade276b1158142985632c4347",
     "accepted_promotion": {
-      "received_at": "2026-10-29T09:33:33Z",
-      "release_run_id": "40847515414",
-      "source_sha": "1e748c9d968b3b5988af833db1dc175ee35e73f2",
+      "received_at": "2026-11-01T09:33:27Z",
+      "release_run_id": "41293253404",
+      "source_sha": "3fd8e7195447501c4ca6354a2551c241fc8f2f15",
       "mode": "upgrade",
-      "active_slot": "blue",
+      "active_slot": "green",
       "rollback_kind": "recorded-schema-compatible-release"
     },
     "retired_legacy_containers": [
@@ -51,33 +51,33 @@
     "redis_container": "edfinder-v3-support-redis",
     "nats_container": "edfinder-v3-support-nats",
     "octopus_and_unrelated_containers": "preserve-all",
-    "public_ui": "svelte-release-1e748c9d",
-    "live_topology_note": "Accepted upgrade receipt from promotion run 40850450821 at 2026-10-29T09:33:33Z binds release run 40847515414 and source 1e748c9d968b3b5988af833db1dc175ee35e73f2 to active slot blue, promoted from the third F2d release a031c2dace11647fbc2f7ed6974e74d44140ce5e (green), which is the recorded rollback artifact (selected through its reviewed through-021 compatibility, PR 911); the first F2d release f667bb4d remains the minimum schema-compatible image. Preflight run 40847736690 passed. Staging, active and public smoke returned 200; the F2d image contract, OpenAPI bounds, hard-filter 422 rejections and behavioural probes passed; both Finder products are READY/VERIFIED and published on ratings_v4_prod_p4_parallel_v1 (seq 1). migrations_performed, database_writes_performed, edge_recreated and protected_resources_changed are false and the retained database, edge, redis and nats containers were preserved. Retired and retained legacy-container records above remain historical inventory facts."
+    "public_ui": "svelte-release-3fd8e719",
+    "live_topology_note": "Accepted upgrade receipt from promotion run 41293577222 at 2026-11-01T09:33:27Z binds release run 41293253404 and source 3fd8e7195447501c4ca6354a2551c241fc8f2f15 to active slot green, promoted from the fourth F2d release 1e748c9d968b3b5988af833db1dc175ee35e73f2 (blue), which is the recorded rollback artifact; the first F2d release f667bb4d remains the minimum schema-compatible image. Preflight run 41293445849 passed. Staging, active and public smoke returned 200; the F2d image contract, OpenAPI bounds, hard-filter 422 rejections and behavioural probes passed; both Finder products are READY/VERIFIED and published on ratings_v4_prod_p4_parallel_v1 (seq 1). migrations_performed, database_writes_performed, edge_recreated and protected_resources_changed are false and the retained database, edge, redis and nats containers were preserved. Retired and retained legacy-container records above remain historical inventory facts."
   },
   "accepted_release_schema_compatibility": {
     "schema_version": "ed-finder/v3-production-accepted-release-schema-compatibility/v1",
-    "source_sha": "1e748c9d968b3b5988af833db1dc175ee35e73f2",
-    "release_run_id": "40847515414",
-    "manifest_sha256": "fead6569e70124f3bd20a31f345f1267760356502ca10e085c56c1f2c7ec2b3d",
+    "source_sha": "3fd8e7195447501c4ca6354a2551c241fc8f2f15",
+    "release_run_id": "41293253404",
+    "manifest_sha256": "6857a208390f98606bc31dfefcb6833e85fb5bb22b0aaa51934ec2f73700b75b",
     "images": {
-      "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:7498c1ee965dd658bdc5dedc44fa5c90259c0dc732fe757a042c23709bcd3449",
-      "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:8f23b37a280cfaf9f4d0f4df2743cbd46d2c9ea67df7589e5b99dbdcd2eb3749"
+      "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:7d446a8982e17bfbd211cbc300820e2b44072505a8556b55cf22581c067709c3",
+      "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:44afd28dd3ba3b3165b95830c7ceda74a49a978ade276b1158142985632c4347"
     },
     "compatible_migration_sets": [
       "sha256:3b7d5eef5a451fc79315758541e694d3f5e7791590caa4159bca27a5d698e3cf",
-      "sha256:828bf02d263d7ab27b3764cbfa3457859aeb229ccf16cb9929d586136f8e83d7",
-      "sha256:931f8d06edef15c79d79f537aa63c4131fe4e5f49add904383cfc3428ad33edf"
+      "sha256:828bf02d263d7ab27b3764cbfa3457859aeb229ccf16cb9929d586136f8e83d7"
     ],
-    "evidence": "Release run 40847515414 built source 1e748c9d968b3b5988af833db1dc175ee35e73f2 as the fourth F2d release for the installed through-021 schema (identity sha256:931f8d06edef15c79d79f537aa63c4131fe4e5f49add904383cfc3428ad33edf, 021 applied 2026-10-28 by apply run 40654201809). Promotion run 40850450821 accepted it at 2026-10-29T09:33:33Z (receipt status accepted, active slot blue, migrations_performed and database_writes_performed false, protected resources unchanged, rollback recorded to the a031c2da artifact) after preflight run 40847736690 passed; the first preflight, run 40840746266 for release run 40840492834, stopped read-only on f2d_rollback_artifact_schema_incompatible, fixed in PR 911. It carries the governed purge operator code for ROADMAP step P (PRs 894 to 907; the API calls no purge function) and app changes since a031c2da from PRs 892, 895, 896, 902, 908 and 909, each with its own CI, E2E and visual evidence. Ranking identity unchanged. f2d_operator_code_sha256 changes from c26d23d0 to feb0ed71 because the purge operator files it covers changed; verified by the promotion workflow. The minimum schema-compatible image remains the first F2d backend; rollback targets list it, the 0dddc78d and a031c2da backends and this release. Migration 022 (copy-and-drop keyset start: replaces the executor-only purge_copy_chunk and purge_copy_verify and 016's internal purge_assert_request, and adds one internal helper) changes no table, view, grant or row; this release and its rollback targets call no purge function, so through-022 is attested.",
+    "evidence": "Release run 41293253404 built source 3fd8e7195447501c4ca6354a2551c241fc8f2f15. Fifth F2d release for the installed through-022 schema (migration set sha256:828bf02d263d7ab27b3764cbfa3457859aeb229ccf16cb9929d586136f8e83d7; 022 applied 2026-10-31 by apply run 41180459540). No migration since 022. App changes since the accepted 1e748c9d: Colony Planner S1-S5a and the /plan page (PRs 927, 930, 933, 939, 940, 942, 951, 955, 958), Inspect body selection fix (956), API default rate limit per route and shared limits on the expensive reads (957), ratings replay and OG rendering off the event loop (962), Finder deep pages, rankings min_score parsing, rival-archetype labels and the F4b picker behind its default-off flag (948, 954, 959, 965), journal research export pause (960), CRE rulebook pin v0.5.0 (946, 953); each with its own CI, E2E and review. Ranking identity unchanged (v3-colony-potential-2, ec353306). f2d_operator_code_sha256 changes from feb0ed71 to 8696feb8 because purge operator files it covers changed (PRs 917-926, 931); the API calls no purge function. Promotion run 41293577222 accepted it at 2026-11-01T09:33:27Z (receipt status accepted, active slot green, migrations_performed and database_writes_performed false, protected resources unchanged, rollback recorded to the 1e748c9d artifact) after preflight run 41293445849 passed. The minimum schema-compatible image remains the first F2d backend; rollback targets list it, the 0dddc78d, a031c2da and 1e748c9d backends and this release.",
     "ranking_version": "v3-colony-potential-2",
     "ranking_sha256": "ec3533063f422f5859a26baf422974f9d330466f2ad675505fac2743bbca89e4",
-    "f2d_operator_code_sha256": "feb0ed7144fc308ee05b8abaab517f859fe1eaaf3985ea66a11ffbc882c82e7e",
+    "f2d_operator_code_sha256": "8696feb81e46b6b3b54d7ea89e7ef956f47cb465bbc66bb75ff64e9fad55052f",
     "minimum_schema_compatible_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b2598032dd2a48c5f3aac3b7cd17f503916fc0f89a1bc9acb8cae3fa7a99e4e3",
     "rollback_targets": [
       "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b2598032dd2a48c5f3aac3b7cd17f503916fc0f89a1bc9acb8cae3fa7a99e4e3",
       "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:b7a496cefef3be115e9fd8676c7895de8227051553f56c5fdf40a02c7fd19b57",
       "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:d8d7603e79c2213c4fc6534f16967f51498e73a80743e00d444d0b1c6f87db67",
-      "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:7498c1ee965dd658bdc5dedc44fa5c90259c0dc732fe757a042c23709bcd3449"
+      "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:7498c1ee965dd658bdc5dedc44fa5c90259c0dc732fe757a042c23709bcd3449",
+      "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:7d446a8982e17bfbd211cbc300820e2b44072505a8556b55cf22581c067709c3"
     ]
   },
   "schema_transition": {
