@@ -316,12 +316,24 @@ rollback artifact. It does not require product READY, receipts, counts,
 (apply run 39113822236) and the 18 Search constraints are validated. The first
 F2d release, source `f667bb4d` (release run 39149556699), was accepted by
 promotion run 39149980927 and remains the minimum schema-compatible image.
+**Status (2026-11-01, third release).** The seventh F2d release, source `293bc72b`
+(release run 41342325477), passed preflight run 41342504519 and was accepted by
+promotion run 41342589203 at 2026-11-01T19:37:23Z to slot green. It is the first
+governed web image built with `VITE_FINDER_F4_ENABLED=1` (owner decision, #974).
+Its attestation (operator-code identity `8696feb8…` unchanged, attested for the
+installed through-022 set `828bf02d…`) is the accepted release in
+`deploy/v3-production/target-authority.json`, with the `181f6fed` backend as the
+recorded rollback artifact and `f667bb4d` unchanged as the minimum
+schema-compatible image. Receipts:
+`docs/operations/evidence/2026-11-01-v3-production-preflight-receipt-run-41342504519.json`
+and `docs/operations/evidence/2026-11-01-v3-production-promotion-receipt-run-41342589203.json`.
 **Status (2026-11-01, second release).** The sixth F2d release, source `181f6fed`
 (release run 41319999720), passed preflight run 41320584087 and was accepted by
 promotion run 41320746913 at 2026-11-01T15:21:35Z to slot blue; its attestation
 (operator-code identity `8696feb8…` unchanged, attested for the installed
-through-022 set `828bf02d…`) is the accepted release in
-`deploy/v3-production/target-authority.json`, with the `3fd8e719` backend as the
+through-022 set `828bf02d…`) was the accepted release in
+`deploy/v3-production/target-authority.json` until the seventh F2d release above
+superseded it the same evening, with the `3fd8e719` backend as the
 recorded rollback artifact and `f667bb4d` unchanged as the minimum
 schema-compatible image. Receipts:
 `docs/operations/evidence/2026-11-01-v3-production-preflight-receipt-run-41320584087.json`

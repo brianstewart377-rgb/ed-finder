@@ -11,6 +11,20 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — Seventh F2d release `293bc72b` accepted in production: Finder archetype UI on
+
+Owner-approved. Release run 41342325477 (source `293bc72b`) passed preflight
+run 41342504519 and was accepted by promotion run 41342589203 at
+2026-11-01T19:37:23Z to slot green: staging, active and public smoke 200, F2d
+image contract, OpenAPI bounds, 422 rejections and behavioural probes passed;
+no migration, no database writes, protected resources unchanged. It is the
+first governed web image with the Finder archetype UI switched on (#974) and
+also carries S3b (#972), F4e (#973) and #975. Operator-code and ranking
+identities are unchanged. `deploy/v3-production/target-authority.json` records
+it as the accepted release; `181f6fed` is the recorded rollback artifact and
+`f667bb4d` stays the minimum schema-compatible image. Receipts are under
+`docs/operations/evidence/2026-11-01-v3-production-*`.
+
 ## 2026-11-01 — Finder F4 archetype UI enabled for governed release builds
 
 Owner enablement decision (F4 design question 3). Every gate in the F4 design is
