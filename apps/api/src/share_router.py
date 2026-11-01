@@ -36,6 +36,7 @@ import logging
 import os
 import re
 import uuid
+from functools import partial
 from typing import Optional
 
 import asyncpg
@@ -44,6 +45,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from PIL import Image, ImageDraw, ImageFont
 
 from edfinder_api.config import limiter
+from edfinder_api.cpu_work import CpuWorkBusy, run_cpu_bound
 from edfinder_api.deps import cache_get, cache_set, get_readonly_pool
 from edfinder_api.routers.v3 import current_canonical_generation
 
@@ -400,12 +402,18 @@ async def og_image(id64: int = ShareId64, *, request: Request,
         raise HTTPException(404, f"System {id64} not found")
 
     # 3. Render the image.
-    png = _render_card(
-        title=system.name,
-        summary=_summary(system),
-        coords=(system.x, system.y, system.z),
-        id64=id64,
-    )
+    try:
+        png = await run_cpu_bound(partial(
+            _render_card,
+            title=system.name,
+            summary=_summary(system),
+            coords=(system.x, system.y, system.z),
+            id64=id64,
+        ))
+    except CpuWorkBusy as exc:
+        raise HTTPException(
+            503, "Server busy, try again shortly", headers={"Retry-After": "2"},
+        ) from exc
 
     # 4. Cache for 7 days (same bounded helper; failures are swallowed there).
     await cache_set(cache_key, _encode_cached_png(png), OG_CACHE_TTL_SECONDS, redis)
