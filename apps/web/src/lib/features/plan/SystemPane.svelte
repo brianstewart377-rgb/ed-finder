@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import type {
     PlanBodiesV1,
     PlanEvaluationV1,
@@ -56,7 +57,16 @@
   } = $props();
   let showNames = $state(true);
   let picker = $state<string | null>(null);
+  const id = $props.id();
+  const pickerId = `${id}-facility-picker`;
+  let pickerTrigger = $state<HTMLButtonElement>();
+  let pickerPanel = $state<HTMLDivElement>();
+  let pickerLeft = $state(8);
+  let pickerTop = $state(8);
   const tree = $derived(flattenBodyTree(buildBodyTree(bodies)));
+  const pickerLocation = $derived(
+    tree.find((location) => location.body_ref === picker),
+  );
   const facilityById = $derived(
     new Map(facilities.map((facility) => [facility.id, facility])),
   );
@@ -117,7 +127,124 @@
       ? 24
       : Math.min(28, Math.max(16, 10 + Math.log10(Math.max(1, radius)) * 4));
   }
+
+  function positionPicker() {
+    if (!pickerPanel || !pickerTrigger) return;
+    const anchor = pickerTrigger.getBoundingClientRect();
+    const panel = pickerPanel.getBoundingClientRect();
+    const margin = 8;
+    const viewport = window.visualViewport;
+    const layoutWidth =
+      document.documentElement.clientWidth || window.innerWidth;
+    const layoutHeight =
+      document.documentElement.clientHeight || window.innerHeight;
+    const width = Math.min(viewport?.width ?? layoutWidth, layoutWidth);
+    const height = Math.min(viewport?.height ?? layoutHeight, layoutHeight);
+    const left = viewport?.offsetLeft ?? 0;
+    const top = viewport?.offsetTop ?? 0;
+    const maxLeft = Math.max(
+      left + margin,
+      left + width - panel.width - margin,
+    );
+    const maxTop = Math.max(top + margin, top + height - panel.height - margin);
+    if (width < 640) {
+      pickerLeft = Math.max(left + margin, left + (width - panel.width) / 2);
+      pickerTop = Math.max(top + margin, top + (height - panel.height) / 2);
+      return;
+    }
+    const beside = anchor.right + margin;
+    const below = anchor.bottom + margin;
+    pickerLeft = Math.max(
+      left + margin,
+      Math.min(
+        beside <= maxLeft ? beside : anchor.left - panel.width - margin,
+        maxLeft,
+      ),
+    );
+    pickerTop = Math.max(
+      top + margin,
+      Math.min(
+        below <= maxTop ? below : anchor.top - panel.height - margin,
+        maxTop,
+      ),
+    );
+  }
+
+  function closePicker() {
+    picker = null;
+    pickerTrigger?.focus({ preventScroll: true });
+  }
+
+  async function togglePicker(
+    location: PlannerLocation,
+    trigger: HTMLButtonElement,
+  ) {
+    if (picker === location.body_ref) {
+      closePicker();
+      return;
+    }
+    onselectbody(location.body_ref);
+    pickerTrigger = trigger;
+    picker = location.body_ref;
+    await tick();
+    if (picker !== location.body_ref || pickerTrigger !== trigger) return;
+    positionPicker();
+    pickerPanel
+      ?.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')
+      ?.focus({ preventScroll: true });
+  }
+
+  function pickerKeydown(event: KeyboardEvent) {
+    if (picker && event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      closePicker();
+    }
+  }
+
+  function outsideClick(event: MouseEvent) {
+    if (
+      picker &&
+      event.target instanceof Node &&
+      !pickerPanel?.contains(event.target) &&
+      !pickerTrigger?.contains(event.target)
+    )
+      closePicker();
+  }
+
+  $effect(() => {
+    if (hidden || !pickerLocation) picker = null;
+  });
+
+  $effect(() => {
+    const panel = pickerPanel;
+    if (!panel) return;
+    positionPicker();
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? undefined
+        : new ResizeObserver(positionPicker);
+    observer?.observe(panel);
+    const scroll = (event: Event) => {
+      // Scrolling the choices does not move their anchor.
+      if (event.target instanceof Node && panel.contains(event.target)) return;
+      positionPicker();
+    };
+    window.addEventListener('scroll', scroll, true);
+    window.addEventListener('resize', positionPicker);
+    window.visualViewport?.addEventListener('resize', positionPicker);
+    window.visualViewport?.addEventListener('scroll', positionPicker);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('scroll', scroll, true);
+      window.removeEventListener('resize', positionPicker);
+      window.visualViewport?.removeEventListener('resize', positionPicker);
+      window.visualViewport?.removeEventListener('scroll', positionPicker);
+    };
+  });
 </script>
+
+<svelte:window onkeydown={pickerKeydown} onclick={outsideClick} />
 
 {#snippet siteGroups(sites: PlannerSite[], locationLabel: string)}
   {#each ['orbital', 'surface'] as kind (kind)}
@@ -277,31 +404,18 @@
             type="button"
             class="add-build"
             aria-label={`Add a build on ${location.name}`}
+            aria-haspopup="dialog"
             aria-expanded={picker === location.body_ref}
+            aria-controls={picker === location.body_ref ? pickerId : undefined}
             disabled={model.sites.length >= MAX_SITES}
-            onclick={() => {
-              onselectbody(location.body_ref);
-              picker = picker === location.body_ref ? null : location.body_ref;
-            }}>+</button
+            onclick={(event) => togglePicker(location, event.currentTarget)}
+            >+</button
           >
         </div>
         {@render siteGroups(
           model.sites.filter((site) => site.body_ref === location.body_ref),
           `on ${shortBodyName(location.name, systemName)}`,
         )}
-        {#if picker === location.body_ref}
-          <FacilityPicker
-            {location}
-            {facilities}
-            {model}
-            {bodies}
-            onclose={() => (picker = null)}
-            onadd={(facility) => {
-              onadd(facility, location.body_ref);
-              picker = null;
-            }}
-          />
-        {/if}
       </li>
     {/each}
   </ul>
@@ -321,9 +435,50 @@
   {#if model.sites.length >= MAX_SITES}<p role="status">
       300-site limit reached. Remove a site before adding another.
     </p>{/if}
+  {#if pickerLocation && !hidden}
+    <div
+      bind:this={pickerPanel}
+      class="facility-picker-dialog"
+      id={pickerId}
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby={`${pickerId}-title`}
+      tabindex="-1"
+      style:left={`${pickerLeft}px`}
+      style:top={`${pickerTop}px`}
+    >
+      {#key pickerLocation.body_ref}
+        <FacilityPicker
+          location={pickerLocation}
+          {facilities}
+          {model}
+          {bodies}
+          titleId={`${pickerId}-title`}
+          onclose={closePicker}
+          onadd={(facility) => {
+            onadd(facility, pickerLocation.body_ref);
+            closePicker();
+          }}
+        />
+      {/key}
+    </div>
+  {/if}
 </section>
 
 <style>
+  .facility-picker-dialog {
+    position: fixed;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    width: min(34rem, calc(100% - 1rem));
+    max-height: min(38rem, calc(100dvh - 1rem));
+    overflow: hidden;
+    border: 1px solid var(--color-cyan);
+    border-radius: 0.6rem;
+    background: var(--color-panel);
+    box-shadow: 0 0.6rem 2rem #0008;
+  }
   .plan-body-tree {
     margin: 0.5rem 0 0;
   }

@@ -3,11 +3,16 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import SystemPane from './SystemPane.svelte';
 import { compactPlanFixture } from './__fixtures__/compact-plan';
+
+vi.mock('./preview', () => ({
+  evaluatePlanPreview: vi.fn(async () => compactPlanFixture(2, 0).evaluation),
+}));
 
 function siteGroupsFixture() {
   const fixture = compactPlanFixture(2, 3);
@@ -350,7 +355,107 @@ describe('System pane site groups', () => {
       }),
     ).toBeVisible();
     expect(
-      screen.getByRole('heading', { name: `Add on ${currentBody.name}` }),
+      screen.getByRole('heading', {
+        name: `Add a facility on ${currentBody.name}`,
+      }),
     ).toBeVisible();
+  });
+});
+
+describe('System pane facility popup', () => {
+  it('opens a labelled non-modal dialog outside the body list and focuses the selected tab', async () => {
+    const fixture = compactPlanFixture(2, 0);
+    renderSystem(fixture);
+    const opener = screen.getByRole('button', {
+      name: `Add a build on ${fixture.bodies.bodies[1].name}`,
+    });
+    opener.focus();
+    await fireEvent.click(opener);
+    const dialog = screen.getByRole('dialog', {
+      name: `Add a facility on ${fixture.bodies.bodies[1].name}`,
+    });
+    expect(dialog).toHaveAttribute('aria-modal', 'false');
+    expect(dialog.closest('.plan-body-tree')).toBeNull();
+    expect(opener).toHaveAttribute('aria-expanded', 'true');
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole('tab', { name: 'Orbital' }),
+      ).toHaveFocus(),
+    );
+  });
+
+  it.each(['Escape', 'Close', 'outside'] as const)(
+    'closes with %s and returns focus to the add button',
+    async (method) => {
+      const fixture = compactPlanFixture(2, 0);
+      renderSystem(fixture);
+      const opener = screen.getByRole('button', {
+        name: `Add a build on ${fixture.bodies.bodies[1].name}`,
+      });
+      opener.focus();
+      await fireEvent.click(opener);
+      await waitFor(() =>
+        expect(screen.getByRole('tab', { name: 'Orbital' })).toHaveFocus(),
+      );
+      if (method === 'Escape')
+        await fireEvent.keyDown(window, { key: 'Escape' });
+      else if (method === 'Close')
+        await fireEvent.click(
+          screen.getByRole('button', { name: /Close picker/ }),
+        );
+      else
+        await fireEvent.click(screen.getByRole('heading', { name: 'System' }));
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(opener).toHaveAttribute('aria-expanded', 'false');
+      expect(opener).toHaveFocus();
+    },
+  );
+
+  it('switches to a second body with one popup and returns focus to its opener', async () => {
+    const fixture = compactPlanFixture(2, 0);
+    renderSystem(fixture);
+    const first = screen.getByRole('button', {
+      name: `Add a build on ${fixture.bodies.bodies[0].name}`,
+    });
+    const second = screen.getByRole('button', {
+      name: `Add a build on ${fixture.bodies.bodies[1].name}`,
+    });
+    await fireEvent.click(first);
+    await fireEvent.click(second);
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(screen.getByRole('dialog')).toHaveAccessibleName(
+      `Add a facility on ${fixture.bodies.bodies[1].name}`,
+    );
+    expect(first).toHaveAttribute('aria-expanded', 'false');
+    expect(second).toHaveAttribute('aria-expanded', 'true');
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Orbital' })).toHaveFocus(),
+    );
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(second).toHaveFocus();
+  });
+
+  it('adds the selected facility to its body, closes, and restores the opener', async () => {
+    const fixture = compactPlanFixture(2, 0);
+    const onadd = vi.fn();
+    render(SystemPane, {
+      ...fixture,
+      selectedBody: null,
+      stale: false,
+      onselectbody: vi.fn(),
+      onselectsite: vi.fn(),
+      onslot: vi.fn(),
+      onadd,
+    });
+    const opener = screen.getByRole('button', {
+      name: `Add a build on ${fixture.bodies.bodies[1].name}`,
+    });
+    await fireEvent.click(opener);
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Primary Outpost' }),
+    );
+    expect(onadd).toHaveBeenCalledExactlyOnceWith(fixture.facilities[0], '2');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
   });
 });

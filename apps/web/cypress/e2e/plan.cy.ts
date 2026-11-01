@@ -67,6 +67,23 @@ const catalogue: PlanCatalogueV1 = {
       escalating_port_tier: 2,
     }),
     facility('orbital_installation_mining_outpost', 'Mining Outpost', {}),
+    facility('planetary_port', 'Port', {
+      category: 'port',
+      is_port: true,
+      tier: 3,
+      allowed_location: 'surface',
+    }),
+    facility('surface_settlement_agriculture', 'Agricultural Settlement', {
+      category: 'agriculture',
+      allowed_location: 'surface',
+    }),
+    ...Array.from({ length: 12 }, (_, index) =>
+      facility(
+        `orbital-fixture-${index}`,
+        `Research Installation ${index + 1}`,
+        {},
+      ),
+    ),
   ],
 };
 
@@ -264,6 +281,12 @@ function addFacility(facilityId: string): void {
   cy.get('[data-plan-body="planet-1"]')
     .find(`button[aria-label="Add a build on ${systemName} A 1"]`)
     .click();
+  cy.get('[role="dialog"] [role="tab"]')
+    .contains(/^Orbital$/)
+    .click();
+  cy.get('[role="dialog"] input[type="search"]').type(
+    catalogue.facilities.find((entry) => entry.id === facilityId)!.name,
+  );
   cy.get(`button[data-facility-id="${facilityId}"]`).click();
 }
 
@@ -274,6 +297,118 @@ describe('Colony planner browser-kept main path', () => {
     [1280, 900],
     [390, 844],
   ] as const) {
+    it(`keeps the facility popup inside the viewport without shifting bodies at ${width}px`, () => {
+      cy.viewport(width, height);
+      cy.visit(`/plan?system=${systemId}`);
+      cy.wait(['@catalogue', '@planBodies']);
+      const opener = `button[aria-label="Add a build on ${systemName} A 1"]`;
+      let bodyTop = 0;
+      cy.get('[data-plan-body="planet-1"]').then(($body) => {
+        bodyTop =
+          $body[0].getBoundingClientRect().top +
+          $body[0].ownerDocument.defaultView!.scrollY;
+      });
+      cy.get(opener).focus().click();
+      cy.get('[role="dialog"]')
+        .should('have.attr', 'aria-modal', 'false')
+        .and('contain.text', `Add a facility on ${systemName} A 1`)
+        .should(($dialog) => {
+          const rect = $dialog[0].getBoundingClientRect();
+          const document = $dialog[0].ownerDocument;
+          const window = document.defaultView!;
+          const viewport = window.visualViewport;
+          const viewportLeft = viewport?.offsetLeft ?? 0;
+          const viewportTop = viewport?.offsetTop ?? 0;
+          const viewportWidth = Math.min(
+            viewport?.width ?? window.innerWidth,
+            document.documentElement.clientWidth,
+          );
+          const viewportHeight = Math.min(
+            viewport?.height ?? window.innerHeight,
+            document.documentElement.clientHeight,
+          );
+          expect(rect.left).to.be.at.least(viewportLeft);
+          expect(rect.top).to.be.at.least(viewportTop);
+          expect(rect.right).to.be.at.most(
+            document.documentElement.clientWidth,
+          );
+          expect(rect.right).to.be.at.most(viewportLeft + viewportWidth);
+          expect(rect.bottom).to.be.at.most(viewportTop + viewportHeight);
+          expect($dialog.closest('[data-plan-body]')).to.have.length(0);
+          if (viewportWidth < 640) {
+            expect(
+              Math.abs(
+                (rect.left + rect.right) / 2 -
+                  (viewportLeft + viewportWidth / 2),
+              ),
+            ).to.be.lessThan(2);
+            expect(
+              Math.abs(
+                (rect.top + rect.bottom) / 2 -
+                  (viewportTop + viewportHeight / 2),
+              ),
+            ).to.be.lessThan(2);
+          }
+        });
+      cy.focused()
+        .should('have.attr', 'role', 'tab')
+        .and('have.text', 'Orbital');
+      cy.get('[data-plan-body="planet-1"]').should(($body) => {
+        expect(
+          $body[0].getBoundingClientRect().top +
+            $body[0].ownerDocument.defaultView!.scrollY,
+        ).to.equal(bodyTop);
+      });
+      cy.get('[role="dialog"] [role="tabpanel"]').should(($list) => {
+        expect($list[0].scrollHeight).to.be.greaterThan($list[0].clientHeight);
+        expect(getComputedStyle($list[0]).overflowY).to.equal('auto');
+      });
+      cy.get('[role="dialog"]')
+        .contains(
+          'button',
+          /Previous facilities|More facilities|Next facilities/,
+        )
+        .should('not.exist');
+      cy.injectAxe();
+      cy.checkA11y('[role="dialog"]');
+      cy.screenshot(
+        `plan/facility-picker-${Cypress.browser.name}-${width}x${height}`,
+        {
+          capture: 'viewport',
+          overwrite: true,
+        },
+      );
+      cy.get('[role="dialog"] [role="tab"]')
+        .contains(/^Surface$/)
+        .click();
+      cy.get('[role="dialog"] button[data-facility-id]').should(
+        'have.length',
+        2,
+      );
+      cy.get('[role="dialog"] input[type="search"]').type('Coriolis');
+      cy.get('[role="dialog"]').should(
+        'contain.text',
+        'No matching facilities.',
+      );
+      cy.get('[role="dialog"] [role="tab"]')
+        .contains(/^Orbital$/)
+        .click();
+      cy.get('[role="dialog"] button[data-facility-id]').should(
+        'have.length',
+        2,
+      );
+      cy.press(Cypress.Keyboard.Keys.ESC);
+      cy.get('[role="dialog"]').should('not.exist');
+      cy.get(opener).should('be.focused');
+      cy.get(opener).click();
+      cy.contains('button', 'Close picker').click();
+      cy.get(opener).should('be.focused');
+      cy.get(opener).click();
+      cy.get('body').click(2, 2);
+      cy.get('[role="dialog"]').should('not.exist');
+      cy.get(opener).should('be.focused');
+    });
+
     it(`plans from Inspect, fixes build order and keeps the plan at ${width}px`, () => {
       cy.viewport(width, height);
       cy.visit(`/inspect?system=${systemId}`);
