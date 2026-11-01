@@ -29,6 +29,35 @@ const assertSpatialResultsReady = () => {
     .then((count) => expect(Number(count)).to.be.greaterThan(0));
 };
 
+// URL reads use browser automation, which can stall while the scene renders.
+// Wait on DOM readiness first, then allow the URL read its own retry window.
+const waitForExploreSettled = () => {
+  cy.get('.results-panel', { timeout: 20_000 }).should(
+    'have.attr',
+    'aria-busy',
+    'false',
+  );
+  cy.get(`.map-panel ${readySelector}`, { timeout: 20_000 }).should(
+    'be.visible',
+  );
+  cy.get('.map-panel .spatial-canvas', { timeout: 20_000 }).should(
+    'have.attr',
+    'data-camera-transition-active',
+    'false',
+  );
+};
+
+const waitForInspectSettled = () => {
+  cy.get('.inspect-page [data-system-id64]', { timeout: 20_000 }).should(
+    'have.attr',
+    'aria-busy',
+    'false',
+  );
+  cy.get(`.inspect-page ${readySelector}`, { timeout: 20_000 }).should(
+    'be.visible',
+  );
+};
+
 const keyboardChooseAnchor = (query: string) => {
   cy.get('#system-search').clear().type(query);
   cy.wait('@autocomplete').its('response.statusCode').should('eq', 200);
@@ -97,8 +126,9 @@ const assertFinderUrl = (
   minimumTier: 'B' | 'A' = 'B',
   overlay = false,
 ) => {
-  cy.location('pathname').should('eq', '/explore');
-  cy.location('search').should((search) => {
+  waitForExploreSettled();
+  cy.location('pathname', { timeout: 15_000 }).should('eq', '/explore');
+  cy.location('search', { timeout: 15_000 }).should((search) => {
     const params = new URLSearchParams(search);
     expect(params.get('archetype')).to.equal(
       archetype === 'any' ? null : archetype,
@@ -324,7 +354,11 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.get('input[type="radio"][value="flexible"]').should('be.checked');
     assertRankingsRequest(0);
     assertFinderUrl('flexible', 0, null);
-    cy.location('search').should('eq', '?archetype=flexible&page_size=1');
+    waitForExploreSettled();
+    cy.location('search', { timeout: 15_000 }).should(
+      'eq',
+      '?archetype=flexible&page_size=1',
+    );
     assertFlexiblePage(0);
 
     // Steps 4–5: the current page owns the results, while selected= owns the
@@ -345,7 +379,8 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.contains('[aria-label="Result pages"] button', 'Next').should(
       'be.disabled',
     );
-    cy.location().then(({ pathname, search }) => {
+    waitForExploreSettled();
+    cy.location({ timeout: 15_000 }).then(({ pathname, search }) => {
       copiedExploreUrl = `${pathname}${search}`;
       copiedExploreQuery = search.slice(1);
       const inspect = `/inspect?${new URLSearchParams({
@@ -391,8 +426,9 @@ describe('V3 Explore to Inspect product checkpoint', () => {
         .should('have.attr', 'href', inspect)
         .click();
     });
-    cy.location('pathname').should('eq', '/inspect');
-    cy.location('search').should((search) => {
+    waitForInspectSettled();
+    cy.location('pathname', { timeout: 15_000 }).should('eq', '/inspect');
+    cy.location('search', { timeout: 15_000 }).should((search) => {
       const params = new URLSearchParams(search);
       expect(params.get('system')).to.equal(selectedId);
       expect(params.get('from')).to.equal(copiedExploreQuery);
@@ -664,12 +700,14 @@ describe('V3 Explore to Inspect product checkpoint', () => {
 
     // F4 design section 6, "Detail overlay": Inspect carries the originating
     // Explore query in `from` so its return links restore the Finder state.
-    cy.location('search').then((search) => {
+    waitForExploreSettled();
+    cy.location('search', { timeout: 15_000 }).then((search) => {
       originatingExploreQuery = search.slice(1);
     });
     cy.get('[data-system-result="10477373803000"] .inspect-link').click();
-    cy.location('pathname', { timeout: 30_000 }).should('eq', '/inspect');
-    cy.location('search', { timeout: 30_000 }).should((search) => {
+    waitForInspectSettled();
+    cy.location('pathname', { timeout: 15_000 }).should('eq', '/inspect');
+    cy.location('search', { timeout: 15_000 }).should((search) => {
       const params = new URLSearchParams(search);
       expect(params.get('system')).to.equal('10477373803000');
       expect(params.get('from')).to.equal(originatingExploreQuery);
@@ -693,7 +731,8 @@ describe('V3 Explore to Inspect product checkpoint', () => {
 
     cy.viewport(820, 640);
     cy.contains('a', 'Back to Explore').click();
-    cy.location('pathname', { timeout: 20_000 }).should('eq', '/explore');
+    waitForExploreSettled();
+    cy.location('pathname', { timeout: 15_000 }).should('eq', '/explore');
     assertSpatialResultsReady();
     cy.get(canvasSelector).should(([remountedCanvas]) => {
       expect(remountedCanvas).not.to.equal(initialCanvas);
@@ -791,14 +830,16 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       'contain.text',
       unsafeId,
     );
-    cy.location('search').then((search) => {
+    waitForExploreSettled();
+    cy.location('search', { timeout: 15_000 }).then((search) => {
       originatingExploreQuery = search.slice(1);
     });
     cy.get(`[data-system-result="${unsafeId}"] .inspect-link`).click();
     cy.get(`[data-system-id64="${unsafeId}"]`, { timeout: 20_000 })
       .should('contain.text', 'V3 Lossless Reach')
       .and('contain.text', unsafeId);
-    cy.location('search', { timeout: 10_000 }).should((search) => {
+    waitForInspectSettled();
+    cy.location('search', { timeout: 15_000 }).should((search) => {
       const params = new URLSearchParams(search);
       expect(params.get('system')).to.equal(unsafeId);
       expect(params.get('from')).to.equal(originatingExploreQuery);
