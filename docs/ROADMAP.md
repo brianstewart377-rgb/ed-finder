@@ -18,14 +18,20 @@
 - **Live Inspect:** [Ratings V4 with explanations](../CHANGES.md#2026-10-25--inspect-shows-ratings-v4-ring-hotspots-and-station-economies).
 - **Live Colony Planner `/plan`:** through S5b, with S3b surface slot predictions,
   Raven layout import and the floating facility picker ([current programme](../CLAUDE.md#current-programme)).
-- **Finder next:** [body-count filters](#programme-status--2026-09-26), with anchored
-  picked-archetype filters still needing a probe and re-attestation; a refresh-safe
-  anchor remains a follow-up ([current reload limitation](../apps/web/cypress/e2e/review-lab.cy.ts#L232)).
+- **Live system-name search (autocomplete) is down:** it returns 503 because
+  `v3_derived.system_search` has no index for a name-prefix match. The fix (PR #978:
+  migration `023` plus the V3 autocomplete route) needs the governed migration
+  plan and apply, then an application release; until then, pick systems from the map
+  or open a shared link.
+- **Finder next:** [body-count filters](#programme-status--2026-09-26) and a
+  refresh-safe search anchor are implemented on a branch and in review; anchored
+  picked-archetype filters still need a probe and re-attestation.
 - **UI redesign:** the requested design kit, home, Finder, Inspect, Plan and
   Review & export work has no detailed redesign plan in this tree; the
   [product journey](#product-journey-and-spatial-north-star) remains its starting point.
-- **V2 route retirement:** remaining consumers need V3 replacements before removal
-  ([residue plan](development/v2-decommission-roadmap.md#track-b--v2-manifest--sql-tree-long-horizon--finish-v3)).
+- **V2 route retirement:** the [mounted-route inventory](development/v3-v2-route-retirement.md)
+  lists the candidates; removal waits on the [owner decision](development/v3-v2-route-retirement.md#owner-decision-and-proposed-response-contract)
+  for routes that still have code callers ([residue plan](development/v2-decommission-roadmap.md#track-b--v2-manifest--sql-tree-long-horizon--finish-v3)).
 - **Ratings V4.1 next:** mechanics fixes follow the owner's 2026-10-21 decision;
   production still uses frozen V4.0 ([decision](#programme-status--2026-09-26), [audit](development/evidence/2026-10-21-mega-guide-v2.3-mechanics-audit.md)).
 - **Live EDDN listener and Spansh nightly refresh remain follow-ups:** the
@@ -33,7 +39,8 @@
   [measurement tooling](development/spansh-delta-measurement.md); a broader owner enablement decision is not recorded here.
 - **Planner next:** requested S5c economy bars fall under the [S5 economies-and-links scope](superpowers/specs/2026-10-30-v3-colony-planner-design.md#7-slices);
   the S5c split is not yet documented in that design.
-- **Open owner decisions:** [custom-weight storage and Any-mode tier semantics](superpowers/specs/2026-10-10-v3-finder-f4-archetype-ui-design.md#owner-questions),
+- **Open owner decisions:** [Any-mode tier semantics](superpowers/specs/2026-10-10-v3-finder-f4-archetype-ui-design.md#owner-questions)
+  (custom weights were answered URL-only on 2026-11-01), the V2 route retirement above,
   plus Spansh's [change-admission policy (D3)](development/spansh-delta-measurement.md#the-overlap-from-the-second-night)
   and [recurring-download terms (D5)](development/spansh-delta-measurement.md#how-to-run-it).
 

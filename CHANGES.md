@@ -42,9 +42,14 @@ public verification or change deployment acceptance gates.
 Added “Where things stand (2026-11-01)” directly below the roadmap title,
 linking current release, schema, purge, backup, product and next-work evidence.
 It records the unrun A5 restore practice and open owner decisions, and makes
-missing detailed redesign, S5c and ingestion-enablement records explicit.
-All existing roadmap content is unchanged. No opening-line contract test
-exists, so no test was added or changed.
+missing detailed redesign, S5c and ingestion-enablement records explicit. It
+also records the live system-name search outage and its pending fix (PR #978),
+and the body-filter and refresh-safe-anchor work in review. The F4 design's
+section 9 now records the owner's 2026-11-01 answer to question 2 (future custom
+weights are URL-only) and points question 3 at the enablement decision, leaving
+only question 4 open. All existing roadmap content is unchanged. No opening-line
+contract test exists, so no test was added or changed. `pnpm shared:test` still
+uses the POSIX binary path and remains a Windows follow-up.
 
 ## 2026-11-01 — V2 API retirement inventory; profile-sync owner decision required
 
