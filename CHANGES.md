@@ -11,6 +11,17 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — Journal research export paused (owner decision D4)
+
+`RESEARCH_EXPORT_PAUSED` in `apps/api/src/routers/v3_journal_research.py`
+refuses new research exports and consent grants with HTTP 503 and reason
+`research_export_paused`, after the existing authentication and origin checks.
+Exports cannot yet carry colonisation events the CRE can use; resuming them
+requires a reviewed code change. Withdrawal still supersedes lineage batches,
+and all consent and export reads remain available. Database-free route tests
+cover the refusals and withdrawal; PostgreSQL integration coverage preserves
+the export-builder and consent flows with the pause explicitly disabled.
+
 ## 2026-10-31 — Purge complete: body and vector relations done, step P COMPLETED
 
 The governed purge of `ratings_v4_prod_p4` and `ratings_v4_prod_p4_opt1`
