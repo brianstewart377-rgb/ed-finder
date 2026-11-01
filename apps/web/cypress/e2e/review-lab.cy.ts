@@ -223,6 +223,14 @@ describe('isolated V3 Review Lab', () => {
       cy.contains('[role="option"]', REVIEW_SYSTEM.name).click();
     };
 
+    // A reload drops the anchor (SvelteKit page state) but keeps `selected`,
+    // and a selection-only link resolves through the V3 system routes the
+    // Review Lab API does not serve. Remount by visiting and re-anchoring.
+    const remountExplore = () => {
+      cy.visit('/explore', { onBeforeLoad: instrumentWindow });
+      chooseReviewAnchor();
+    };
+
     let selectionSearchCount = 0;
     const establishSelectedSystem = () => {
       // Earlier intercepts also observe later flows, so each call needs a fresh alias.
@@ -470,14 +478,14 @@ describe('isolated V3 Review Lab', () => {
                   .then((restored) => {
                     if (!restored) {
                       recoveryMode = 'webgl-context-loss-remount-fallback';
-                      cy.reload();
+                      remountExplore();
                       return;
                     }
                     recoveryMode = 'webgl-context-loss-and-restore';
                     expect(activeContext.isContextLost()).to.equal(false);
                   });
               } else {
-                cy.reload();
+                remountExplore();
               }
               cy.get(readySelector, { timeout: 20_000 }).should('be.visible');
               cy.then(() =>

@@ -172,6 +172,10 @@ def test_review_collector_preserves_url_selection_and_checks_both_failure_tags()
     assert "response.headers['x-edfinder-review-failure']" in collector
     assert 'cy.visit(`/explore?selected=${REVIEW_SYSTEM.id64}`' not in collector
     assert 'chooseReviewAnchor();' in collector
+    # Renderer recovery remounts by visiting and re-anchoring: a reload keeps a
+    # selection-only URL whose lookup needs V3 routes Review Lab does not serve.
+    assert 'cy.reload()' not in collector
+    assert collector.count('remountExplore();') == 2
     assert 'localStorage.setItem(selectedStorageKey' not in collector
     assert 'data-map-label-selected="true"' in collector
     assert "getAll('selected')).to.deep.equal([" in collector
