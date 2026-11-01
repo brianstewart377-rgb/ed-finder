@@ -11,6 +11,20 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — Colony Planner S4b part 2: Raven layout file import
+
+The `/plan` page imports commander-exported Raven Colonial JSON files with
+explicit replacement confirmation, Primary Port protection, safe numeric-id
+validation and dismissible import notes. Sites retain their order, unavailable
+bodies become Unplaced, and belt clusters share the belt's buildable location
+and lowest-cluster slot counts. The deterministic mapper bounds sites and
+preserves facility/location mismatches for evaluation.
+
+The 112 build-type mappings come from **Copy of Colonization Construction v3
+(By DaftMav).xlsx**, sheet **Lists**, rows **48–159**, as supplied by the owner.
+No Raven source code was consulted or copied, and importing requires no Raven
+server request, API change, dependency change or storage-format change.
+
 ## 2026-11-01 — Finder F4c: mode- and reference-safe saved surfaces
 
 Behind the default-off `VITE_FINDER_F4_ENABLED` flag, Compare and Watchlist use
