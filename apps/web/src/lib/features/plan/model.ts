@@ -3,6 +3,7 @@ import type {
   PlanFacilityV1,
   PlanRequestV1,
   PlanSiteV1,
+  PlanSystemBodyV1,
 } from '$lib/api';
 import { parseId64 } from '$lib/domain/id64';
 import type { ColonyProjectRecord } from '$lib/persistence/storage';
@@ -224,7 +225,9 @@ export function toPlanRequest(
         .map((body) => ({
           body_ref: body.body_id,
           orbital_slots: model.slots[body.body_id]?.orbital_slots ?? null,
-          surface_slots: model.slots[body.body_id]?.surface_slots ?? null,
+          surface_slots:
+            model.slots[body.body_id]?.surface_slots ??
+            surfaceSlotPrediction(body),
           is_landable: body.is_landable,
           is_ringed: body.has_rings,
           ...(hasEconomyFacts
@@ -358,15 +361,34 @@ export function locationAliases(
   return [bodyRef];
 }
 
-/** The slot totals the plan check uses for a location: its own, else an alias's. */
+/** Only the API's successful surface prediction supplies a default total. */
+export function surfaceSlotPrediction(
+  body: PlanSystemBodyV1 | null | undefined,
+): number | null {
+  return body?.is_landable === true && body.prediction_status === 'predicted'
+    ? (body.predicted_surface_slots ?? null)
+    : null;
+}
+
+/** Entered totals win; otherwise a body's surface prediction is used without saving it. */
 export function locationSlots(
   model: PlannerModel,
   data: PlanBodiesV1 | undefined,
   bodyRef: string,
 ): SlotCounts | undefined {
-  return locationAliases(data, bodyRef)
+  const entered = locationAliases(data, bodyRef)
     .map((ref) => model.slots[ref])
     .find(Boolean);
+  if (entered?.surface_slots != null) return entered;
+  const predicted = surfaceSlotPrediction(
+    data?.bodies.find((body) => body.body_id === bodyRef),
+  );
+  return predicted === null
+    ? entered
+    : {
+        orbital_slots: entered?.orbital_slots ?? null,
+        surface_slots: predicted,
+      };
 }
 
 /** Slots used at a location, counting sites saved under any of its aliases. */

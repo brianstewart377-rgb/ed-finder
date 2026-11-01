@@ -19,6 +19,19 @@
     Architect Mode or imported from a Raven layout.
 - **S3 is split into S3a and S3b** (sections 5.3 and 7).
 
+**Status update — 2026-11-01: S3b is implemented.** Step P reached
+`complete` on 2026-10-31. The bodies route now uses the published,
+canonical-generation-matched mechanics class with `validated-slot-v1` for
+surface predictions. The page labels predictions and commander-entered
+overrides; orbital slots remain entered only. Unknown inputs and unavailable
+or mismatched derived generations leave predictions unknown.
+
+The retained answer-key system fixture has all 24 landable bodies, but lacks
+their atmosphere inputs. It is covered as unknown rather than filled with
+invented inputs. The 2026-10-31 evidence table records the counts and rounded
+radii, not a complete physical-input fixture, so its 24 numeric results cannot
+yet be replayed from committed evidence.
+
 **Owner direction (2026-10-30):** "The colony planner is part of the ed-finder.
 Once a system has been decided on, a user needs to be able to build." The owner
 also asked for "our version of Raven Colonial, but more intuitive and linking
