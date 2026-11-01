@@ -37,7 +37,18 @@
   let panelTop = $state(8);
   let panelMaxHeight = $state<number | null>(null);
   let panelMaxWidth = $state<number | null>(null);
-  const draftCount = $derived(Object.keys(draft).length);
+  // A zero minimum with no maximum filters nothing: it is not counted, applied
+  // or shown as a chip, while an exact zero range (min 0, max 0) still is.
+  function effective(values: BodyFilterValues): BodyFilterValues {
+    const output: BodyFilterValues = {};
+    for (const option of BODY_FILTER_OPTIONS) {
+      const range = values[option.key];
+      if (!range || (range.min === 0 && range.max === undefined)) continue;
+      output[option.key] = range;
+    }
+    return output;
+  }
+  const draftCount = $derived(Object.keys(effective(draft)).length);
   const applied = $derived(
     BODY_FILTER_OPTIONS.filter((option) => value[option.key] !== undefined),
   );
@@ -272,7 +283,7 @@
     <div class="tabs" role="tablist" aria-label="Body filter categories">
       {#each BODY_FILTER_GROUPS as group, index (group.label)}
         {@const count = group.filters.filter(
-          (option) => draft[option.key] !== undefined,
+          (option) => effective(draft)[option.key] !== undefined,
         ).length}
         <button
           id={`${id}-tab-${index}`}
@@ -386,7 +397,7 @@
           type="button"
           class="apply"
           onclick={() => {
-            onapply(normalizeBodyFilters(draft));
+            onapply(normalizeBodyFilters(effective(draft)));
             close();
           }}>Apply</button
         >

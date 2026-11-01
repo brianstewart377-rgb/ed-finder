@@ -182,6 +182,23 @@ describe('body filter pop-out', () => {
     expect(onapply).toHaveBeenCalledExactlyOnceWith({ elw_count: { min: 2 } });
   });
 
+  it('drops a zero minimum with no maximum but keeps an exact zero range', async () => {
+    const { onapply } = filters({ elw_count: { min: 3 } });
+    await open();
+    await fireEvent.input(
+      screen.getByRole('slider', { name: 'Earth-like minimum slider' }),
+      { target: { value: '0' } },
+    );
+    expect(screen.getByRole('tab', { name: 'Planets 0' })).toBeInTheDocument();
+    await number('Water worlds minimum', '0');
+    await number('Water worlds maximum', '0');
+    expect(screen.getByRole('tab', { name: 'Planets 1' })).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(onapply).toHaveBeenCalledExactlyOnceWith({
+      ww_count: { min: 0, max: 0 },
+    });
+  });
+
   it('accepts typed counts above slider limits, bounds them at 999 and keeps endpoints ordered', async () => {
     const { onapply } = filters();
     await open();

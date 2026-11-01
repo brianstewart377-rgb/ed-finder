@@ -73,9 +73,18 @@ const waitForInspectSettled = () => {
   );
 };
 
+let anchorAutocompleteCount = 0;
 const keyboardChooseAnchor = (query: string) => {
+  // Wait for the complete query only: typing cancels the shorter prefix
+  // requests, and a cancelled request has no response to assert on.
+  const alias = `anchorAutocomplete${++anchorAutocompleteCount}`;
+  cy.intercept({
+    method: 'GET',
+    pathname: '/api/local/autocomplete',
+    query: { q: query },
+  }).as(alias);
   cy.get('#system-search').clear().type(query);
-  cy.wait('@autocomplete').its('response.statusCode').should('eq', 200);
+  cy.wait(`@${alias}`).its('response.statusCode').should('eq', 200);
   cy.get('[role="listbox"] [role="option"]', { timeout: 10_000 }).should(
     'have.length.greaterThan',
     0,
@@ -365,9 +374,13 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.viewport(1280, 800);
     // Each observer is registered once with its own alias; all responses come
     // from the normal Product API and its published V3 fixture generation.
-    cy.intercept('GET', '/api/local/autocomplete*').as(
-      'bodyFilterAutocomplete',
-    );
+    // Match only the complete name: typing cancels the shorter prefix
+    // requests, and a cancelled request has no response to assert on.
+    cy.intercept({
+      method: 'GET',
+      pathname: '/api/local/autocomplete',
+      query: { q: 'Achenar' },
+    }).as('bodyFilterAutocomplete');
     cy.intercept('POST', '/api/local/search').as('bodyFilterSearch');
     cy.intercept('GET', `/api/v1/systems/${anchorId}`).as('bodyFilterAnchor');
     cy.visit('/explore');
