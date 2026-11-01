@@ -33,7 +33,9 @@ from scripts.v3_system_search import (  # noqa: E402
 )
 from scripts.operator.lib import v3_purge_transactions as purge_transactions  # noqa: E402
 from scripts.operator.lib import v3_generation_purge as purge_operator  # noqa: E402
-from tests.helpers.purge_pg import ClientCursor, canonical_database, connect, purge_guard_owner  # noqa: E402
+from tests.helpers.purge_pg import (  # noqa: E402
+    ClientCursor, canonical_database, connect, purge_guard_owner, wait_for_automatic_maintenance,
+)
 
 MIGRATIONS = ROOT / 'sql/v3/migrations'
 CHAIN = (
@@ -216,8 +218,10 @@ def _suppress_fixture_automatic_maintenance(connection):
     insert-triggered vacuum on those heaps and their TOAST relations too.
     These fresh disposable tables cannot approach anti-wraparound thresholds.
     Migration/rewrite DDL also schedules maintenance of pg_class, pg_attribute
-    and the other database-local catalogs. Suppressing only application tables
-    leaves those workers racing later negative assertions in purge_assert_phase.
+    and the other database-local catalogs. Include every schema: a fresh
+    database also inherits information_schema's SQL-standard heaps and may
+    inherit public/extension tables from its template. Set TOAST options through
+    each heap so pg_toast storage is covered without altering shared TOAST.
     Never alter shared catalogs, whose options affect other test databases.
     """
     assert connection.info.dbname.startswith('v4_test_')
@@ -233,8 +237,7 @@ def _set_fixture_maintenance_options(connection):
     for schema, table, toast in connection.execute(
         '''SELECT n.nspname,c.relname,c.reltoastrelid<>0 FROM pg_class c
            JOIN pg_namespace n ON n.oid=c.relnamespace
-           WHERE (n.nspname LIKE 'v3_%' OR n.nspname='pg_catalog')
-             AND c.relkind='r' AND NOT c.relisshared
+           WHERE c.relkind='r' AND NOT c.relisshared AND c.relpersistence<>'t'
            ORDER BY n.nspname,c.relname''',
     ).fetchall():
         if schema == 'v3_derived' and table in RELATIONS:
@@ -257,20 +260,7 @@ def _set_fixture_maintenance_options(connection):
 
 
 def _wait_for_fixture_maintenance(connection):
-    # A worker selected before the reloptions changed can acquire an XID
-    # later. Wait for every automatic worker to leave, including those with
-    # no XID yet. Never cancel a worker or retry a failed purge mutation.
-    deadline = monotonic() + 10
-    while competing := connection.execute(
-        '''SELECT pid,backend_type,state,backend_xid::text,xact_start,left(query,200)
-           FROM pg_stat_activity
-           WHERE datname=current_database() AND pid<>pg_backend_pid()
-             AND (backend_type='autovacuum worker' OR backend_xid IS NOT NULL OR
-                  (backend_type='client backend' AND state IS NULL))''',
-    ).fetchall():
-        if monotonic() >= deadline:
-            pytest.fail(f'disposable purge fixture still has competing backends after 10 seconds: {competing!r}')
-        sleep(0.05)
+    wait_for_automatic_maintenance(connection)
 
 
 def _grant_application_create(connection):
@@ -294,6 +284,34 @@ def database(request):
         connection = data[0]
         with installed_purge(connection, creator=request.param, apply_chain=True) as installed:
             yield (installed, *data[1:])
+
+
+def test_fixture_suppresses_all_database_local_heaps_and_toast(database):
+    rows = database[0].execute(
+        '''SELECT n.nspname,c.relname,c.reloptions,c.reltoastrelid,toast.reloptions
+           FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+           LEFT JOIN pg_class toast ON toast.oid=c.reltoastrelid
+           WHERE c.relkind='r' AND NOT c.relisshared AND c.relpersistence<>'t'
+           ORDER BY n.nspname,c.relname''',
+    ).fetchall()
+    assert any(schema == 'information_schema' for schema, *_ in rows)
+    assert any(schema.startswith('v3_gen_') for schema, *_ in rows)
+    for schema, table, heap_options, toast_oid, toast_options in rows:
+        heap = dict(option.split('=', 1) for option in heap_options or ())
+        toast = dict(option.split('=', 1) for option in toast_options or ())
+        if schema == 'v3_derived' and table in RELATIONS:
+            assert 'autovacuum_enabled' not in heap, (schema, table, heap)
+            assert heap['autovacuum_analyze_threshold'] == '2147483647'
+            assert heap['autovacuum_analyze_scale_factor'] == '0'
+            for options in (heap, toast) if toast_oid else (heap,):
+                assert 'autovacuum_enabled' not in options, (schema, table, options)
+                assert options['autovacuum_vacuum_threshold'] == '2147483647'
+                assert options['autovacuum_vacuum_scale_factor'] == '0'
+                assert options['autovacuum_vacuum_insert_threshold'] == '-1'
+        else:
+            assert heap.get('autovacuum_enabled') == 'false', (schema, table, heap)
+            if toast_oid:
+                assert toast.get('autovacuum_enabled') == 'false', (schema, table, toast)
 
 
 def test_fresh_superuser_manifest_install_does_not_require_the_production_application_role():
@@ -628,6 +646,10 @@ def _authorize(data, **seed_options):
     _seed(data, **seed_options)
     connection = data[0]
     plan = _plan(connection)
+    # Shared-catalog autovacuum can attach to this database during seeding;
+    # its cluster-wide reloptions must remain untouched. Drain only automatic
+    # workers before the single authorization attempt, never competing clients.
+    _wait_for_fixture_maintenance(connection)
     connection.execute('SET ROLE v3_derived_purge_executor')
     ids = connection.execute('SELECT v3_meta.begin_derived_generation_purge(%s)',
                              (Jsonb(plan),)).fetchone()[0]
@@ -1566,7 +1588,15 @@ def test_non_superuser_refusal_reports_hidden_administrator_writer():
                         with pytest.raises(psycopg.errors.RaiseException, match='competing writing transaction') as refused:
                             with connection.transaction():
                                 _start_batch(connection, purge_id, 'system_search')
-                        guard, details = refused.value.__notes__
+                        notes = refused.value.__notes__
+                        guard, = [note for note in notes if note.startswith(
+                            'pg_stat_activity matching purge guard immediately after refusal:')]
+                        details, = [note for note in notes if note.startswith(
+                            'administrator pg_stat_activity after refusal sample 1:')]
+                        before, = [note for note in notes if note.startswith(
+                            'administrator pg_stat_activity just before guarded call:')]
+                        assert f"'pid': {opaque.info.backend_pid}" in before
+                        assert f"'backend_xid': '{xid}'" in before
                         assert f"'pid': {opaque.info.backend_pid}" in guard
                         assert "'backend_type': None" in guard
                         assert "'state': None" in guard

@@ -11,6 +11,98 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — Purge fixture maintenance coverage and transient-writer evidence (round 3)
+
+CI run **41281603191**, job **124774473183**, “Finder derived-data tests
+(PostgreSQL 18, shard 1/3)” on unrelated web-only PR **#965** reported **1 failed,
+357 passed**. `test_active_vacuum_progress_refuses_phase_before_disabling_autovacuum[superuser]`
+failed in its initial `_authorize(database)`, before the deliberate VACUUM worker
+started. Migration `016`'s authorization guard refused with `competing writing
+transaction`: another backend in the same database had an XID, or was a client
+backend with NULL state (`sql/v3/migrations/016_v3_governed_derived_purge.sql:258`).
+Despite #964's earlier maintenance suppression and departure waits, its immediate
+post-refusal diagnostic was `[]`. That evidence does not identify the departed
+backend; the maintenance omissions below are confirmed, worker attribution is not.
+
+Connection audit (line references in this change):
+
+- `tests/ratings_v4_pg_fixture.py:27` loads canonical/metadata dictionaries and
+  payloads; `:43` yields these as `data[1:]`, not connections. Its administrator
+  (`:29`) stays in `ratings_v4_validation`; only the autocommit connection at
+  `:33` connects to the fresh `v4_test_*` database. Canonical bootstrap commits
+  one transaction on that same connection (`scripts/dev/v3_canonical_bootstrap.py:37`).
+- `tests/test_v3_governed_derived_purge.py:83` opens the advisory-lock connection
+  in the base database. The extra administrator at `:153` and replacement app
+  login at `:160` exist only for the non-superuser case; setup closes at `:166`
+  before yielding. Restoration connections are teardown only. The diagnostic
+  and departure observers (`tests/helpers/purge_pg.py:62`) also use the base
+  database and cannot match the guard's database predicate.
+- `_seed` (`tests/test_v3_governed_derived_purge.py:540`) and `_plan` (`:611`)
+  use the supplied connection throughout. Their snapshot, generation and Search
+  helpers (`scripts/ratings_v4/canonical_stream.py:220`,
+  `scripts/ratings_v4/production_generation.py:110`, `scripts/v3_system_search.py:167`)
+  do not open or close another connection on this path. No helper closes with
+  an unfinished transaction between seeding and authorization. The purge
+  connection class already completes startup transactions and waits for its
+  named PID to leave on close (`tests/helpers/purge_pg.py:220`, `:232`).
+- The controller replacement, application-worker login and helper thread
+  (`tests/test_v3_governed_derived_purge.py:917`, `:932`, `:959`) occur only after
+  the failing initial authorization in the VACUUM test (`:1640`). Previous tests
+  use different random database names.
+
+Maintenance audit and fixes: baseline and migration-created heaps are in
+`v3_source`, `v3_vocab`, `v3_identity`, `v3_private`, `v3_meta`, `v3_async`,
+`v3_derived`, `v3_spatial`, or the constrained `v3_gen_*` canonical schema
+(`001_v3_baseline.sql:9`, `:1014`; fixture migration chain at
+`tests/test_v3_governed_derived_purge.py:41`). `v3_app` contains views; the cube
+extension (`004_v3_search_spatial_clusters.sql:16`) adds no heap. Included heaps'
+TOAST was already covered through parent `toast.*` options. The old schema filter
+missed template-inherited `information_schema.sql_features`,
+`sql_implementation_info`, `sql_parts`, `sql_sizing`, and any inherited public or
+other-schema heaps and their TOAST. `_set_fixture_maintenance_options` (`:236`)
+now covers every non-shared, non-temporary ordinary heap, preserving the four
+purge tables' unset autovacuum defaults and explicit maintenance assertions.
+
+Shared catalogs and their TOAST remain untouched. Role creation/grants in
+`installed_purge` and `016` can drive `pg_authid`/`pg_shdepend` maintenance, and
+PostgreSQL can process shared catalogs while attached to this test database
+([PostgreSQL 18 autovacuum source](https://github.com/postgres/postgres/blob/REL_18_STABLE/src/backend/postmaster/autovacuum.c#L1856-L1909)).
+An administrator now drains only this database's `autovacuum worker` backends,
+including those without an XID, with a ten-second bound after seeding/planning
+and before the single authorization attempt. The existing fixture maintenance
+wait uses the same helper. Client writers and explicit VACUUM/ANALYZE workers
+are never waited away, cancelled or retried.
+
+`tests/helpers/purge_pg.py` now keeps an administrator observer open across
+guarded calls, captures activity immediately before the call, and on refusal
+records up to 20 administrator samples at 10 ms intervals within a 200 ms poll
+budget (each observer statement also has a 200 ms timeout). It retains the
+guard-owner view, clears statistics snapshots, and preserves captured evidence
+and the original exception if diagnostics fail. Ordinary seed reads/writes do
+not open diagnostic observers. Client query text is omitted except for two exact,
+credential-free XID probes already asserted by the PostgreSQL tests; automatic
+workers still name their maintenance relation. There is still
+a scheduling gap between the last observation and the guard; no observation can
+prove which backend caused the old empty diagnostic.
+
+Database-free validation passed: `python -m pytest -q tests/test_v3_purge_pg_helpers.py`
+(44 passed), `python -m pytest -q tests/test_v3_purge_fixture_maintenance.py`
+(1 passed), and `ruff check tests`. `git diff --check` also passed. Pytest emitted
+the existing pytest-asyncio/CPython 3.14 deprecation warnings.
+The new tests cover transient activity, diagnostic failures, bounded polling,
+automatic-worker-only waits and relation/TOAST coverage. PostgreSQL was not run
+on the Codex runner. The reviewer must run the complete
+`tests/test_v3_governed_derived_purge.py` locally on disposable PG18, including
+both creator roles for the new coverage test and the reported VACUUM refusal,
+then the shared helper consumers: `tests/test_v3_purge_copy_and_drop.py`,
+`tests/test_v3_purge_copy_operator_pg18.py`, `tests/test_v3_purge_rewrite_pg18.py`,
+`tests/test_v3_purge_swap_lock_order.py`, `tests/test_v3_purge_keyset_start.py`,
+`tests/test_v3_purge_long_phase_bounds.py`, `tests/test_v3_purge_rewrite_monitor_pg18.py`,
+`tests/test_v3_purge_rehearsal_seed_pg18.py`, `tests/test_v3_purge_writer_ack.py`,
+`tests/test_ratings_v4_production_generation.py`, `tests/test_ratings_v4_system_search.py`,
+and `tests/test_v3_system_archetype_migration.py`. No migration, production code,
+assertion weakening, retry, skip or xfail was added.
+
 ## 2026-11-01 — CI runs the V3 journal flow tests; the stale export-limit test is fixed
 
 `tests/integration/test_v3_journal_research_flow.py` and
