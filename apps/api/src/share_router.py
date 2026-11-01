@@ -43,6 +43,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Res
 from fastapi.responses import HTMLResponse, RedirectResponse
 from PIL import Image, ImageDraw, ImageFont
 
+from edfinder_api.config import limiter
 from edfinder_api.deps import cache_get, cache_set, get_readonly_pool
 from edfinder_api.routers.v3 import current_canonical_generation
 
@@ -251,6 +252,7 @@ def _plain_page(status_code: int, title: str, message: str, inspect_url: str) ->
 # HTML stop-page for bots
 # ─────────────────────────────────────────────────────────────────────────
 @router.get("/s/{id64}")
+@limiter.shared_limit("60/minute", scope="share_stop_page")
 async def share_stop_page(id64: int = ShareId64, *, request: Request,
                           pool: asyncpg.Pool = Depends(get_readonly_pool)):
     """
@@ -356,6 +358,7 @@ def _decode_cached_png(value: object) -> Optional[bytes]:
 # OG image renderer
 # ─────────────────────────────────────────────────────────────────────────
 @router.get("/api/share/og/{id64}")
+@limiter.shared_limit("20/minute", scope="og_image")
 async def og_image(id64: int = ShareId64, *, request: Request,
                    generation: Optional[uuid.UUID] = Query(default=None),
                    pool: asyncpg.Pool = Depends(get_readonly_pool)):

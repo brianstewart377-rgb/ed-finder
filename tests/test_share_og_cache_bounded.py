@@ -71,6 +71,8 @@ async def _fake_generation(pool):
 
 
 async def test_og_image_reads_and_writes_through_deps_helpers(monkeypatch):
+    # Direct cache-helper unit test; HTTP rate limiting has separate coverage.
+    monkeypatch.setattr(share_router.limiter, 'enabled', False)
     calls: dict[str, list] = {'get': [], 'set': []}
 
     async def fake_get(key, redis=None):
@@ -106,6 +108,8 @@ async def test_og_image_reads_and_writes_through_deps_helpers(monkeypatch):
 
 
 async def test_og_image_cache_hit_streams_cached_png(monkeypatch):
+    # Direct cache-helper unit test; HTTP rate limiting has separate coverage.
+    monkeypatch.setattr(share_router.limiter, 'enabled', False)
     async def fake_get(key, redis=None):
         return share_router._encode_cached_png(PNG)
 
