@@ -40,6 +40,12 @@ HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 SOURCE_SHA = re.compile(r"[0-9a-f]{40}\Z")
 RUN_ID = re.compile(r"[1-9][0-9]{0,19}\Z")
 MAX_MIGRATION_BYTES = 8 * 1024 * 1024
+# Only the reviewed full-Galaxy name-index build may exceed the ordinary 120 s
+# command bound. Its SQL statement timeout is four hours; retain five minutes
+# for rollback/receipt handling before the 270-minute apply workflow expires.
+LONG_MIGRATION_TIMEOUTS = {
+    "023_v3_system_search_name_prefix_index.sql": 245 * 60,
+}
 
 
 class MigrationError(ValueError):
@@ -317,7 +323,11 @@ def apply_migration(
     # Insert the ledger row before the migration's own terminal COMMIT, so DDL
     # and identity advance are one PostgreSQL transaction with no crash window.
     combined = migration_with_atomic_ledger(entry, text)
-    runner(psql, env=env, input_text=combined)
+    timeout = LONG_MIGRATION_TIMEOUTS.get(entry["ledger_name"])
+    if timeout is None:
+        runner(psql, env=env, input_text=combined)
+    else:
+        runner(psql, env=env, input_text=combined, timeout_seconds=timeout)
 
 
 def verify_schema_identity(deployer: Any, external: dict[str, Any]) -> str:

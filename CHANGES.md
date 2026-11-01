@@ -11,6 +11,24 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — V3 system name autocomplete prefix index
+
+Autocomplete now reads the published V3 Search generation through an explicit
+schema-qualified query, escapes LIKE metacharacters literally, and sorts at
+most 100 candidates into 10 suggestions. The route no longer scans canonical
+`systems` or falls back to unindexed trigram matching; its cache follows the
+published generation and unavailable publication returns the existing 503
+problem response. API pool initialization sets no `search_path`; the new query
+does not depend on DSN or role defaults.
+
+Governed migration `023` adds the generation-scoped `text_pattern_ops` name
+index, retaining the existing default-opclass index. Ledger/identity and target
+transition registration, bounded index-build timeouts and application order
+are documented in the schema-migration runbook. PostgreSQL 18 regression tests
+cover literal prefixes, generation isolation and index plans with sequential
+scans enabled. Production application remains a separate governed operation;
+this change applies no migration and deploys no service.
+
 ## 2026-11-01 — Seventh F2d release `293bc72b` accepted in production: Finder archetype UI on
 
 Owner-approved. Release run 41342325477 (source `293bc72b`) passed preflight
