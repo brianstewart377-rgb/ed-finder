@@ -207,7 +207,10 @@ def test_review_collector_uses_fresh_search_and_autocomplete_aliases_per_call():
     assert 'let anchorAutocompleteCount = 0;' in before_autocomplete
     assert collector.count('anchorAutocompleteCount = 0') == 1
     alias = 'const autocompleteAlias = `anchorAutocomplete${++anchorAutocompleteCount}`;'
-    intercept = "cy.intercept('GET', '/api/local/autocomplete*').as(autocompleteAlias);"
+    # Only the complete name's request is awaited: earlier prefix requests are
+    # cancelled while typing and would resolve the wait with no response.
+    intercept = "query: { q: REVIEW_SYSTEM.name },\n      }).as(autocompleteAlias);"
+    assert "cy.intercept('GET', '/api/local/autocomplete*')" not in autocomplete
     wait = 'cy.wait(`@${autocompleteAlias}`)'
     assert alias in autocomplete
     assert intercept in autocomplete
