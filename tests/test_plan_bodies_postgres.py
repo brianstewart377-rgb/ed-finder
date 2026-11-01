@@ -21,6 +21,7 @@ from fastapi import FastAPI
 
 from edfinder_api.config import limiter
 from edfinder_api.deps import get_readonly_pool
+from edfinder_api.ingest.slot_prediction import PREDICTION_VERSION, predict_body_slots
 from edfinder_api.routers import plan
 from edfinder_api.routers import v3 as v3_routes
 from edfinder_api.routers.plan_economy_facts import economy_kind
@@ -33,6 +34,7 @@ from tests.ratings_v4_pg_fixture import canonical_database
 pytestmark = pytest.mark.db
 SOL = 10477373803
 MAIA = 8216113749
+PRAEA_EUQ = 5076786292249
 UNKNOWN = 4242
 ROOT = Path(__file__).resolve().parents[1]
 SHARED_FIELDS = (
@@ -42,6 +44,9 @@ SHARED_FIELDS = (
 BODY_ECONOMY_FIELDS = (
     'economy_kind', 'economy_parent_id', 'in_binary_pair', 'tidally_locked',
     'volcanism_present', 'terraformable',
+)
+SURFACE_PREDICTION_FIELDS = (
+    'predicted_surface_slots', 'prediction_version', 'prediction_status', 'missing_inputs',
 )
 SYSTEM_ECONOMY_FIELDS = (
     'economy_facts_generation_id', 'reserve_level', 'has_black_hole',
@@ -139,7 +144,8 @@ def _canonical_fields(result):
         **{key: value for key, value in result.items()
            if key not in (*SYSTEM_ECONOMY_FIELDS, 'economy_notes', 'bodies')},
         'bodies': [{key: value for key, value in body.items()
-                    if key not in BODY_ECONOMY_FIELDS} for body in result['bodies']],
+                    if key not in (*BODY_ECONOMY_FIELDS, *SURFACE_PREDICTION_FIELDS,
+                                   'prediction_reason')} for body in result['bodies']],
     }
 
 
@@ -148,6 +154,11 @@ def _assert_economy_unavailable(result):
     assert result['economy_notes'] == []
     for body in result['bodies']:
         assert all(body[key] is None for key in BODY_ECONOMY_FIELDS), body['body_id']
+
+
+def _assert_surface_prediction_unavailable(body):
+    assert all(body[key] is None for key in SURFACE_PREDICTION_FIELDS), body['body_id']
+    assert body['prediction_reason'], body['body_id']
 
 
 @pytest.mark.asyncio
@@ -236,6 +247,7 @@ async def test_plan_bodies_match_canonical_membership_and_facts(pool, system_id)
     assert result['economy_facts_generation_id'] == str(derived_generation)
     bodies = result['bodies']
     assert result['belts'] == [dict(row) for row in expected_belts]
+    assert all('predicted_surface_slots' not in belt for belt in result['belts'])
     assert {belt['belt_id'] for belt in result['belts']}.isdisjoint(
         str(row['ring_pk']) for row in ring_rows if row['kind'] == 'RING')
     if system_id == SOL:
@@ -275,6 +287,42 @@ async def test_plan_bodies_match_canonical_membership_and_facts(pool, system_id)
         counts = expected_signals.get(expected['body_pk'], {})
         assert body['geological_signals'] == counts.get('Geological', 0)
         assert body['biological_signals'] == counts.get('Biological', 0)
+        # Build the oracle from raw canonical rows, not the response or the
+        # route adapter. The canonical predictor remains the only formula.
+        assert 'predicted_orbital_slots' not in body
+        if body['body_type'] != 'planet' or expected['is_landable'] is False:
+            _assert_surface_prediction_unavailable(body)
+            continue
+        assert facts is not None
+        atmosphere_id = expected['atmosphere_classification_id']
+        terraform_id = expected['terraforming_state_id']
+        volcanism_id = expected['volcanism_type_id']
+        prediction = predict_body_slots({
+            'system_address': system_id,
+            'body_id': expected['body_pk'],
+            'body_name': expected['name'],
+            'is_landable': expected['is_landable'],
+            'radius': expected['radius_km'] * 1000 if expected['radius_km'] is not None else None,
+            'surface_temp': expected['surface_temperature_k'],
+            'gravity': expected['surface_gravity_g'],
+            'atmosphere': vocabulary['atmosphere_classification_id'].get(atmosphere_id),
+            'planet_class': facts['body_class'],
+            'terraform_state': vocabulary['terraforming_state_id'].get(terraform_id),
+            'volcanism': vocabulary['volcanism_type_id'].get(volcanism_id),
+            'geo_signal_count': counts.get('Geological', 0),
+            'bio_signal_count': counts.get('Biological', 0),
+        })
+        assert body['predicted_surface_slots'] == prediction.predicted_ground_slots
+        assert body['prediction_version'] == prediction.prediction_version == PREDICTION_VERSION
+        assert body['prediction_status'] == prediction.prediction_status
+        assert body['missing_inputs'] == sorted(prediction.required_input_missing)
+        if prediction.prediction_status == 'unknown':
+            assert body['prediction_reason']
+        else:
+            assert body['prediction_reason'] is None
+    if system_id == MAIA:
+        assert any(body['prediction_status'] == 'predicted' for body in bodies)
+        assert any(body['prediction_status'] == 'unknown' for body in bodies)
     for column in vocabulary:
         assert any(row[column] is None for row in expected_bodies), column
         assert any(row[column] is not None for row in expected_bodies), column
@@ -291,6 +339,68 @@ async def test_plan_bodies_match_canonical_membership_and_facts(pool, system_id)
     active_kinds = {economy_kind(row['body_class'], row['spectral_class']) for row in active_mechanics}
     for kind in ('black_hole', 'white_dwarf', 'neutron_star'):
         assert result[f'has_{kind}'] is (kind in active_kinds)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(('body_type', 'landable'), (
+    (None, False), (None, None), ('barycentre', True), ('belt_cluster', True),
+), ids=('non-landable', 'unknown-landability', 'barycentre', 'belt-cluster'))
+async def test_plan_surface_prediction_excludes_ineligible_bodies(pool, body_type, landable):
+    publication = await _published(pool)
+    schema = publication['relation_schema']
+    original = await pool.fetchrow(
+        f'''SELECT body_pk, body_type_id, is_landable FROM {schema}.bodies
+             WHERE system_id64=$1 AND is_landable IS TRUE
+               AND atmosphere_classification_id IS NOT NULL
+             ORDER BY body_pk LIMIT 1''', MAIA)
+    assert original is not None
+    type_id = (await pool.fetchval(
+        'SELECT body_type_id FROM v3_vocab.body_type WHERE public_code=$1', body_type)
+        if body_type is not None else original['body_type_id'])
+    assert type_id is not None
+    try:
+        # Exercise inconsistent upstream flags too: a barycentre/belt cluster
+        # must not become a surface prediction simply because landable is true.
+        await pool.execute(
+            f'UPDATE {schema}.bodies SET body_type_id=$2,is_landable=$3 WHERE body_pk=$1',
+            original['body_pk'], type_id, landable)
+        async with _client(pool) as client:
+            response = await client.get(f'/api/v1/plan/systems/{MAIA}/bodies')
+        assert response.status_code == 200, response.text
+        body = next(body for body in response.json()['bodies']
+                    if body['body_id'] == str(original['body_pk']))
+        if landable is None:
+            assert body['predicted_surface_slots'] is None
+            assert body['prediction_version'] == PREDICTION_VERSION
+            assert body['prediction_status'] == 'unknown'
+            assert body['missing_inputs'] == ['is_landable']
+            assert body['prediction_reason']
+        else:
+            _assert_surface_prediction_unavailable(body)
+    finally:
+        await pool.execute(
+            f'UPDATE {schema}.bodies SET body_type_id=$2,is_landable=$3 WHERE body_pk=$1',
+            original['body_pk'], original['body_type_id'], original['is_landable'])
+
+
+@pytest.mark.asyncio
+async def test_plan_answer_key_fixture_keeps_missing_atmospheres_unknown(pool):
+    # The retained August canonical/September subtype fixture includes all 24
+    # landable bodies, but every atmosphere is NULL. The October 31 evidence
+    # records counts and rounded radii, not a complete physical-input fixture.
+    # Do not invent "No atmosphere" to replay its 24/24 surface-count result.
+    async with _client(pool) as client:
+        response = await client.get(f'/api/v1/plan/systems/{PRAEA_EUQ}/bodies')
+    assert response.status_code == 200, response.text
+    landable = [body for body in response.json()['bodies'] if body['is_landable']]
+    assert len(landable) == 24
+    for body in landable:
+        assert body['atmosphere'] is None
+        assert body['predicted_surface_slots'] is None
+        assert body['prediction_version'] == PREDICTION_VERSION
+        assert body['prediction_status'] == 'unknown'
+        assert body['missing_inputs'] == ['atmosphere']
+        assert body['prediction_reason']
 
 
 @pytest.mark.asyncio
@@ -402,6 +512,8 @@ async def test_plan_bodies_without_published_economy_preserve_canonical_facts():
             assert response.status_code == 200, response.text
             result = response.json()
             _assert_economy_unavailable(result)
+            for body in result['bodies']:
+                _assert_surface_prediction_unavailable(body)
 
             generation = _publish_economy_facts(conn, canonical, payloads)
             published_response = await client.get(f'/api/v1/plan/systems/{SOL}/bodies')
@@ -428,6 +540,8 @@ async def test_plan_bodies_with_retired_economy_generation_preserve_canonical_fa
         assert response.status_code == 200, response.text
         result = response.json()
         _assert_economy_unavailable(result)
+        for body in result['bodies']:
+            _assert_surface_prediction_unavailable(body)
         assert _canonical_fields(result) == _canonical_fields(before.json())
     finally:
         await pool.execute(
@@ -486,6 +600,8 @@ async def test_plan_bodies_with_stale_economy_generation_preserve_canonical_fact
         assert current_derived['canonical_generation_id'] == publication['generation_id']
         assert current_derived['lifecycle_state'] == 'PUBLISHED'
         _assert_economy_unavailable(result)
+        for body in result['bodies']:
+            _assert_surface_prediction_unavailable(body)
         expected = _canonical_fields(before.json())
         expected.update(generation_id=str(replacement),
                         publication_sequence=str(publication['publication_sequence'] + 1))

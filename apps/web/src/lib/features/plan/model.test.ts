@@ -171,6 +171,70 @@ describe('planner persistence codec', () => {
 });
 
 describe('planner request and slots', () => {
+  it('uses the API surface prediction in display, evaluation and free-slot selection without saving it', () => {
+    const data = bodies();
+    Object.assign(data.bodies[0], {
+      predicted_surface_slots: 5,
+      prediction_status: 'predicted',
+    });
+    const model = emptyPlan('42');
+    expect(locationSlots(model, data, '1')).toEqual({
+      orbital_slots: null,
+      surface_slots: 5,
+    });
+    expect(toPlanRequest(model, data).bodies?.[0]).toMatchObject({
+      orbital_slots: null,
+      surface_slots: 5,
+    });
+    expect(
+      findFreeLocation(
+        model,
+        resolvePlanLocations(data),
+        { allowed_location: 'surface' } as PlanFacilityV1,
+        data,
+      ),
+    ).toBe('1');
+    expect(model.slots).toEqual({});
+    expect(
+      plannerToRecord(model).selected_body_assignments.cpe_slots_v1,
+    ).toEqual({});
+  });
+
+  it.each([0, 7])(
+    'uses entered surface count %s ahead of a prediction and restores the prediction when cleared',
+    (count) => {
+      const data = bodies();
+      Object.assign(data.bodies[0], {
+        predicted_surface_slots: 5,
+        prediction_status: 'predicted',
+      });
+      const model = setSlotCount(emptyPlan('42'), '1', 'surface', count);
+      expect(locationSlots(model, data, '1')?.surface_slots).toBe(count);
+      expect(toPlanRequest(model, data).bodies?.[0].surface_slots).toBe(count);
+      const cleared = setSlotCount(model, '1', 'surface', null);
+      expect(locationSlots(cleared, data, '1')?.surface_slots).toBe(5);
+      expect(toPlanRequest(cleared, data).bodies?.[0].surface_slots).toBe(5);
+      expect(cleared.slots['1'].surface_slots).toBeNull();
+    },
+  );
+
+  it.each([
+    { prediction_status: 'unknown', predicted_surface_slots: null },
+    { prediction_status: null, predicted_surface_slots: null },
+    { prediction_status: 'unknown', predicted_surface_slots: 5 },
+    {
+      prediction_status: 'predicted',
+      predicted_surface_slots: 5,
+      is_landable: false,
+    },
+  ])('keeps unknown or unavailable predictions unknown: %j', (prediction) => {
+    const data = bodies();
+    Object.assign(data.bodies[0], prediction);
+    const model = emptyPlan('42');
+    expect(locationSlots(model, data, '1')).toBeUndefined();
+    expect(toPlanRequest(model, data).bodies?.[0].surface_slots).toBeNull();
+  });
+
   it('passes published body and belt economy facts through to evaluation', () => {
     const data = bodies();
     data.economy_facts_generation_id = 'derived-fixture';

@@ -15,6 +15,7 @@
     countLocationSlots,
     locationSlots,
     MAX_SITES,
+    surfaceSlotPrediction,
     type PlannerModel,
     type PlannerSite,
   } from './model';
@@ -215,7 +216,8 @@
     >
   </div>
   <p class="plan-muted">
-    Slots are entered by you. Unknown totals are shown as ?.
+    Surface slots are predicted unless entered by you. Enter orbital slots from
+    Architect Mode. Unknown totals are shown as ?.
   </p>
   <ul class="plan-body-tree">
     {#each tree as location (location.body_ref)}
@@ -267,6 +269,10 @@
                   kind="surface"
                   used={used.surface_slots}
                   value={slots?.surface_slots ?? null}
+                  source={model.slots[location.body_ref]?.surface_slots != null
+                    ? 'entered by you'
+                    : 'predicted'}
+                  prediction={surfaceSlotPrediction(location.body)}
                   disabled={location.is_landable === false}
                   onchange={(value) =>
                     onslot(location.body_ref, 'surface', value)}
@@ -355,7 +361,7 @@
     flex-wrap: nowrap;
     gap: 0.25rem;
     min-width: 0;
-    height: 32px;
+    min-height: 32px;
   }
   .body-disc {
     display: inline-block;

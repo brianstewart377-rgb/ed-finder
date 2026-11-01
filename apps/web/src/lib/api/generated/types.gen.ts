@@ -5081,6 +5081,26 @@ export type PlanSystemBodyV1 = {
      * Terraformable
      */
     terraformable?: boolean | null;
+    /**
+     * Predicted Surface Slots
+     */
+    predicted_surface_slots?: number | null;
+    /**
+     * Prediction Version
+     */
+    prediction_version?: string | null;
+    /**
+     * Prediction Status
+     */
+    prediction_status?: 'predicted' | 'unknown' | null;
+    /**
+     * Missing Inputs
+     */
+    missing_inputs?: Array<string> | null;
+    /**
+     * Prediction Reason
+     */
+    prediction_reason?: string | null;
 };
 
 /**

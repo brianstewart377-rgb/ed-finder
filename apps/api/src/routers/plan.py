@@ -35,6 +35,10 @@ from edfinder_api.routers.plan_economy_facts import (
     economy_kind,
     economy_topology,
 )
+from edfinder_api.routers.plan_slot_predictions import (
+    predict_surface_slots,
+    prediction_generation_reason,
+)
 from edfinder_api.routers.v3 import (
     SystemId,
     _bounded,
@@ -96,6 +100,11 @@ class PlanSystemBodyV1(PlanModel):
     tidally_locked: bool | None = None
     volcanism_present: bool | None = None
     terraformable: bool | None = None
+    predicted_surface_slots: int | None = None
+    prediction_version: str | None = None
+    prediction_status: Literal['predicted', 'unknown'] | None = None
+    missing_inputs: list[str] | None = None
+    prediction_reason: str | None = None
 
 
 class PlanSystemBeltV1(PlanModel):
@@ -397,8 +406,9 @@ async def bodies(
     reserve_level = None
     economy_notes = []
     active_kinds = set()
-    if (published is not None
-            and str(published["canonical_generation_id"]) == generation.generation_id):
+    generation_reason = prediction_generation_reason(generation.generation_id, published)
+    if generation_reason is None:
+        assert published is not None
         facts_generation_id = published["derived_generation_id"]
         mechanics_rows = await _bounded(pool.fetch("""
             SELECT body_pk,body_class,spectral_class,luminosity_class,volcanism,
@@ -454,6 +464,9 @@ async def bodies(
             tidally_locked=mechanics["tidally_locked"] if mechanics is not None else None,
             volcanism_present=mechanics["volcanism"] if mechanics is not None else None,
             terraformable=mechanics["terraformable"] if mechanics is not None else None,
+            **asdict(predict_surface_slots(
+                row, mechanics, signal, generation_reason=generation_reason,
+            )),
         ))
     return PlanBodiesV1(
         generation_id=generation.generation_id,
