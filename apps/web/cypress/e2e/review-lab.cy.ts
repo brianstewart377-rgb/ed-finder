@@ -212,15 +212,25 @@ describe('isolated V3 Review Lab', () => {
       cy.get(selectedMarkerSelector, { timeout: 20_000 }).should('be.visible');
     };
 
+    let anchorAutocompleteCount = 0;
+    const chooseReviewAnchor = () => {
+      const autocompleteAlias = `anchorAutocomplete${++anchorAutocompleteCount}`;
+      cy.intercept('GET', '/api/local/autocomplete*').as(autocompleteAlias);
+      cy.get('#system-search').clear().type(REVIEW_SYSTEM.name);
+      cy.wait(`@${autocompleteAlias}`)
+        .its('response.statusCode')
+        .should('eq', 200);
+      cy.contains('[role="option"]', REVIEW_SYSTEM.name).click();
+    };
+
     let selectionSearchCount = 0;
     const establishSelectedSystem = () => {
       // Earlier intercepts also observe later flows, so each call needs a fresh alias.
       const selectionSearchAlias = `selectionSearch${++selectionSearchCount}`;
       setReviewMode('normal');
       cy.intercept('POST', '/api/local/search').as(selectionSearchAlias);
-      cy.visit(`/explore?selected=${REVIEW_SYSTEM.id64}`, {
-        onBeforeLoad: instrumentWindow,
-      });
+      cy.visit('/explore', { onBeforeLoad: instrumentWindow });
+      chooseReviewAnchor();
       cy.wait(`@${selectionSearchAlias}`)
         .its('response.statusCode')
         .should('eq', 200);
@@ -235,6 +245,7 @@ describe('isolated V3 Review Lab', () => {
       setReviewMode('normal');
       cy.intercept('POST', '/api/local/search').as('wiringSearch');
       cy.visit('/explore', { onBeforeLoad: instrumentWindow });
+      chooseReviewAnchor();
       cy.wait('@wiringSearch').its('response.statusCode').should('eq', 200);
       cy.get(`[data-system-result="${REVIEW_SYSTEM.id64}"]`).should(
         'contain.text',
@@ -330,7 +341,7 @@ describe('isolated V3 Review Lab', () => {
       });
       setReviewMode('rankings_empty_results');
       cy.intercept('GET', '/api/archetypes/rankings*').as('emptyRankings');
-      cy.visit('/explore?archetype=flexible', {
+      cy.visit('/explore?archetype=flexible&page_size=1', {
         onBeforeLoad: instrumentWindow,
       });
       cy.wait('@emptyRankings').then(({ response }) => {
@@ -379,7 +390,9 @@ describe('isolated V3 Review Lab', () => {
       });
       setReviewMode('empty_results');
       cy.intercept('POST', '/api/local/search').as('emptySearch');
-      cy.visit('/explore', { onBeforeLoad: instrumentWindow });
+      // Explicit Finder state requests results without selecting an anchor:
+      // the synthetic empty response must still prove a zero-target scene.
+      cy.visit('/explore?page_size=1', { onBeforeLoad: instrumentWindow });
       cy.wait('@emptySearch').its('response.statusCode').should('eq', 200);
       cy.contains('No systems match this discovery area.').should('be.visible');
       cy.get(readySelector, { timeout: 20_000 }).should('be.visible');
@@ -404,6 +417,7 @@ describe('isolated V3 Review Lab', () => {
       setReviewMode('normal');
       cy.intercept('POST', '/api/local/search').as('rendererSearch');
       cy.visit('/explore', { onBeforeLoad: instrumentWindow });
+      chooseReviewAnchor();
       cy.wait('@rendererSearch').its('response.statusCode').should('eq', 200);
       cy.get(`[data-system-result="${REVIEW_SYSTEM.id64}"]`).should(
         'contain.text',

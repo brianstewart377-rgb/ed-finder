@@ -170,13 +170,14 @@ def test_review_collector_preserves_url_selection_and_checks_both_failure_tags()
     assert "expect(isExpectedReviewFailure(503, 'unknown-failure')).to.equal(false)" in collector
     assert 'expectedFailure: isExpectedReviewFailure(' in collector
     assert "response.headers['x-edfinder-review-failure']" in collector
-    assert 'cy.visit(`/explore?selected=${REVIEW_SYSTEM.id64}`' in collector
+    assert 'cy.visit(`/explore?selected=${REVIEW_SYSTEM.id64}`' not in collector
+    assert 'chooseReviewAnchor();' in collector
     assert 'localStorage.setItem(selectedStorageKey' not in collector
     assert 'data-map-label-selected="true"' in collector
     assert "getAll('selected')).to.deep.equal([" in collector
 
 
-def test_review_collector_uses_a_fresh_selection_search_alias_per_call():
+def test_review_collector_uses_fresh_search_and_autocomplete_aliases_per_call():
     collector = read('apps/web/cypress/e2e/review-lab.cy.ts')
     before_helper, declaration, remainder = collector.partition('const establishSelectedSystem = () => {')
     assert declaration
@@ -192,7 +193,22 @@ def test_review_collector_uses_a_fresh_selection_search_alias_per_call():
     assert alias in helper
     assert intercept in helper
     assert wait in helper
-    assert helper.index(alias) < helper.index(intercept) < helper.index(wait)
+    choose = 'chooseReviewAnchor();'
+    assert helper.index(alias) < helper.index(intercept) < helper.index(choose) < helper.index(wait)
+
+    before_autocomplete, declaration, remainder = collector.partition('const chooseReviewAnchor = () => {')
+    assert declaration
+    autocomplete, closing, _ = remainder.partition('\n    };')
+    assert closing
+    assert 'let anchorAutocompleteCount = 0;' in before_autocomplete
+    assert collector.count('anchorAutocompleteCount = 0') == 1
+    alias = 'const autocompleteAlias = `anchorAutocomplete${++anchorAutocompleteCount}`;'
+    intercept = "cy.intercept('GET', '/api/local/autocomplete*').as(autocompleteAlias);"
+    wait = 'cy.wait(`@${autocompleteAlias}`)'
+    assert alias in autocomplete
+    assert intercept in autocomplete
+    assert wait in autocomplete
+    assert autocomplete.index(alias) < autocomplete.index(intercept) < autocomplete.index(wait)
 
 
 @pytest.mark.parametrize('flow,check', [

@@ -34,6 +34,14 @@ fixture explanation, compares stored scores and tiers, and checks accessibility.
 Browser and visual acceptance, the owner's enablement decision (F4 design
 question 3), and the governed release still remain before the flag may be enabled.
 
+## 2026-11-01 — Explore waits for a requested search
+
+Fresh Explore visits now show “Systems” and an invitation to choose a system,
+without requesting results or adding result markers. Choosing an anchor loads
+nearby systems; clearing it removes the previous list. Galaxy layers and saved
+systems remain available. Restored anchors and explicit Finder links still load
+results, as do archetype rankings behind the existing default-off F4 flag.
+
 ## 2026-11-01 — Colony Planner S3b: surface slot predictions
 
 The planner bodies route now returns surface slot predictions from the canonical

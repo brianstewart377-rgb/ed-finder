@@ -370,14 +370,13 @@ describe('ExploreWorkspace Finder F4 gate (default off)', () => {
     expect(FINDER_F4_ENABLED).toBe(false);
   });
 
-  it("replace-strips a hand-authored archetype URL, never calls rankings, issues exactly today's request and renders no ranking UI", async () => {
+  it('replace-strips a hand-authored archetype URL without requesting results or rendering ranking UI', async () => {
     mockedPage.url = new URL(
       'http://localhost/explore?archetype=flexible&min-tier=A&page_size=1&offset=1&selected=9007199254740993&system=158872029&view=cards#results',
     );
 
     render(ExploreWorkspaceTestHost);
 
-    await waitFor(() => expect(api.searchExploreSystems).toHaveBeenCalled());
     await waitFor(() => expect(mockedGoto).toHaveBeenCalledTimes(1));
 
     // F4 parameters are stripped by replacement; `selected`, `system` and
@@ -387,22 +386,16 @@ describe('ExploreWorkspace Finder F4 gate (default off)', () => {
       { replaceState: true, noScroll: true, keepFocus: true },
     );
 
-    // The rankings facade is unreachable and the local-search body is exactly
-    // today's unanchored request: no tier floor, no codec-driven size/from.
+    // Disabled F4 parameters cannot activate either results endpoint.
     expect(api.getArchetypeRankings).not.toHaveBeenCalled();
     expect(api.getArchetypeExplanation).not.toHaveBeenCalled();
     expect(
       document.querySelector('[data-archetype-explanation-toggle]'),
     ).not.toBeInTheDocument();
-    expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(api.searchExploreSystems).mock.calls[0]?.[0]).toEqual({
-      galaxy_wide: true,
-      sort_by: 'development',
-      size: 24,
-      from: 0,
-    });
-    // Unanchored: no distance reference is supplied to the facade.
-    expect(vi.mocked(api.searchExploreSystems).mock.calls[0]?.[2]).toBeNull();
+    expect(api.searchExploreSystems).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole('heading', { name: 'Systems' }),
+    ).toBeInTheDocument();
 
     expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/minimum tier/i)).not.toBeInTheDocument();
@@ -419,8 +412,8 @@ describe('ExploreWorkspace Finder F4 gate (default off)', () => {
 
     render(ExploreWorkspaceTestHost);
 
-    await waitFor(() => expect(api.searchExploreSystems).toHaveBeenCalled());
     await screen.findByText(/exact stars/);
+    expect(api.searchExploreSystems).not.toHaveBeenCalled();
     expect(mockedGoto).not.toHaveBeenCalled();
   });
 });
@@ -609,6 +602,183 @@ async function expectPage(index: number): Promise<void> {
   );
 }
 
+const emptyResultsPrompt = 'Search for a system above to see what is near it.';
+
+function expectEmptyResults(): void {
+  expect(screen.getByRole('heading', { name: 'Systems' })).toBeInTheDocument();
+  expect(screen.getByText(emptyResultsPrompt)).toBeInTheDocument();
+  expect(
+    screen.queryByRole('list', { name: 'System results' }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole('button', { name: /^(Pin|Compare|Watch) Ranked/ }),
+  ).not.toBeInTheDocument();
+  const finder = currentScene().contributions.find(
+    ({ id }) => id === 'finder-results',
+  );
+  expect(finder?.layers.every((layer) => layer.targetCount === 0)).toBe(true);
+}
+
+describe.each([false, true])(
+  'ExploreWorkspace search intent (F4=%s)',
+  (enabled) => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      queryClient.clear();
+      localStorage.clear();
+      stubRuntime();
+      mockFacadeDefaults();
+      featureGate.enabled = enabled;
+      mockRankedPages();
+      vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
+      vi.mocked(api.autocompleteSystems).mockResolvedValue({
+        results: [anchorA],
+      });
+    });
+
+    afterEach(() => {
+      cleanup();
+      featureGate.enabled = false;
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    });
+
+    it('starts empty without requesting results, even with cached rows and catalogue stars', async () => {
+      const request = {
+        galaxy_wide: true,
+        sort_by: 'development' as const,
+        size: enabled ? 50 : 24,
+        from: 0,
+      };
+      queryClient.setQueryData(
+        queryKeys.explore(request, null, enabled ? 50 : null),
+        finderPage(0, request.size),
+      );
+      vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue({
+        systems: [
+          {
+            id64: anchorA.id64,
+            name: anchorA.name,
+            x: 10,
+            y: 20,
+            z: 30,
+            mainStarClass: 'G',
+            populated: false,
+          },
+        ],
+        truncated: false,
+      });
+      renderEnabled('');
+
+      await screen.findByText(/2 density cells/);
+      await waitFor(() => expect(currentScene()).toBeDefined());
+      expectEmptyResults();
+      expect(api.getCatalogueViewportSystems).toHaveBeenCalled();
+      expect(api.searchExploreSystems).not.toHaveBeenCalled();
+      expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+      expect(
+        screen.queryByText(
+          /Searching systems|Building a real-system shortlist/,
+        ),
+      ).not.toBeInTheDocument();
+    });
+
+    it('loads nearby results only after an autocomplete anchor is chosen, then clears rows and markers', async () => {
+      renderEnabled('');
+      const input = screen.getByRole('combobox', { name: 'System name' });
+      await fireEvent.input(input, { target: { value: 'Anchor' } });
+      const option = await screen.findByRole('option', { name: /Anchor A/ });
+      expect(api.searchExploreSystems).not.toHaveBeenCalled();
+      await fireEvent.click(option);
+      await screen.findByText('Ranked 1');
+      expect(
+        screen.getByRole('heading', { name: 'Near Anchor A' }),
+      ).toBeInTheDocument();
+      expect(vi.mocked(api.searchExploreSystems).mock.calls[0][0]).toEqual({
+        reference_coords: { x: 10, y: 20, z: 30 },
+        filters: { distance: { min: 0, max: 500 }, economy: 'any' },
+        sort_by: 'distance',
+        size: enabled ? 50 : 24,
+        from: 0,
+      });
+      await waitFor(() =>
+        expect(scenePointIds()).toContain(rankedRows[0].id64),
+      );
+      const calls = vi.mocked(api.searchExploreSystems).mock.calls.length;
+      await fireEvent.input(input, { target: { value: '' } });
+      await waitFor(expectEmptyResults);
+      expect(api.searchExploreSystems).toHaveBeenCalledTimes(calls);
+      expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+    });
+
+    it('loads an anchor restored from page state and reacts to history restoring or clearing it', async () => {
+      const history = renderEnabled('', { anchor: anchorA });
+      await screen.findByText('Ranked 1');
+      expect(
+        screen.getByRole('heading', { name: 'Near Anchor A' }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('combobox', { name: 'System name' })).toHaveValue(
+        'Anchor A',
+      );
+      history.restore('', { anchor: anchorB });
+      await waitFor(() =>
+        expect(
+          vi.mocked(api.searchExploreSystems).mock.lastCall?.[0]
+            .reference_coords,
+        ).toEqual({ x: -10, y: -20, z: -30 }),
+      );
+      expect(
+        screen.getByRole('heading', { name: 'Near Anchor B' }),
+      ).toBeInTheDocument();
+      history.restore('', {});
+      await waitFor(expectEmptyResults);
+      expect(api.searchExploreSystems).toHaveBeenCalledTimes(2);
+      expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+    });
+
+    it('removes catalogue fallback result markers when cleared before the response arrives', async () => {
+      let finish!: (page: ReturnType<typeof finderPage>) => void;
+      vi.mocked(api.searchExploreSystems).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue({
+        systems: [{ ...anchorA, populated: false }],
+        truncated: false,
+      });
+      renderEnabled('', { anchor: anchorA });
+      await waitFor(() =>
+        expect(api.searchExploreSystems).toHaveBeenCalledTimes(1),
+      );
+      await waitFor(() =>
+        expect(api.getCatalogueViewportSystems).toHaveBeenCalled(),
+      );
+      await waitFor(() => expect(currentScene()).toBeDefined());
+      if (!enabled) {
+        await waitFor(() =>
+          expect(
+            currentScene().contributions.find(
+              ({ id }) => id === 'finder-results',
+            )?.layers[0].targetCount,
+          ).toBe(1),
+        );
+      }
+      await fireEvent.input(
+        screen.getByRole('combobox', { name: 'System name' }),
+        { target: { value: '' } },
+      );
+      await waitFor(expectEmptyResults);
+      finish(finderPage(0, enabled ? 50 : 24));
+      await tick();
+      expectEmptyResults();
+      expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
+      expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+    });
+  },
+);
+
 describe('ExploreWorkspace enabled Finder ranking surface', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -640,6 +810,150 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it.each([
+    'offset=1',
+    'offset=0',
+    'min-tier=A',
+    'page_size=2',
+    'archetype=any',
+  ])(
+    'loads an explicit Finder deep link without an anchor: %s',
+    async (query) => {
+      renderEnabled(query);
+      await waitFor(() =>
+        expect(api.searchExploreSystems).toHaveBeenCalledTimes(1),
+      );
+      expect(
+        vi.mocked(api.searchExploreSystems).mock.calls[0][0],
+      ).toMatchObject({ galaxy_wide: true });
+      expect(
+        screen.getByRole('heading', { name: 'Galaxy-wide opportunities' }),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(emptyResultsPrompt)).not.toBeInTheDocument();
+      expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+    },
+  );
+
+  it('loads an archetype deep link immediately without an anchor', async () => {
+    renderEnabled('archetype=manufacturing_hub&min-tier=A');
+    await screen.findByText('Ranked 1');
+    expect(api.getArchetypeRankings).toHaveBeenCalledWith(
+      {
+        archetype: 'manufacturing_hub',
+        min_score: 76,
+        page_size: 50,
+        offset: 0,
+      },
+      expect.anything(),
+    );
+    expect(api.searchExploreSystems).not.toHaveBeenCalled();
+  });
+
+  it('keeps an offset-only deep link active when its last-page correction removes the offset', async () => {
+    renderEnabled('offset=9');
+    await screen.findByText('Ranked 1');
+    expect(mockedPage.url.search).toBe('');
+    expect(
+      vi
+        .mocked(api.searchExploreSystems)
+        .mock.calls.map(([request]) => request.from),
+    ).toEqual([9, 0]);
+    expect(
+      screen.getByRole('heading', { name: 'Galaxy-wide opportunities' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(emptyResultsPrompt)).not.toBeInTheDocument();
+    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+  });
+
+  it('keeps results when Previous removes the last Finder URL parameter', async () => {
+    renderEnabled('offset=1');
+    await screen.findByText('Ranked 2');
+    await fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
+    await screen.findByText('Ranked 1');
+    expect(mockedPage.url.search).toBe('');
+    expect(
+      vi
+        .mocked(api.searchExploreSystems)
+        .mock.calls.map(([request]) => request.from),
+    ).toEqual([1, 0]);
+    expect(screen.queryByText(emptyResultsPrompt)).not.toBeInTheDocument();
+    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+  });
+
+  it('loads galaxy-wide rankings when an archetype is chosen and returns to empty on Any', async () => {
+    renderEnabled('');
+    await waitFor(() => expect(currentScene()).toBeDefined());
+    expectEmptyResults();
+    expect(api.searchExploreSystems).not.toHaveBeenCalled();
+    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+    await fireEvent.click(
+      screen.getByRole('radio', { name: 'Manufacturing Hub' }),
+    );
+    await screen.findByText('Ranked 1');
+    expect(
+      screen.getByRole('heading', {
+        name: 'Galaxy-wide Manufacturing Hub ranking',
+      }),
+    ).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('radio', { name: 'Any' }));
+    await waitFor(expectEmptyResults);
+    expect(api.searchExploreSystems).not.toHaveBeenCalled();
+    expect(api.getArchetypeRankings).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the default Any anchor without another request and restores it with Back', async () => {
+    const history = renderEnabled('', { anchor: anchorA });
+    await screen.findByText('Ranked 1');
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Clear anchor Anchor A' }),
+    );
+    await waitFor(expectEmptyResults);
+    expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
+    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+    history.back();
+    await screen.findByText('Ranked 1');
+    expect(
+      screen.getByRole('heading', { name: 'Near Anchor A' }),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps the list empty when a cleared anchor request finishes late', async () => {
+    let finish!: (page: ReturnType<typeof finderPage>) => void;
+    vi.mocked(api.searchExploreSystems).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    renderEnabled('', { anchor: anchorA });
+    await waitFor(() =>
+      expect(api.searchExploreSystems).toHaveBeenCalledTimes(1),
+    );
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Clear anchor Anchor A' }),
+    );
+    await waitFor(expectEmptyResults);
+    finish(finderPage(0, 50));
+    await tick();
+    expectEmptyResults();
+    expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
+    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+  });
+
+  it('resolves a selection-only link without requesting a results list', async () => {
+    renderEnabled(`selected=${anchorA.id64}`);
+    await waitFor(() =>
+      expect(api.getSystem).toHaveBeenCalledWith(
+        anchorA.id64,
+        expect.anything(),
+      ),
+    );
+    await waitFor(() => expect(scenePointIds()).toContain(anchorA.id64));
+    expectEmptyResults();
+    expect(api.searchExploreSystems).not.toHaveBeenCalled();
+    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -808,7 +1122,7 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
       '/explore?page_size=1&offset=2&view=cards',
       expect.objectContaining({
         replaceState: true,
-        state: { anchor: anchorA },
+        state: { anchor: anchorA, finderRequested: true },
       }),
     );
     expect(
