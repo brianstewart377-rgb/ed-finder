@@ -44,19 +44,27 @@ function beltClusters(data: PlanBodiesV1, belt: PlanSystemBeltV1) {
     .sort((a, b) => a.number - b.number || a.order - b.order);
 }
 
+/** Every reference a saved site may use for this belt: its clusters, then the fallback. */
+export function beltAliases(
+  data: PlanBodiesV1,
+  belt: PlanSystemBeltV1,
+): string[] {
+  return [
+    ...beltClusters(data, belt).map(({ body }) => body.body_id),
+    `belt:${belt.belt_id}`,
+  ];
+}
+
 /** Active belts use one current cluster; non-current belts retain saved aliases. */
 export function beltBodyRefs(
   data: PlanBodiesV1,
   belt: PlanSystemBeltV1,
 ): string[] {
-  const clusters = beltClusters(data, belt);
-  const fallback = `belt:${belt.belt_id}`;
-  if (belt.lifecycle_state !== 'ACTIVE')
-    return [...clusters.map(({ body }) => body.body_id), fallback];
-  const representative = clusters.find(
+  if (belt.lifecycle_state !== 'ACTIVE') return beltAliases(data, belt);
+  const representative = beltClusters(data, belt).find(
     ({ body }) => body.lifecycle_state === 'ACTIVE',
   );
-  return [representative?.body.body_id ?? fallback];
+  return [representative?.body.body_id ?? `belt:${belt.belt_id}`];
 }
 
 export function nonCurrentLocation(

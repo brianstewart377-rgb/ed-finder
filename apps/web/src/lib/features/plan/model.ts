@@ -7,6 +7,7 @@ import type {
 import { parseId64 } from '$lib/domain/id64';
 import type { ColonyProjectRecord } from '$lib/persistence/storage';
 import {
+  beltAliases,
   beltBodyRefs,
   facilityFitsLocation,
   isBeltCluster,
@@ -187,16 +188,23 @@ export function toPlanRequest(
   if (model.system_id64 !== data.system_id64)
     throw new Error('Bodies belong to a different system.');
   const referenced = new Set(model.sites.map((site) => site.body_ref));
+  // A saved site may still use an alias the belt no longer selects, for
+  // example a cluster that has since been retired. It is still the belt, so
+  // it keeps the belt's evaluation properties (ringed, no surface).
   const belts = data.belts.map((belt) => ({
     belt,
     refs: beltBodyRefs(data, belt),
+    aliases: beltAliases(data, belt),
   }));
-  const beltRefs = new Set(belts.flatMap(({ refs }) => refs));
-  const evaluatedBelts = belts.flatMap(({ belt, refs }) =>
-    refs.filter(
-      (ref) => belt.lifecycle_state === 'ACTIVE' || referenced.has(ref),
+  const beltRefs = new Set(belts.flatMap(({ aliases }) => aliases));
+  const evaluatedBelts = [
+    ...new Set(
+      belts.flatMap(({ belt, refs, aliases }) => [
+        ...(belt.lifecycle_state === 'ACTIVE' ? refs : []),
+        ...aliases.filter((ref) => referenced.has(ref)),
+      ]),
     ),
-  );
+  ];
   return {
     system_id64: model.system_id64,
     bodies: [

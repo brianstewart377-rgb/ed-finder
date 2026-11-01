@@ -224,6 +224,30 @@ describe('planner request and slots', () => {
     ).toEqual(['1', '2', 'belt:10']);
   });
 
+  it('keeps belt evaluation properties for a saved site on a belt cluster the belt no longer selects', () => {
+    // Cluster 1 ('4') was the belt's location when the site was saved; it is
+    // now retired, so the active belt selects Cluster 8 ('3') instead. The
+    // saved asteroid base is still on the belt, so it must stay ringed.
+    const data = bodies();
+    data.bodies[3].lifecycle_state = 'RETIRED';
+    const model = plan(
+      site('port'),
+      site('base', { body_ref: '4', facility_id: 'asteroid_base' }),
+    );
+    const request = toPlanRequest(model, data);
+    const refs = request.bodies?.map(({ body_ref }) => body_ref) ?? [];
+    expect(refs).toEqual(['1', '2', '3', '4']);
+    expect(new Set(refs).size).toBe(refs.length);
+    for (const ref of ['3', '4'])
+      expect(request.bodies?.find(({ body_ref }) => body_ref === ref)).toEqual({
+        body_ref: ref,
+        orbital_slots: null,
+        surface_slots: 0,
+        is_landable: false,
+        is_ringed: true,
+      });
+  });
+
   it('sends all current locations and only site-referenced non-current bodies and belts, once per reference', () => {
     const data = bodies();
     data.bodies.push(
@@ -352,7 +376,8 @@ describe('planner request and slots', () => {
         plan(site('old-belt', { body_ref: '4' })),
         data,
       ).bodies?.map(({ body_ref }) => body_ref),
-    ).toEqual(['1', '2', '4', '3']);
+      // '4' is still the belt: it is sent as belt input, after the current one.
+    ).toEqual(['1', '2', '3', '4']);
     expect(
       toPlanRequest(emptyPlan('42'), data).bodies?.map(
         ({ body_ref }) => body_ref,
