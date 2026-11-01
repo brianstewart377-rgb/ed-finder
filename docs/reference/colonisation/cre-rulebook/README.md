@@ -4,7 +4,8 @@ This folder holds the colonisation rulebook published by the Colonisation
 Research Engine (CRE, repository `brianstewart377-rgb/elite-dangerous-research-engine`).
 Owner decision D1 (2026-10-21, [`docs/ROADMAP.md`](../../../ROADMAP.md)) makes the
 CRE a versioned rulebook that ED-Finder reads. This is the release ED-Finder
-currently reads.
+currently reads: `cre-knowledge-v0.5.0`, 29 rules, from immutable CRE commit
+`db7ee07066239382b030837337c90d0159152f89`.
 
 It is reference data. Being here does not change any score, mechanic or frozen
 ruleset. Rule changes are made in the CRE, approved by the owner, released under
@@ -15,11 +16,13 @@ a new tag, and then pinned here.
 | File | What it is |
 |---|---|
 | `rulebook.json` | A byte-for-byte copy of the CRE's `exports/rulebook.json` at the pinned commit. |
+| `apps/api/src/cpe/data/rulebook.json` (repository root) | Byte-identical runtime copy read by the pure CPE module. |
 | `pin.json` | The release name (`release_tag`, as written inside `rulebook.json`), the CRE commit the copy was taken from, the source path and the SHA-256 of `rulebook.json`. The commit is authoritative. |
 
 The SHA-256 in `pin.json` must match both this copy and the CRE's own
 `exports/export_manifest.json` at that commit. `tests/test_cre_rulebook_parity.py`
-refuses a copy that does not match its pin.
+refuses a copy that does not match its pin. `tests/test_cpe_rulebook_copy.py`
+also requires the runtime copy to match both the pin and these exact bytes.
 
 ## How to read a rule
 
@@ -64,7 +67,8 @@ for Ratings V4.1.
 
 1. In the CRE, merge the rule changes (and tag the release
    `cre-knowledge-vX.Y.Z`).
-2. Copy that commit's `exports/rulebook.json` here unchanged.
+2. Copy that commit's `exports/rulebook.json` here and to
+   `apps/api/src/cpe/data/rulebook.json` unchanged.
 3. Update `pin.json`: the release name, the CRE commit, and the SHA-256 from
    that commit's `exports/export_manifest.json` (check it with `sha256sum`).
 4. Update the SHA-256 in `assets/PROVENANCE.json`.
