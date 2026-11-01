@@ -16,6 +16,7 @@ from psycopg.conninfo import make_conninfo
 import pytest
 
 from tests import test_v3_purge_copy_and_drop as copy_tests
+from tests.helpers.purge_pg import connect, wait_for_backend_exit as _wait_for_backend_exit
 from tests.test_v3_purge_copy_and_drop import (
     _authorize, _owner, drop, events, finish, staged, state, swap, swap_back, validate, verify,
 )
@@ -39,17 +40,8 @@ PUBLICATION_TABLES = {'v3_meta.current_derived_generation', 'v3_meta.derived_gen
 
 
 def _connect(c, **kwargs):
-    return psycopg.connect(make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'],
-                                         dbname=c.info.dbname), **kwargs)
-
-
-def _wait_for_backend_exit(c, pid, timeout=10):
-    """Closing a client returns before the server ends its backend and drops its locks."""
-    deadline = time.monotonic() + timeout
-    while c.execute('SELECT 1 FROM pg_stat_activity WHERE pid=%s', (pid,)).fetchone():
-        if time.monotonic() >= deadline:
-            pytest.fail(f'backend {pid} still present {timeout} seconds after its client closed')
-        time.sleep(0.05)
+    return connect(make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'],
+                                 dbname=c.info.dbname), **kwargs)
 
 
 class Readers:
@@ -82,6 +74,8 @@ class Readers:
 
     def __exit__(self, *exc):
         self.stop.set()
+        # The shared connection helper waits for backend exit before the
+        # reader thread returns, including server-side rollback and lock release.
         for thread in self.threads:
             thread.join(60)
         assert not any(thread.is_alive() for thread in self.threads)

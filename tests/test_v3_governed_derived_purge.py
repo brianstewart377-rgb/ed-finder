@@ -33,7 +33,7 @@ from scripts.v3_system_search import (  # noqa: E402
 )
 from scripts.operator.lib import v3_purge_transactions as purge_transactions  # noqa: E402
 from scripts.operator.lib import v3_generation_purge as purge_operator  # noqa: E402
-from tests.ratings_v4_pg_fixture import canonical_database  # noqa: E402
+from tests.helpers.purge_pg import ClientCursor, canonical_database, connect, purge_guard_owner  # noqa: E402
 
 MIGRATIONS = ROOT / 'sql/v3/migrations'
 CHAIN = (
@@ -78,7 +78,7 @@ def installed_purge(connection, *, creator='superuser', apply_chain=False, appli
     assert connection.info.server_version >= 180000, 'purge validation requires PostgreSQL 18'
     base_dsn = os.environ['RATINGS_V4_VALIDATION_DATABASE_URL']
     cleanup_dsn = make_conninfo(base_dsn, dbname=connection.info.dbname)
-    lock_connection = psycopg.connect(base_dsn, autocommit=True)
+    lock_connection = connect(base_dsn, autocommit=True)
     lock_connection.execute('SELECT pg_advisory_lock(764016099)')
     created_application = False
     executor_was_absent = False
@@ -148,14 +148,14 @@ def installed_purge(connection, *, creator='superuser', apply_chain=False, appli
                 # adoption tests, the test administrator provisions a clean
                 # SET-only graph on this fixture-created role. Never repair
                 # an executor that already existed before this fixture.
-                with psycopg.connect(cleanup_dsn, autocommit=True) as administrator:
+                with connect(cleanup_dsn, autocommit=True) as administrator:
                     administrator.execute('REVOKE v3_derived_purge_executor FROM edfinder_v3 CASCADE')
                     administrator.execute(
                         'GRANT v3_derived_purge_executor TO edfinder_v3 WITH SET TRUE, INHERIT FALSE, ADMIN FALSE',
                     )
             test_password = uuid4().hex
             connection.execute(sql.SQL('ALTER ROLE edfinder_v3 PASSWORD {}').format(sql.Literal(test_password)))
-            application_connection = psycopg.connect(
+            application_connection = connect(
                 make_conninfo(cleanup_dsn, user=APPLICATION, password=test_password), autocommit=True,
             )
             # pg_stat_activity records the authenticated login. Close the
@@ -163,11 +163,12 @@ def installed_purge(connection, *, creator='superuser', apply_chain=False, appli
             # session beside the real application-role test connections.
             connection.close()
             connection = application_connection
-        yield connection
+        with purge_guard_owner(connection):
+            yield connection
     finally:
         if application_connection is not None:
             application_connection.close()
-            connection = psycopg.connect(cleanup_dsn, autocommit=True)
+            connection = connect(cleanup_dsn, autocommit=True)
         try:
             connection.rollback()
             connection.execute('RESET SESSION AUTHORIZATION')
@@ -211,6 +212,8 @@ def _suppress_fixture_automatic_maintenance(connection):
 
     Preserve the purge tables' unset autovacuum_enabled defaults so the fence
     restoration tests continue exercising the real unset and false cases.
+    Bound analyze/update-delete vacuum above the tiny fixture sizes and disable
+    insert-triggered vacuum on those heaps and their TOAST relations too.
     These fresh disposable tables cannot approach anti-wraparound thresholds.
     Migration/rewrite DDL also schedules maintenance of pg_class, pg_attribute
     and the other database-local catalogs. Suppressing only application tables
@@ -238,10 +241,12 @@ def _set_fixture_maintenance_options(connection):
             options = '''autovacuum_analyze_threshold=2147483647,
                 autovacuum_analyze_scale_factor=0,
                 autovacuum_vacuum_threshold=2147483647,
-                autovacuum_vacuum_scale_factor=0'''
+                autovacuum_vacuum_scale_factor=0,
+                autovacuum_vacuum_insert_threshold=-1'''
             if toast:
                 options += ''',toast.autovacuum_vacuum_threshold=2147483647,
-                    toast.autovacuum_vacuum_scale_factor=0'''
+                    toast.autovacuum_vacuum_scale_factor=0,
+                    toast.autovacuum_vacuum_insert_threshold=-1'''
         else:
             options = 'autovacuum_enabled=false'
             if toast:
@@ -252,15 +257,15 @@ def _set_fixture_maintenance_options(connection):
 
 
 def _wait_for_fixture_maintenance(connection):
-    # A worker already selected before its table's options changed is allowed
-    # to finish, never canceled. Retain 016's predicate and fail on a fixed
-    # deadline rather than retrying an arbitrary failed mutation.
+    # A worker selected before the reloptions changed can acquire an XID
+    # later. Wait for every automatic worker to leave, including those with
+    # no XID yet. Never cancel a worker or retry a failed purge mutation.
     deadline = monotonic() + 10
     while competing := connection.execute(
-        '''SELECT pid,backend_type,state,backend_xid::text,left(query,200)
+        '''SELECT pid,backend_type,state,backend_xid::text,xact_start,left(query,200)
            FROM pg_stat_activity
            WHERE datname=current_database() AND pid<>pg_backend_pid()
-             AND (backend_xid IS NOT NULL OR
+             AND (backend_type='autovacuum worker' OR backend_xid IS NOT NULL OR
                   (backend_type='client backend' AND state IS NULL))''',
     ).fetchall():
         if monotonic() >= deadline:
@@ -358,7 +363,7 @@ def test_full_manifest_before_and_after_purge_fixture_preserves_cluster_role():
     with canonical_database() as before:
         connection = before[0]
         # Hold the fixture's cluster-role lock across all three databases.
-        with psycopg.connect(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'], autocommit=True) as lock:
+        with connect(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'], autocommit=True) as lock:
             lock.execute('SELECT pg_advisory_lock(764016099)')
             created_executor = not connection.execute(
                 'SELECT 1 FROM pg_roles WHERE rolname=%s', (EXECUTOR,),
@@ -654,7 +659,7 @@ def _operator_query(connection, calls=None):
             calls.append({'write': write, 'statement': statement})
         results = []
         try:
-            with psycopg.ClientCursor(connection) as cursor:
+            with ClientCursor(connection) as cursor:
                 cursor.execute(statement, parameters)
                 while True:
                     if cursor.description is not None:
@@ -809,7 +814,7 @@ def test_status_relation_sql_isolates_access_exclusive_lock_timeout(database):
     query = _operator_query(connection)
     assert set(purge_operator.STATUS_RELATION_SQL) == set(RELATIONS)
     lock_dsn = make_conninfo(connection.info.dsn, password=connection.info.password)
-    with psycopg.connect(lock_dsn, autocommit=True) as rewrite:
+    with connect(lock_dsn, autocommit=True) as rewrite:
         # VACUUM FULL holds this same relation lock. A catalog-only status
         # observation must remain useful while its optional count probe waits.
         with rewrite.transaction():
@@ -894,7 +899,7 @@ def _fresh_purge_controller(connection):
         return
     app_dsn = make_conninfo(connection.info.dsn, password=connection.info.password)
     connection.close()
-    with psycopg.connect(app_dsn, autocommit=True) as controller:
+    with connect(app_dsn, autocommit=True) as controller:
         assert controller.execute('SHOW default_transaction_read_only').fetchone()[0] == 'on'
         controller.execute('SET ROLE v3_derived_purge_executor')
         controller.execute('SET default_transaction_read_only=off')
@@ -916,7 +921,7 @@ def _application_worker(connection):
                            dbname=connection.info.dbname, user=APPLICATION, password=test_password)
     connection.execute('SET ROLE v3_derived_purge_executor')
     try:
-        with psycopg.connect(app_dsn, autocommit=True) as worker:
+        with connect(app_dsn, autocommit=True) as worker:
             worker.execute('SET ROLE v3_derived_purge_executor')
             worker.execute('SET default_transaction_read_only=off')
             worker.execute("SET statement_timeout='20s'")
@@ -1253,7 +1258,7 @@ def test_writer_fence_recycles_pools_and_fresh_application_probes_match_restore(
         connection.execute('ALTER ROLE edfinder_v3 SET default_transaction_read_only=off')
     app_dsn = make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'],
                            dbname=connection.info.dbname, user=APPLICATION, password=test_password)
-    with psycopg.connect(app_dsn, autocommit=True) as old_pool:
+    with connect(app_dsn, autocommit=True) as old_pool:
         assert old_pool.execute('SHOW default_transaction_read_only').fetchone()[0] == 'off'
         connection.execute('SET ROLE v3_derived_purge_executor')
         connection.execute('SELECT v3_meta.purge_set_writer_fence(%s,true)', (purge_id,))
@@ -1261,7 +1266,7 @@ def test_writer_fence_recycles_pools_and_fresh_application_probes_match_restore(
                                   (purge_id,)).fetchone()[0] >= 1
         with pytest.raises(psycopg.OperationalError):
             old_pool.execute('SELECT 1')
-    with psycopg.connect(app_dsn, autocommit=True) as fenced_pool:
+    with connect(app_dsn, autocommit=True) as fenced_pool:
         observed = fenced_pool.execute('SHOW default_transaction_read_only').fetchone()[0]
         assert observed == 'on'
         connection.execute('SELECT v3_meta.purge_verify_writer_fence(%s,true,%s)', (purge_id, observed))
@@ -1270,7 +1275,7 @@ def test_writer_fence_recycles_pools_and_fresh_application_probes_match_restore(
                                   (purge_id,)).fetchone()[0] >= 1
         with pytest.raises(psycopg.OperationalError):
             fenced_pool.execute('SELECT 1')
-    with psycopg.connect(app_dsn, autocommit=True) as restored_pool:
+    with connect(app_dsn, autocommit=True) as restored_pool:
         observed = restored_pool.execute('SHOW default_transaction_read_only').fetchone()[0]
         assert observed == 'off'
         connection.execute('SELECT v3_meta.purge_verify_writer_fence(%s,false,%s)', (purge_id, observed))
@@ -1283,7 +1288,7 @@ def test_cancel_functions_refuse_an_unrelated_or_reused_backend(database, kind, 
     purge_id = _authorize(database)[TARGETS[0][1]]
     connection.execute('RESET ROLE')
     test_dsn = make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'], dbname=connection.info.dbname)
-    with psycopg.connect(test_dsn, autocommit=True) as unrelated:
+    with connect(test_dsn, autocommit=True) as unrelated:
         pid, started = unrelated.execute(
             'SELECT pid,backend_start FROM pg_stat_activity WHERE pid=pg_backend_pid()',
         ).fetchone()
@@ -1523,12 +1528,46 @@ def test_competing_transaction_with_an_assigned_xid_blocks_the_next_batch(databa
         connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)', (purge_id, 'system_search'))
         with _application_worker(connection) as writer:
             with writer.transaction():
-                writer.execute('SELECT pg_current_xact_id()')
-                with pytest.raises(psycopg.errors.RaiseException, match='competing writing transaction'):
+                xid = writer.execute('SELECT pg_current_xact_id()').fetchone()[0]
+                with pytest.raises(psycopg.errors.RaiseException, match='competing writing transaction') as refused:
                     with connection.transaction():
                         _start_batch(connection, purge_id, 'system_search')
+                # Evidence is captured before either transaction context unwinds;
+                # the guard's refusal and the intentional writer stay intact.
+                note = '\n'.join(refused.value.__notes__)
+                assert f"'pid': {writer.info.backend_pid}" in note
+                assert "'backend_type': 'client backend'" in note
+                assert "'state': 'idle in transaction'" in note
+                assert f"'backend_xid': '{xid}'" in note
+                assert "'xact_start':" in note
+                assert "'query': 'SELECT pg_current_xact_id()'" in note
         assert _count(connection, 'v3_derived.system_search', TARGETS[0][1]) == 12
         assert _batch(connection, purge_id, 'system_search', size=3) == 3
+
+
+def test_non_superuser_refusal_reports_hidden_administrator_activity():
+    with canonical_database() as data:
+        with installed_purge(data[0], creator='non_superuser', apply_chain=True) as connection:
+            purge_id = _authorize((connection, *data[1:]))[TARGETS[0][1]]
+            _writer_fence(connection, purge_id)
+            with _fresh_purge_controller(connection) as connection:
+                connection.execute('SELECT v3_meta.purge_set_relation_autovacuum(%s,%s,false)',
+                                   (purge_id, 'system_search'))
+                admin_dsn = make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'],
+                                         dbname=connection.info.dbname)
+                with connect(admin_dsn, autocommit=True) as opaque:
+                    opaque.execute('SELECT 42 /* intentionally opaque administrator */')
+                    with pytest.raises(psycopg.errors.RaiseException, match='competing writing transaction') as refused:
+                        with connection.transaction():
+                            _start_batch(connection, purge_id, 'system_search')
+                    guard, details = refused.value.__notes__
+                    assert f"'pid': {opaque.info.backend_pid}" in guard
+                    assert "'state': None" in guard
+                    assert f"'pid': {opaque.info.backend_pid}" in details
+                    assert "'state': 'idle'" in details
+                    assert 'SELECT 42 /* intentionally opaque administrator */' in details
+                assert _count(connection, 'v3_derived.system_search', TARGETS[0][1]) == 12
+                assert _batch(connection, purge_id, 'system_search', size=3) == 3
 
 
 def test_inactive_physical_replication_slot_refuses_phase_and_is_cleaned_up(database):
@@ -1537,7 +1576,7 @@ def test_inactive_physical_replication_slot_refuses_phase_and_is_cleaned_up(data
     slot_name = 'v3_purge_test_' + uuid4().hex
     # The administrator remains in the fixture's maintenance database, so it
     # cannot obscure the operating database's fail-closed session inspection.
-    with psycopg.connect(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'], autocommit=True) as slot_admin:
+    with connect(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'], autocommit=True) as slot_admin:
         created = False
         try:
             slot_admin.execute('SELECT pg_create_physical_replication_slot(%s,true)', (slot_name,))
@@ -1738,7 +1777,7 @@ def test_competing_spatial_lock_refuses_authorization(database):
     _seed(database)
     plan = _plan(connection)
     test_dsn = make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'], dbname=connection.info.dbname)
-    with psycopg.connect(test_dsn, autocommit=True) as competing:
+    with connect(test_dsn, autocommit=True) as competing:
         competing.execute('SELECT pg_advisory_lock(764004001)')
         connection.execute('SET ROLE v3_derived_purge_executor')
         with pytest.raises(psycopg.errors.RaiseException, match='competing'):
