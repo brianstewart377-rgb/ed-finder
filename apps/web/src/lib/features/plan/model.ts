@@ -7,8 +7,11 @@ import type {
 import { parseId64 } from '$lib/domain/id64';
 import type { ColonyProjectRecord } from '$lib/persistence/storage';
 import {
+  beltAliases,
+  beltBodyRefs,
   facilityFitsLocation,
   isBeltCluster,
+  nonCurrentLocation,
   resolvePlanLocations,
   type PlannerLocation,
 } from './locations';
@@ -184,14 +187,36 @@ export function toPlanRequest(
 ): PlanRequestV1 {
   if (model.system_id64 !== data.system_id64)
     throw new Error('Bodies belong to a different system.');
-  const belts = resolvePlanLocations(data).filter(
-    (location) => location.kind === 'belt',
-  );
+  const referenced = new Set(model.sites.map((site) => site.body_ref));
+  // A saved site may still use an alias the belt no longer selects, for
+  // example a cluster that has since been retired. It is still the same belt:
+  // every alias is evaluated as ONE belt location (the current reference for
+  // an active belt, else the first alias a site uses), so all its sites share
+  // one slot total and keep the belt's properties (ringed, no surface). Only
+  // the request is normalised; saved site references are never rewritten.
+  const evaluationRef = new Map<string, string>();
+  const evaluatedBelts: { body_ref: string }[] = [];
+  for (const belt of data.belts) {
+    const aliases = beltAliases(data, belt);
+    const canonical =
+      belt.lifecycle_state === 'ACTIVE'
+        ? beltBodyRefs(data, belt)[0]
+        : aliases.find((ref) => referenced.has(ref));
+    if (canonical === undefined || evaluationRef.has(canonical)) continue;
+    for (const alias of aliases)
+      if (!evaluationRef.has(alias)) evaluationRef.set(alias, canonical);
+    evaluatedBelts.push({ body_ref: canonical });
+  }
+  const beltRefs = new Set(evaluationRef.keys());
   return {
     system_id64: model.system_id64,
     bodies: [
       ...data.bodies
-        .filter((body) => !isBeltCluster(body))
+        .filter((body) =>
+          body.lifecycle_state === 'ACTIVE'
+            ? !isBeltCluster(body)
+            : referenced.has(body.body_id) && !beltRefs.has(body.body_id),
+        )
         .map((body) => ({
           body_ref: body.body_id,
           orbital_slots: model.slots[body.body_id]?.orbital_slots ?? null,
@@ -199,9 +224,10 @@ export function toPlanRequest(
           is_landable: body.is_landable,
           is_ringed: body.has_rings,
         })),
-      ...belts.map((belt) => ({
-        body_ref: belt.body_ref,
-        orbital_slots: model.slots[belt.body_ref]?.orbital_slots ?? null,
+      ...evaluatedBelts.map(({ body_ref }) => ({
+        body_ref,
+        orbital_slots:
+          locationSlots(model, data, body_ref)?.orbital_slots ?? null,
         surface_slots: 0,
         is_landable: false,
         is_ringed: true,
@@ -211,7 +237,8 @@ export function toPlanRequest(
       ({ site_id, facility_id, body_ref, slot_kind, status, name }) => ({
         site_id,
         facility_id,
-        body_ref,
+        body_ref:
+          body_ref === null ? null : (evaluationRef.get(body_ref) ?? body_ref),
         slot_kind,
         status,
         name,
@@ -220,7 +247,7 @@ export function toPlanRequest(
   };
 }
 
-/** Import validation: hidden clusters and barycentres can never be build locations. */
+/** Imported sites must use current locations, without hidden clusters or barycentres. */
 export function rejectInvalidLocations(
   model: PlannerModel,
   data: PlanBodiesV1,
@@ -236,6 +263,16 @@ export function rejectInvalidLocations(
       .map((body) => [body.body_id, body]),
   );
   for (const site of model.sites) {
+    const nonCurrent = nonCurrentLocation(data, site.body_ref);
+    if (nonCurrent) {
+      const reason =
+        nonCurrent.lifecycle_state === 'RETIRED'
+          ? 'retired'
+          : 'missing from the latest data';
+      throw new Error(
+        `“${nonCurrent.name}” is no longer in the current galaxy data (${reason}). Move this site to a current body, or to Unplaced, before importing.`,
+      );
+    }
     const body = site.body_ref === null ? undefined : hidden.get(site.body_ref);
     if (body)
       throw new Error(
@@ -262,6 +299,53 @@ export function unplaceMissingLocations(
         : site,
     ),
   };
+}
+
+/**
+ * Every saved reference the plan check treats as this location, the location's
+ * own reference first: all of a belt's aliases (its clusters and `belt:<id>`),
+ * or just the reference itself for anything else. See `toPlanRequest`.
+ */
+export function locationAliases(
+  data: PlanBodiesV1 | undefined,
+  bodyRef: string,
+): string[] {
+  for (const belt of data?.belts ?? []) {
+    const aliases = beltAliases(data!, belt);
+    if (aliases.includes(bodyRef))
+      return [bodyRef, ...aliases.filter((ref) => ref !== bodyRef)];
+  }
+  return [bodyRef];
+}
+
+/** The slot totals the plan check uses for a location: its own, else an alias's. */
+export function locationSlots(
+  model: PlannerModel,
+  data: PlanBodiesV1 | undefined,
+  bodyRef: string,
+): SlotCounts | undefined {
+  return locationAliases(data, bodyRef)
+    .map((ref) => model.slots[ref])
+    .find(Boolean);
+}
+
+/** Slots used at a location, counting sites saved under any of its aliases. */
+export function countLocationSlots(
+  model: PlannerModel,
+  data: PlanBodiesV1 | undefined,
+  bodyRef: string,
+): { orbital_slots: number; surface_slots: number } {
+  const aliases = new Set(locationAliases(data, bodyRef));
+  const counts = { orbital_slots: 0, surface_slots: 0 };
+  for (const site of model.sites) {
+    if (
+      site.body_ref !== null &&
+      aliases.has(site.body_ref) &&
+      site.status !== 'demolished'
+    )
+      counts[`${site.slot_kind}_slots`]++;
+  }
+  return counts;
 }
 
 export function countUsedSlots(
@@ -487,16 +571,17 @@ export function findFreeLocation(
   model: PlannerModel,
   locations: PlannerLocation[],
   facility: PlanFacilityV1,
+  data?: PlanBodiesV1,
 ): string | null {
   const kind = facilitySlotKind(facility);
   const key = `${kind}_slots` as const;
   return (
     locations.find((location) => {
-      const available = model.slots[location.body_ref]?.[key];
+      const available = locationSlots(model, data, location.body_ref)?.[key];
       return (
         facilityFitsLocation(facility, location) &&
         typeof available === 'number' &&
-        countUsedSlots(model.sites, location.body_ref)[key] < available
+        countLocationSlots(model, data, location.body_ref)[key] < available
       );
     })?.body_ref ?? null
   );

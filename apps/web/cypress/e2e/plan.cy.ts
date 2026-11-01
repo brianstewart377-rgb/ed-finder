@@ -119,6 +119,7 @@ const bodies: PlanBodiesV1 = {
   belts: [
     {
       belt_id: 'belt-a',
+      lifecycle_state: 'ACTIVE',
       name: `${systemName} A A Belt`,
       parent_body_id: 'star-a',
       ring_type: 'Rocky',
