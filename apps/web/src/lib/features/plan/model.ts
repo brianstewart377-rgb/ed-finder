@@ -189,22 +189,28 @@ export function toPlanRequest(
     throw new Error('Bodies belong to a different system.');
   const referenced = new Set(model.sites.map((site) => site.body_ref));
   // A saved site may still use an alias the belt no longer selects, for
-  // example a cluster that has since been retired. It is still the belt, so
-  // it keeps the belt's evaluation properties (ringed, no surface).
-  const belts = data.belts.map((belt) => ({
-    belt,
-    refs: beltBodyRefs(data, belt),
-    aliases: beltAliases(data, belt),
-  }));
-  const beltRefs = new Set(belts.flatMap(({ aliases }) => aliases));
-  const evaluatedBelts = [
-    ...new Set(
-      belts.flatMap(({ belt, refs, aliases }) => [
-        ...(belt.lifecycle_state === 'ACTIVE' ? refs : []),
-        ...aliases.filter((ref) => referenced.has(ref)),
-      ]),
-    ),
-  ];
+  // example a cluster that has since been retired. It is still the same belt:
+  // every alias is evaluated as ONE belt location (the current reference for
+  // an active belt, else the first alias a site uses), so all its sites share
+  // one slot total and keep the belt's properties (ringed, no surface). Only
+  // the request is normalised; saved site references are never rewritten.
+  const evaluationRef = new Map<string, string>();
+  const evaluatedBelts: { body_ref: string; aliases: string[] }[] = [];
+  for (const belt of data.belts) {
+    const aliases = beltAliases(data, belt);
+    const canonical =
+      belt.lifecycle_state === 'ACTIVE'
+        ? beltBodyRefs(data, belt)[0]
+        : aliases.find((ref) => referenced.has(ref));
+    if (canonical === undefined || evaluationRef.has(canonical)) continue;
+    for (const alias of aliases)
+      if (!evaluationRef.has(alias)) evaluationRef.set(alias, canonical);
+    evaluatedBelts.push({ body_ref: canonical, aliases });
+  }
+  const beltRefs = new Set(evaluationRef.keys());
+  const beltSlots = (canonical: string, aliases: string[]) =>
+    model.slots[canonical] ??
+    aliases.map((alias) => model.slots[alias]).find(Boolean);
   return {
     system_id64: model.system_id64,
     bodies: [
@@ -221,9 +227,9 @@ export function toPlanRequest(
           is_landable: body.is_landable,
           is_ringed: body.has_rings,
         })),
-      ...evaluatedBelts.map((body_ref) => ({
+      ...evaluatedBelts.map(({ body_ref, aliases }) => ({
         body_ref,
-        orbital_slots: model.slots[body_ref]?.orbital_slots ?? null,
+        orbital_slots: beltSlots(body_ref, aliases)?.orbital_slots ?? null,
         surface_slots: 0,
         is_landable: false,
         is_ringed: true,
@@ -233,7 +239,8 @@ export function toPlanRequest(
       ({ site_id, facility_id, body_ref, slot_kind, status, name }) => ({
         site_id,
         facility_id,
-        body_ref,
+        body_ref:
+          body_ref === null ? null : (evaluationRef.get(body_ref) ?? body_ref),
         slot_kind,
         status,
         name,
