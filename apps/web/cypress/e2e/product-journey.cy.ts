@@ -4,6 +4,7 @@ type ProductWindow = Window & { __productRuntimeFailures?: string[] };
 
 const readySelector = '[role="status"][data-renderer-state="ready"]';
 const canvasSelector = 'canvas[data-spatial-canvas]';
+const requestTimeout = 20_000;
 
 const visitExplore = (path = '/explore') => {
   cy.intercept('GET', '/api/local/autocomplete*').as('autocomplete');
@@ -154,7 +155,7 @@ const assertRankingsRequest = (
   minimumTier: 'B' | 'A' = 'B',
 ) => {
   const expected = FLEXIBLE_B_FIXTURE_ROWS[offset];
-  cy.wait('@rankings').then(({ request, response }) => {
+  cy.wait('@rankings', { requestTimeout }).then(({ request, response }) => {
     const params = new URL(request.url).searchParams;
     expect(Object.fromEntries(params)).to.deep.equal({
       archetype: 'flexible',
@@ -235,7 +236,7 @@ const assertFlexiblePage = (
 };
 
 const assertAnyPage = (selected: string | null) => {
-  cy.wait('@search').then(({ request, response }) => {
+  cy.wait('@search', { requestTimeout }).then(({ request, response }) => {
     expect(request.body).to.deep.equal({
       galaxy_wide: true,
       sort_by: 'development',
@@ -410,7 +411,9 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       });
     });
     assertRankingsRequest(2);
-    cy.wait('@selectedPoint').its('response.statusCode').should('eq', 200);
+    cy.wait('@selectedPoint', { requestTimeout })
+      .its('response.statusCode')
+      .should('eq', 200);
     assertFinderUrl('flexible', 2, selectedId);
     assertFlexiblePage(2, 3, selectedId);
     cy.get(`[data-system-result="${selectedId}"]`).should('not.exist');

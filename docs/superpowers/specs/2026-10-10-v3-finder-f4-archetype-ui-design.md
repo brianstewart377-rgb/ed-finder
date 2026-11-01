@@ -38,17 +38,18 @@ F4b's other open input, the Clear fit / Close fit rule, is owner answer 1 in
 section 9. F4c and F4e remain hard prerequisites before the flag is enabled in any
 governed production or release build.
 
-**Status update — 2026-11-01:** F4b is implemented on `feat/finder-f4b` behind
-the default-off `VITE_FINDER_F4_ENABLED` flag. Only the protected Product E2E
+**Status update — 2026-11-01:** F4b is implemented behind the default-off
+`VITE_FINDER_F4_ENABLED` flag. Only the protected Product E2E
 bundle (`cypress-parity.yml`, **Build Svelte static bundle** step) and the
 disposable Review Lab bundle opt in to `1`. The web image's validated build
 argument defaults to `0`; governed production and release builds remain off.
-F4c–F4e remain separate increments. Every gate before enabling F4 in a governed
-production or release build is unchanged: the prerequisite migration/build/
-validation and step 9′ product-publication sequence, slice 1c's
-representative-scale timing proof, F4c/F4e and the separate application-release
-gate. This status records implementation, not browser acceptance, visual
-approval or production-promotion authority.
+F4c–F4e remain separate increments. The prerequisite migration/build/validation
+and step 9′ product-publication sequence completed 2026-10-23; slice 1c's
+representative-scale proof passed all 72 measurements on 2026-10-31. Before the
+flag may be enabled in any governed production or release build, F4c, F4e,
+browser acceptance, visual approval, the owner enablement decision and the
+separate governed application-release gate remain required. F4b does not enable
+the flag in such a build or authorize a deployment.
 
 F4a and F4b are code-only increments validated against disposable fixtures.
 They remain hidden behind a default-off build feature gate until the governed

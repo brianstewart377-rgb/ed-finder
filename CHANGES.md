@@ -28,10 +28,13 @@ Inspect return, history, axe and desktop/mobile screenshots. Review Lab adds
 backend-owned ranking failure/empty modes and verifies selection survival,
 normal Any recovery, failure tagging and the support-route matrix.
 
-These are fixture-based implementation and validation changes. Every gate
-before enabling F4 in a governed production or release build remains unchanged,
-including slice 1c's representative-scale proof, product publication and F4c/F4e.
-No production enablement or deployment is authorized by this entry.
+These are fixture-based implementation and validation changes. The prerequisite
+migration/build/validation and step 9′ product-publication sequence completed
+2026-10-23; slice 1c's representative-scale proof passed all 72 measurements on
+2026-10-31. Before the flag may be enabled in any governed production or release
+build, F4c, F4e, browser acceptance, visual approval, the owner enablement decision
+and the separate governed application-release gate remain required. F4b does not
+enable the flag in such a build or authorize a deployment.
 
 ## 2026-11-01 — CI runs the V3 journal flow tests; the stale export-limit test is fixed
 

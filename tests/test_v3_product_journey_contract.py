@@ -66,7 +66,7 @@ def test_f4_product_journey_covers_fixture_ranking_and_url_owned_selection():
         'Fit confidence: moderate',
         "fitLabel: 'Clear fit'",
         "cy.intercept('GET', `/api/v1/systems/${selectedId}`).as('selectedPoint')",
-        "cy.wait('@selectedPoint')",
+        "cy.wait('@selectedPoint', { requestTimeout })",
         'window.localStorage.clear()',
         'window.sessionStorage.clear()',
         'from: copiedExploreQuery',
