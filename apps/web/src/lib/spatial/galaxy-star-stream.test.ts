@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import type { MapViewportSystem } from '$lib/api/generated/types.gen';
 import { parseId64 } from '$lib/domain/id64';
 
+import type { GalaxySystemsPayload } from './contracts';
 import {
+  type CatalogueViewportSystem,
   createCatalogueStarsContribution,
   galaxyStarViewport,
   galaxyDiskNormalizedRadius,
@@ -9,6 +12,7 @@ import {
   GALACTIC_CENTRE_LY,
   GALACTIC_DISK_RADIUS_LY,
 } from './galaxy-star-stream';
+import { stellarPresentation } from './stellar-presentation';
 
 const camera = (distanceLy: number) => ({
   focusLy: { x: 100, y: -20, z: 300 },
@@ -77,6 +81,69 @@ describe('real catalogue star streaming policy', () => {
         ],
       },
     });
+  });
+
+  it('renders raw catalogue subclasses as distinct families while preserving the source class', () => {
+    const mainStarClasses = [
+      'G2',
+      'K5',
+      'B5',
+      'M3',
+      'DA6',
+      'N0',
+      'H0',
+      'WC8',
+      '',
+      'X9',
+    ];
+    const apiSystems: MapViewportSystem[] = mainStarClasses.map(
+      (main_star_class, index) => ({
+        id64: 100 + index,
+        name: `Catalogue system ${index}`,
+        x: index,
+        y: -index,
+        z: index * 2,
+        main_star_class,
+        populated: false,
+      }),
+    );
+    // The API facade renames this single field; it does not derive a subtype.
+    const systems: CatalogueViewportSystem[] = apiSystems.map((system) => ({
+      id64: parseId64(String(system.id64)),
+      name: system.name,
+      x: system.x,
+      y: system.y,
+      z: system.z,
+      mainStarClass: system.main_star_class,
+      populated: system.populated,
+    }));
+    const contribution = createCatalogueStarsContribution(systems, 1, false);
+    const payload = contribution.layers[0]!.payload as GalaxySystemsPayload;
+    // This is the same descriptor input consumed by the Babylon star renderer.
+    const glyphs = payload.systems.map(
+      (point) => stellarPresentation(point.primaryStar).glyph,
+    );
+
+    expect(glyphs).toEqual([
+      'main-sequence-g',
+      'main-sequence-k',
+      'main-sequence-b',
+      'main-sequence-m',
+      'white-dwarf',
+      'neutron',
+      'black-hole',
+      'wolf-rayet',
+      'unknown',
+      'unknown',
+    ]);
+    expect(new Set(glyphs.slice(0, 8)).size).toBe(8);
+    expect(glyphs.slice(0, 8)).not.toContain('unknown');
+    expect(
+      payload.systems.map((point) => point.primaryStar?.type ?? ''),
+    ).toEqual(mainStarClasses);
+    expect(payload.systems.every((point) => !point.primaryStar?.subtype)).toBe(
+      true,
+    );
   });
 });
 

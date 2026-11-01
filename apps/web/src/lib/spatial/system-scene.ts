@@ -1,4 +1,5 @@
 import type { SystemDetail, SystemDetailBody } from '$lib/api/client';
+import { stellarFamilyFromCatalogue } from './stellar-presentation';
 
 import type {
   BodyVisualDescriptor,
@@ -58,20 +59,16 @@ export function stellarPresentationSubtype(
   const spectral = body.spectralClass?.trim();
   const full = stellarClassification(body);
   if (!spectral || !full) return null;
-  // Catalogued classes carry numeric subclasses (`N0`, `H0`, `DA6`, `WC8`);
-  // match on the family with the trailing subclass removed.
-  const family = spectral.replace(/\d+(?:\.\d+)?$/u, '');
-  if (/^N$/i.test(family)) return 'Neutron Star';
-  if (/^SupermassiveBlackHole$/i.test(family)) return 'Supermassive Black Hole';
-  if (/^H$/i.test(family)) return 'Black Hole';
-  if (/^D/i.test(family)) return `White Dwarf (${full}) Star`;
-  if (/^W/i.test(family)) return `Wolf-Rayet (${full}) Star`;
-  if (/^TTS$/i.test(family)) return `T Tauri (${full}) Star`;
-  if (/^AeBe$/i.test(family)) return `Herbig Ae/Be (${full}) Star`;
-  if (/^(?:C|CN|CJ|CH|CHd|CS|MS|S)$/.test(family))
-    return `${full} (Carbon) Star`;
-  const letter = spectral.charAt(0).toUpperCase();
-  if ('OBAFGKMLTY'.includes(letter)) return `${letter} (${full}) Star`;
+  const family = stellarFamilyFromCatalogue(spectral);
+  if (family === 'neutron') return 'Neutron Star';
+  if (family === 'supermassive-black-hole') return 'Supermassive Black Hole';
+  if (family === 'black-hole') return 'Black Hole';
+  if (family === 'white-dwarf') return `White Dwarf (${full}) Star`;
+  if (family === 'wolf-rayet') return `Wolf-Rayet (${full}) Star`;
+  if (family === 'TTS') return `T Tauri (${full}) Star`;
+  if (family === 'AeBe') return `Herbig Ae/Be (${full}) Star`;
+  if (family === 'carbon') return `${full} (Carbon) Star`;
+  if (family.length === 1) return `${family} (${full}) Star`;
   return `${full} Star`;
 }
 

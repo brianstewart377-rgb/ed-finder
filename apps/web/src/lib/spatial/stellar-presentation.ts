@@ -231,45 +231,156 @@ function descriptor(glyph: StellarGlyph): StellarPresentation {
   return { glyph, label, coreRgb, haloRgb, relativeScale, darkCore, ring };
 }
 
-function normalise(input: StellarPresentationInput): string {
-  return `${input.type ?? ''} ${input.subtype ?? ''}`
-    .trim()
-    .toLocaleLowerCase()
-    .replace(/[()/_-]+/gu, ' ')
-    .replace(/\s+/gu, ' ');
-}
+const spectralGlyphs = {
+  O: 'main-sequence-o',
+  B: 'main-sequence-b',
+  A: 'main-sequence-a',
+  F: 'main-sequence-f',
+  G: 'main-sequence-g',
+  K: 'main-sequence-k',
+  M: 'main-sequence-m',
+  L: 'brown-dwarf-l',
+  T: 'brown-dwarf-y-t',
+  Y: 'brown-dwarf-y-t',
+} as const satisfies Record<string, StellarGlyph>;
 
-function leadingClass(input: StellarPresentationInput): string {
-  for (const value of [input.type, input.subtype]) {
-    const match = (value ?? '')
-      .trim()
-      .toUpperCase()
-      .match(/^([OBAFGKMLTY])(?:\s|$|\()/u);
-    if (match?.[1]) return match[1];
+type StellarFamily =
+  | keyof typeof spectralGlyphs
+  | 'TTS'
+  | 'AeBe'
+  | 'white-dwarf'
+  | 'wolf-rayet'
+  | 'carbon'
+  | 'neutron'
+  | 'black-hole'
+  | 'supermassive-black-hole'
+  | 'hypergiant'
+  | 'unknown';
+
+/**
+ * Shared, presentation-only family for raw catalogue classes and the existing
+ * descriptive System Map phrases. Match complete tokens, never a word's first
+ * letter. The caller retains the original class as the catalogue fact.
+ */
+export function stellarFamilyFromCatalogue(
+  spectralClass: string | null | undefined,
+): StellarFamily {
+  const value = (spectralClass ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[_/-]+/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .replace(/(?:^| )STAR$/u, '')
+    .trim();
+  if (!value) return 'unknown';
+
+  // Subclasses and luminosity are suffixes, not part of the family token.
+  const catalogue = value.match(
+    /^([A-Z]+)(?:\d+(?:\.\d+)?)?(?: (?:IA0|IAB|IA|IB|III|II|IV|I|VII|VI|V[ABZ]?))?$/u,
+  );
+  const token = catalogue?.[1] ?? '';
+  if (Object.hasOwn(spectralGlyphs, token))
+    return token as keyof typeof spectralGlyphs;
+  if (
+    /^(?:D|DA|DAB|DAO|DAZ|DAV|DB|DBZ|DBV|DC|DCV|DO|DOV|DQ|DV|DZ|DX)$/u.test(
+      token,
+    )
+  )
+    return 'white-dwarf';
+  if (/^(?:W|WC|WN|WNC|WO)$/u.test(token)) return 'wolf-rayet';
+  if (/^(?:C|CN|CJ|CH|CHD|CS|MS|S)$/u.test(token)) return 'carbon';
+  if (token === 'N') return 'neutron';
+  if (token === 'H') return 'black-hole';
+  if (token === 'TTS') return 'TTS';
+  if (token === 'AEBE') return 'AeBe';
+
+  if (
+    /^(?:SUPERMASSIVE(?: BLACK ?HOLE)?|SUPERMASSIVEBLACKHOLE|SAGITTARIUS\s*A\*|SGR\s*A\*)$/u.test(
+      value,
+    )
+  )
+    return 'supermassive-black-hole';
+  if (/^BLACK ?HOLE$/u.test(value)) return 'black-hole';
+  if (value === 'NEUTRON') return 'neutron';
+  if (value === 'HYPERGIANT') return 'hypergiant';
+  if (/^WHITE ?DWARF$/u.test(value)) return 'white-dwarf';
+  if (/^WOLF ?RAYET(?: (?:W?C|W?N|W?NC|W?O))?$/u.test(value))
+    return 'wolf-rayet';
+  if (/^T ?TAURI$/u.test(value)) return 'TTS';
+  if (/^(?:HERBIG(?: AE ?BE)?|AEBE)$/u.test(value)) return 'AeBe';
+  if (/^(?:CARBON|MS TYPE|S TYPE)$/u.test(value)) return 'carbon';
+
+  // Preserve phrases such as `D Hypergiant` and `K Giant` without accepting
+  // arbitrary text after a valid catalogue prefix.
+  const giant = value.match(/^(.+) (HYPERGIANT|SUPERGIANT|GIANT)$/u);
+  if (giant) {
+    const family = stellarFamilyFromCatalogue(giant[1]);
+    if (family !== 'unknown' && giant[2] === 'HYPERGIANT') {
+      if (['neutron', 'black-hole', 'supermassive-black-hole'].includes(family))
+        return family;
+      return 'hypergiant';
+    }
+    return family;
   }
-  return '';
+
+  // System Map phrases may wrap an already descriptive class. Each recursive
+  // call consumes a smaller complete phrase; both sides must agree on family.
+  const carbonPhrase = value.match(/^(.+) \(CARBON\)$/u);
+  if (carbonPhrase)
+    return stellarFamilyFromCatalogue(carbonPhrase[1]) === 'carbon'
+      ? 'carbon'
+      : 'unknown';
+  const phrase = value.match(/^([^()]+?)\s*\((.+)\)$/u);
+  if (phrase) {
+    const family = stellarFamilyFromCatalogue(phrase[1]);
+    if (family === 'unknown') return 'unknown';
+    const annotation = phrase[2]!;
+    if (stellarFamilyFromCatalogue(annotation) === family) return family;
+    if (
+      Object.hasOwn(spectralGlyphs, family) &&
+      /^(?:BLUE WHITE|WHITE YELLOW|YELLOW ORANGE|RED|BROWN|WHITE|BLUE)(?: (?:DWARF|GIANT|SUPER ?GIANT))?$/u.test(
+        annotation,
+      )
+    )
+      return family;
+  }
+  return 'unknown';
 }
 
 export function stellarPresentation(
   input: StellarPresentationInput = {},
 ): StellarPresentation {
-  const value = normalise(input);
-  if (/supermassive|sagittarius\s*a\*|sgr\s*a\*/u.test(value))
-    return descriptor('supermassive-black-hole');
-  if (/black\s*hole/u.test(value) || /^h(?:\s|$)/u.test(value))
-    return descriptor('black-hole');
-  if (/neutron/u.test(value) || /^n(?:\s|$)/u.test(value))
-    return descriptor('neutron');
-  if (/hypergiant/u.test(value)) return descriptor('hypergiant');
-  if (/white\s*dwarf/u.test(value) || /^d[abcoqvxz]?(?:\s|$)/u.test(value))
-    return descriptor('white-dwarf');
-  if (/wolf\s*rayet|wolf-rayet|^w(?:c|n|o)(?:\s|$)/u.test(value))
-    return descriptor('wolf-rayet');
-  if (/t\s*tauri|herbig|aebe/u.test(value)) return descriptor('ttauri-herbig');
-  if (/carbon|^c(?:\s|$)|^s(?:\s|$)|^ms(?:\s|$)/u.test(value))
-    return descriptor('carbon');
-  const spectralClass = leadingClass(input);
-  const giant = /(?:^|\s)(?:i|ii|iii|iv)(?:\s|$)|giant/u.test(value);
+  const typeFamily = stellarFamilyFromCatalogue(input.type);
+  const subtypeFamily = stellarFamilyFromCatalogue(input.subtype);
+  // Keep the existing remnant/special-class precedence for split-field callers.
+  const specialFamily = (
+    [
+      'supermassive-black-hole',
+      'black-hole',
+      'neutron',
+      'hypergiant',
+      'white-dwarf',
+      'wolf-rayet',
+      'TTS',
+      'AeBe',
+      'carbon',
+    ] as const
+  ).find(
+    (candidate) => candidate === typeFamily || candidate === subtypeFamily,
+  );
+  const family =
+    specialFamily ?? (typeFamily === 'unknown' ? subtypeFamily : typeFamily);
+  if (family === 'TTS' || family === 'AeBe') return descriptor('ttauri-herbig');
+  if (!(family in spectralGlyphs)) return descriptor(family as StellarGlyph);
+
+  const spectralClass = family as keyof typeof spectralGlyphs;
+  const value = `${input.type ?? ''} ${input.subtype ?? ''}`
+    .toUpperCase()
+    .replace(/[()/_-]+/gu, ' ');
+  const giant =
+    /(?:^|\s)(?:IA0|IAB|IA|IB|III|II|IV|I|GIANT|SUPERGIANT)(?:\s|$)/u.test(
+      value,
+    );
   if (giant) {
     if (spectralClass === 'M' || spectralClass === 'K')
       return descriptor('giant-warm');
@@ -279,15 +390,5 @@ export function stellarPresentation(
       return descriptor('giant-blue');
   }
 
-  if (spectralClass === 'Y' || spectralClass === 'T')
-    return descriptor('brown-dwarf-y-t');
-  if (spectralClass === 'L') return descriptor('brown-dwarf-l');
-  if (spectralClass === 'M') return descriptor('main-sequence-m');
-  if (spectralClass === 'K') return descriptor('main-sequence-k');
-  if (spectralClass === 'G') return descriptor('main-sequence-g');
-  if (spectralClass === 'F') return descriptor('main-sequence-f');
-  if (spectralClass === 'A') return descriptor('main-sequence-a');
-  if (spectralClass === 'B') return descriptor('main-sequence-b');
-  if (spectralClass === 'O') return descriptor('main-sequence-o');
-  return descriptor('unknown');
+  return descriptor(spectralGlyphs[spectralClass]);
 }
