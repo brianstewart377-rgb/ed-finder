@@ -28,6 +28,41 @@ existing behavior. F4e, browser and visual acceptance, the owner's enablement
 decision (F4 design question 3), and the governed release remain required before
 the flag may be enabled.
 
+## 2026-11-01 — Purge tests: wider maintenance suppression and transient-writer evidence (round 3)
+
+CI run 41281603191 (job 124774473183, Finder derived-data shard 1/3, on the
+unrelated web-only PR #965) failed one test:
+`test_active_vacuum_progress_refuses_phase_before_disabling_autovacuum[superuser]`.
+Its first step, `_authorize`, was refused by migration `016`'s guard with
+`competing writing transaction`, yet #964's post-refusal diagnostic found no
+matching backend, so the competitor had already left.
+
+An audit of every connection on that path (canonical fixture, `installed_purge`,
+`_seed`, `_plan`, observers) found none that closes with an open transaction or
+touches the test database. It did find that the fixture's maintenance
+suppression covered only `v3_%` schemas and local `pg_catalog`, missing the
+inherited `information_schema` heaps and any other non-shared heap. Changes,
+all in tests:
+
+- The suppression now covers every non-shared, non-temporary heap and its TOAST
+  table. The four purge relations keep their unset `autovacuum_enabled` and
+  high thresholds. A new PostgreSQL test pins this for both creator roles.
+- `_authorize` waits (at most 10 seconds) for this database's automatic
+  maintenance workers to leave before its single authorization attempt.
+  Shared catalogs cannot be suppressed locally, and their workers can attach
+  during seeding. Client writers are never waited for, cancelled or retried.
+- `diagnose_competing_writers` keeps one administrator observer open across a
+  purge call. It records the database's activity just before the call and up to
+  20 samples within 200 ms after a refusal, so a backend that leaves within
+  milliseconds is still named. Client SQL text is omitted, apart from two fixed
+  test probes, and errors never include connection strings.
+
+The original competitor is still not proven. If this recurs, the new notes
+should name it. No SQL, migration or production code changed, and no
+assertion was weakened, retried or skipped. Database-free tests: 45 passed.
+The reviewer ran the targeted PostgreSQL tests locally (35 passed), and CI's
+Finder shards run the full purge suites.
+
 ## 2026-11-01 — Fifth F2d release `3fd8e719` accepted in production
 
 Owner-approved, after the post-purge Sunday full backup finished. Release run
