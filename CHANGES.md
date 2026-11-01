@@ -11,6 +11,15 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — Roadmap opening status summary
+
+Added “Where things stand (2026-11-01)” directly below the roadmap title,
+linking current release, schema, purge, backup, product and next-work evidence.
+It records the unrun A5 restore practice and open owner decisions, and makes
+missing detailed redesign, S5c and ingestion-enablement records explicit.
+All existing roadmap content is unchanged. No opening-line contract test
+exists, so no test was added or changed.
+
 ## 2026-11-01 — Seventh F2d release `293bc72b` accepted in production: Finder archetype UI on
 
 Owner-approved. Release run 41342325477 (source `293bc72b`) passed preflight

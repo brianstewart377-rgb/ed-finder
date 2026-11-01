@@ -1,5 +1,42 @@
 # ED-Finder V3 Roadmap
 
+## Where things stand (2026-11-01)
+
+- **Production:** app `293bc72b`, the seventh F2d release, was accepted on
+  2026-11-01 in slot green; rollback artifact `181f6fed`. The Finder archetype UI
+  is **ON**, per owner decision #974 ([release evidence](operations/v3-production-application-release.md#f3-finder-cutover--product-publish-promotion-gate)).
+- **Database:** installed schema is [through-022](operations/evidence/2026-10-31-v3-production-migration-apply-022-receipt-run-41180459540.json).
+  Governed purge P **COMPLETED 2026-10-31** ([completion receipt](operations/evidence/2026-10-31-v3-derived-purge-complete-receipt-run-41241201758.json)).
+- **Backups:** Sunday full, Monday–Saturday differential and Sunday verify run
+  against the Storage Box ([backup status and schedule](../deploy/v3-production/backup/README.md)).
+  A5's [restore practice](operations/v3-restore-rehearsal.md) is planned;
+  [no restore has yet been rehearsed](../deploy/v3-production/backup/README.md#still-unproven-a-restore).
+- **Live Explore/Finder:** [empty until a search is requested](../CHANGES.md#2026-11-01--explore-waits-for-a-requested-search),
+  with an [archetype picker and tiers](../CHANGES.md#2026-11-01--finder-f4b-picker-ranked-cards-and-browser-contracts-behind-the-default-off-flag),
+  [explanations](../CHANGES.md#2026-11-01--finder-f4e-per-archetype-explanations),
+  and [saved lists and compare](../CHANGES.md#2026-11-01--finder-f4c-mode--and-reference-safe-saved-surfaces).
+- **Live Inspect:** [Ratings V4 with explanations](../CHANGES.md#2026-10-25--inspect-shows-ratings-v4-ring-hotspots-and-station-economies).
+- **Live Colony Planner `/plan`:** through S5b, with S3b surface slot predictions,
+  Raven layout import and the floating facility picker ([current programme](../CLAUDE.md#current-programme)).
+- **Finder next:** [body-count filters](#programme-status--2026-09-26), with anchored
+  picked-archetype filters still needing a probe and re-attestation; a refresh-safe
+  anchor remains a follow-up ([current reload limitation](../apps/web/cypress/e2e/review-lab.cy.ts#L232)).
+- **UI redesign:** the requested design kit, home, Finder, Inspect, Plan and
+  Review & export work has no detailed redesign plan in this tree; the
+  [product journey](#product-journey-and-spatial-north-star) remains its starting point.
+- **V2 route retirement:** remaining consumers need V3 replacements before removal
+  ([residue plan](development/v2-decommission-roadmap.md#track-b--v2-manifest--sql-tree-long-horizon--finish-v3)).
+- **Ratings V4.1 next:** mechanics fixes follow the owner's 2026-10-21 decision;
+  production still uses frozen V4.0 ([decision](#programme-status--2026-09-26), [audit](development/evidence/2026-10-21-mega-guide-v2.3-mechanics-audit.md)).
+- **Live EDDN listener and Spansh nightly refresh remain follow-ups:** the
+  [2026-10-21 worker is code only](../CHANGES.md#2026-10-21--v3-eddn-station-sighting-worker-and-v3_observe-proposal-code-only), and refresh has
+  [measurement tooling](development/spansh-delta-measurement.md); a broader owner enablement decision is not recorded here.
+- **Planner next:** requested S5c economy bars fall under the [S5 economies-and-links scope](superpowers/specs/2026-10-30-v3-colony-planner-design.md#7-slices);
+  the S5c split is not yet documented in that design.
+- **Open owner decisions:** [custom-weight storage and Any-mode tier semantics](superpowers/specs/2026-10-10-v3-finder-f4-archetype-ui-design.md#owner-questions),
+  plus Spansh's [change-admission policy (D3)](development/spansh-delta-measurement.md#the-overlap-from-the-second-night)
+  and [recurring-download terms (D5)](development/spansh-delta-measurement.md#how-to-run-it).
+
 This is the authority for current programme order and unresolved decisions. It
 does not duplicate detailed product, architecture, browser, or infrastructure
 contracts.
