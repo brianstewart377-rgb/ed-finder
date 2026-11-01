@@ -121,6 +121,8 @@ Until a reviewed V3 database recovery runbook is added or an already-authorized 
 
 The absence of an in-repo execution runbook must remain visible; do not fill it with guessed hostnames, storage targets, credentials, PostgreSQL paths, or recovery commands.
 
+A rehearsal-only runbook, [`v3-restore-rehearsal.md`](v3-restore-rehearsal.md), restores the backups onto a separate, temporary server to prove they work and to measure the recovery time. It never restores into production, never writes to the backup repository, and does not change this boundary.
+
 ## Legacy migration vault
 
 A validated custom-format PostgreSQL dump is retained offsite solely as a selective legacy migration source for genuinely irreplaceable/private/manual/history data.

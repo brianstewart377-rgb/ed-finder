@@ -111,6 +111,7 @@ export function compactPlanFixture(bodyCount = 40, siteCount = 80) {
     now: { t2: 17, t3: 4 },
     after_plan: { t2: 23, t3: 6 },
     next_port_cost: { t2: 3, t3: 6 },
+    economies: { now: [], after_plan: [], notes: [] },
     steps: model.sites.map((site, index) => ({
       site_id: site.site_id,
       facility_id: site.facility_id,

@@ -313,3 +313,10 @@ rehearsed**, which is the project's own stated bar — a backup that has not bee
 test-restored is a hypothesis. The daily diffs are cheap (seconds, single-digit
 megabytes) because the database is read-mostly; the weekly full is the expensive
 one at five to six hours.
+
+The owner-run rehearsal that closes this gap is
+[`docs/operations/v3-restore-rehearsal.md`](../../../docs/operations/v3-restore-rehearsal.md).
+It restores the repository onto a separate, temporary server through a
+read-only Storage Box sub-account, recovers to a named restore point, checks
+the copy against production and records the recovery time. It never restores
+into production and never writes to the repository.

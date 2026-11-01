@@ -1,10 +1,15 @@
 <script lang="ts">
-  import type { PlanEvaluationV1, PlanFacilityV1 } from '$lib/api';
-  import type { PlannerModel } from './model';
+  import type {
+    PlanBodiesV1,
+    PlanEvaluationV1,
+    PlanFacilityV1,
+  } from '$lib/api';
+  import { locationSlots, type PlannerModel } from './model';
   import type { PlannerLocation } from './locations';
   import PlanIcon from './PlanIcon.svelte';
   let {
     model,
+    bodies,
     facilities,
     locations,
     evaluation,
@@ -20,6 +25,7 @@
     onwhy,
   }: {
     model: PlannerModel;
+    bodies: PlanBodiesV1;
     facilities: PlanFacilityV1[];
     locations: PlannerLocation[];
     evaluation: PlanEvaluationV1 | null;
@@ -50,7 +56,9 @@
             site.body_ref !== null &&
             locations.some((location) => location.body_ref === site.body_ref) &&
             site.status !== 'demolished' &&
-            model.slots[site.body_ref]?.[`${site.slot_kind}_slots`] == null,
+            locationSlots(model, bodies, site.body_ref)?.[
+              `${site.slot_kind}_slots`
+            ] == null,
         )
         .map((site) => site.body_ref!),
     ),

@@ -40,6 +40,7 @@ const evaluation: PlanEvaluationV1 = {
   now: { t2: 1, t3: 2 },
   after_plan: { t2: 1, t3: 2 },
   next_port_cost: { t2: 3, t3: 6 },
+  economies: { now: [], after_plan: [], notes: [] },
   steps: [step],
   plan_checks: [],
   summary: { OK: 0, BLOCKED: 1, NEEDS_INFO: 0, COUNTED: 0, IGNORED: 0 },

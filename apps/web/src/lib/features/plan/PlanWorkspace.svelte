@@ -572,6 +572,7 @@
       />
       <SummaryPane
         {model}
+        bodies={bodies.data}
         {facilities}
         {locations}
         {evaluation}
