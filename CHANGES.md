@@ -11,6 +11,18 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — V2 API retirement inventory; profile-sync owner decision required
+
+Added the [mounted-route inventory](docs/development/v3-v2-route-retirement.md)
+for the V2 retirement sweep and Colony Planner S7, tracing database relations
+against the V3 migration lineage and callers in `apps/web`. Retirement is
+stopped under the task's caller guard: the handwritten profile-sync service
+calls `GET` and `PUT /api/profile/sync/{sync_key}`, whose `profile_sync` table
+is absent from V3. Both operations are recorded as **needs owner decision**;
+the service is exported but is not currently instantiated by a page. This
+change documents the candidates and exclusions without changing API behavior
+or generated clients.
+
 ## 2026-11-01 — Seventh F2d release `293bc72b` accepted in production: Finder archetype UI on
 
 Owner-approved. Release run 41342325477 (source `293bc72b`) passed preflight
