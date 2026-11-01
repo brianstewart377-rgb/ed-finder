@@ -1,0 +1,19 @@
+[Unit]
+Description=ED-Finder always-on Review Lab (Contabo)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/ed-finder
+# .lab.env (written by scripts/dev/lab_refresh.sh) provides BUILD_SHA so the
+# web service's build-arg interpolation resolves even when `up` reuses images.
+EnvironmentFile=/opt/ed-finder/.lab.env
+ExecStart=/usr/bin/docker compose -f docker-compose.review.yml -f docker-compose.lab.yml up -d
+ExecStop=/usr/bin/docker compose -f docker-compose.review.yml -f docker-compose.lab.yml down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
