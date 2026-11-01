@@ -73,6 +73,7 @@
   const coordinates = $derived.by(() => {
     if (!detail.data) return null;
     const { x, y, z } = detail.data;
+    if (x == null || y == null || z == null) return 'Coordinates unavailable';
     return `${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)} ly`;
   });
   const mainStar = $derived(

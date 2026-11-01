@@ -5,6 +5,8 @@ import type { SpatialContribution } from './contracts';
 import {
   buildExploreGalaxyScene,
   createExploreFinderContribution,
+  createExploreSelectionContribution,
+  mapExploreSelectedSystemPoint,
 } from './explore-scene';
 
 describe('Explore Galaxy scene mapper', () => {
@@ -110,5 +112,151 @@ describe('Explore Galaxy scene mapper', () => {
       { kind: 'system', systemId64: '10477373803000' },
       { kind: 'region', id: '18' },
     ]);
+  });
+
+  it('retains an omitted selected point separately and deduplicates it when its page returns', () => {
+    const selected = {
+      id64: parseId64('9007199254740993'),
+      name: 'Selected Reach',
+      coords: { x: 12, y: -4, z: 80 },
+      archetype_score: 88,
+      archetype_tier: 'S',
+      primary_archetype: 'mining',
+    } as ExploreSystem;
+    const nextPage = [
+      {
+        id64: parseId64('42'),
+        name: 'Next page',
+        coords: { x: 1, y: 2, z: 3 },
+      },
+    ] as ExploreSystem[];
+    const selectedPoint = mapExploreSelectedSystemPoint(selected)!;
+    const scene = buildExploreGalaxyScene(nextPage, selected.id64, 2, {
+      selectedPoint,
+    });
+    expect(scene.contributions.map((part) => part.id)).toEqual([
+      'finder-results',
+      'finder-selection',
+    ]);
+    expect(scene.contributions[1]?.layers[0]?.payload).toEqual({
+      systems: [selectedPoint],
+    });
+    expect(JSON.stringify(scene)).not.toMatch(/archetype|score|tier/);
+    expect(scene.selection).toEqual([
+      { kind: 'system', systemId64: selected.id64 },
+    ]);
+    const selectionContribution = createExploreSelectionContribution(
+      selectedPoint,
+      nextPage,
+      2,
+    );
+    const selectionOnlyScene = buildExploreGalaxyScene(
+      nextPage,
+      selected.id64,
+      3,
+      {
+        selectedPoint,
+        selectionContribution,
+        finderContribution: scene.contributions[0],
+        camera: scene.camera,
+        selectedRegionId: '18',
+      },
+    );
+    expect(selectionOnlyScene.contributions[1]).toBe(selectionContribution);
+    expect(selectionOnlyScene.contributions[0]).toBe(scene.contributions[0]);
+    expect(
+      buildExploreGalaxyScene([selected], selected.id64, 3, { selectedPoint })
+        .contributions,
+    ).toHaveLength(1);
+    expect(
+      buildExploreGalaxyScene(nextPage, nextPage[0]!.id64, 4, { selectedPoint })
+        .contributions,
+    ).toHaveLength(1);
+    expect(
+      buildExploreGalaxyScene(nextPage, null, 5, { selectedPoint })
+        .contributions,
+    ).toHaveLength(1);
+  });
+
+  it('validates selected coordinates and accepts the origin only for canonical Sol', () => {
+    for (const coords of [
+      null,
+      { x: NaN, y: 2, z: 3 },
+      { x: 1, y: Infinity, z: 3 },
+      { x: 0, y: 0, z: 0 },
+    ]) {
+      const selectedPoint = mapExploreSelectedSystemPoint({
+        id64: parseId64('42'),
+        name: 'Unknown position',
+        coords,
+      } as ExploreSystem);
+      expect(selectedPoint).toBeNull();
+      const scene = buildExploreGalaxyScene([], parseId64('42'), 1, {
+        selectedPoint,
+      });
+      expect(scene.selection).toEqual([{ kind: 'system', systemId64: '42' }]);
+      expect(scene.contributions).toHaveLength(1);
+      expect(scene.contributions[0]?.layers[0]?.payload).toEqual({
+        systems: [],
+      });
+    }
+    const sol = mapExploreSelectedSystemPoint({
+      id64: parseId64('10477373803'),
+      name: 'Sol',
+      coords: { x: 0, y: 0, z: 0 },
+    } as ExploreSystem)!;
+    expect(
+      createExploreSelectionContribution(sol, [], 1)?.layers[0]?.targetCount,
+    ).toBe(1);
+    expect(
+      createExploreSelectionContribution(
+        { ...sol, systemId64: parseId64('42') },
+        [],
+        1,
+      ),
+    ).toBeNull();
+    expect(
+      createExploreSelectionContribution(
+        { ...sol, positionLy: { x: NaN, y: 0, z: 0 } },
+        [],
+        1,
+      ),
+    ).toBeNull();
+    expect(createExploreSelectionContribution(null, [], 1)).toBeNull();
+  });
+
+  it('does not map unrelated page entries to deduplicate the retained selection', () => {
+    const selectedPoint = mapExploreSelectedSystemPoint({
+      id64: parseId64('42'),
+      name: 'Retained selection',
+      coords: { x: 1, y: 2, z: 3 },
+    } as ExploreSystem)!;
+    const unrelated = {
+      id64: parseId64('43'),
+      get coords(): never {
+        throw new Error('Unrelated page coordinates must not be remapped');
+      },
+    } as ExploreSystem;
+    expect(
+      createExploreSelectionContribution(selectedPoint, [unrelated], 1)
+        ?.layers[0]?.targetCount,
+    ).toBe(1);
+    expect(
+      createExploreSelectionContribution(
+        selectedPoint,
+        [
+          unrelated,
+          { id64: selectedPoint.systemId64, coords: selectedPoint.positionLy },
+        ] as ExploreSystem[],
+        1,
+      ),
+    ).toBeNull();
+    expect(
+      createExploreSelectionContribution(
+        selectedPoint,
+        [{ id64: selectedPoint.systemId64, coords: null }] as ExploreSystem[],
+        1,
+      )?.layers[0]?.targetCount,
+    ).toBe(1);
   });
 });

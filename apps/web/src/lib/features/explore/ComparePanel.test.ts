@@ -13,8 +13,25 @@ import { compare } from '$lib/persistence/stores';
 import { PERSISTENCE_KEYS } from '$lib/persistence/storage';
 import CompareTestHost from './CompareTestHost.svelte';
 
+const { feature, mockedPage, mockedGoto } = vi.hoisted(() => ({
+  feature: { enabled: false },
+  mockedPage: { url: new URL('http://localhost/explore'), state: {} },
+  mockedGoto: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('$lib/config', () => ({
+  get FINDER_F4_ENABLED() {
+    return feature.enabled;
+  },
+}));
+vi.mock('$app/state', () => ({ page: mockedPage }));
+vi.mock('$app/navigation', () => ({ goto: mockedGoto }));
+
 describe('comparison panel', () => {
   beforeEach(() => {
+    feature.enabled = false;
+    mockedPage.url = new URL('http://localhost/explore');
+    mockedPage.state = {};
+    mockedGoto.mockClear();
     localStorage.clear();
     compare.set([]);
   });
@@ -102,7 +119,7 @@ describe('comparison panel', () => {
   it('confirms clearing all snapshots and exports CSV', async () => {
     compare.set([{ id64: parseId64('42'), name: 'Candidate', population: 0 }]);
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    const createObjectURL = vi.fn(() => 'blob:compare');
+    const createObjectURL = vi.fn<(blob: Blob) => string>(() => 'blob:compare');
     const revokeObjectURL = vi.fn();
     vi.stubGlobal(
       'URL',
@@ -141,5 +158,74 @@ describe('comparison panel', () => {
       rules: { 'color-contrast': { enabled: false } },
     });
     expect(result.violations).toEqual([]);
+  });
+
+  it('omits distance from the enabled F4 comparison table, explanatory copy, and exported CSV', async () => {
+    feature.enabled = true;
+    compare.set([
+      {
+        id64: parseId64('42'),
+        name: 'Candidate A',
+        archetype_score: 88,
+        distance: 12,
+      },
+      {
+        id64: parseId64('43'),
+        name: 'Candidate B',
+        archetype_score: 76,
+        distance: 20,
+      },
+    ]);
+    const createObjectURL = vi.fn<(blob: Blob) => string>(() => 'blob:compare');
+    vi.stubGlobal(
+      'URL',
+      class extends URL {
+        static createObjectURL = createObjectURL;
+        static revokeObjectURL = vi.fn();
+      },
+    );
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const { container } = render(CompareTestHost);
+    expect(
+      screen.queryByRole('row', { name: /Distance from ref/ }),
+    ).not.toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/distance/i);
+    expect(
+      screen.getByRole('row', { name: /Development score/ }),
+    ).toHaveTextContent('S 88');
+    await fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    const blob = createObjectURL.mock.calls[0]![0] as Blob;
+    const csv = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = reject;
+      reader.readAsText(blob);
+    });
+    expect(csv).not.toMatch(/distance/i);
+    expect(csv).toContain('"Development score","88","76"');
+  });
+
+  it('carries the originating Explore query and anchor state through the F4 Inspect link', async () => {
+    feature.enabled = true;
+    mockedPage.url = new URL(
+      'http://localhost/explore?archetype=mining&min-tier=A&page_size=1&offset=2&selected=99',
+    );
+    mockedPage.state = {
+      anchor: { id64: '7', name: 'Reference', x: 10, y: 20, z: 30 },
+    };
+    compare.set([{ id64: parseId64('42'), name: 'Candidate' }]);
+    render(CompareTestHost);
+    const link = screen.getByRole('link', { name: 'Candidate' });
+    const destination = new URL(link.getAttribute('href')!, 'http://localhost');
+    expect(destination.pathname).toBe('/inspect');
+    expect(destination.searchParams.get('system')).toBe('42');
+    expect(destination.searchParams.get('from')).toBe(
+      mockedPage.url.searchParams.toString(),
+    );
+    await fireEvent.click(link);
+    expect(mockedGoto).toHaveBeenCalledWith(
+      link.getAttribute('href'),
+      expect.objectContaining({ state: mockedPage.state }),
+    );
   });
 });

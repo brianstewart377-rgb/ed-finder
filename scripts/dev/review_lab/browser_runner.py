@@ -27,8 +27,10 @@ from .timeouts import TIMEOUTS
 
 REQUIRED_CHECKS_BY_FLOW: dict[str, set[str]] = {
     'syntheticWiring': {'syntheticSystemVisible', 'babylonReady'},
-    'apiFailure': {'failureModeActivated', 'errorRendered', 'selectionContextPreserved'},
+    'apiFailure': {'failureModeActivated', 'errorRendered', 'selectionContextPreserved', 'selectedMarkerPreserved'},
     'emptyResults': {'emptyModeActivated', 'emptyRendered', 'zeroTargetScene', 'babylonReady'},
+    'rankingsApiFailure': {'failureModeActivated', 'errorRendered', 'selectionContextPreserved', 'selectedMarkerPreserved'},
+    'rankingsEmptyResults': {'emptyModeActivated', 'emptyRendered', 'zeroTargetScene', 'babylonReady', 'anySearchRestored'},
     'rendererRecovery': {'babylonReady', 'rendererLifecycleExercised', 'rendererRemainedUsable', 'noUncaughtError'},
 }
 
@@ -167,6 +169,7 @@ def run_browser_phase(run_dir: Path, selected_scenarios: tuple[ScenarioDefinitio
         'EDFINDER_REVIEW_SCENARIOS_JSON': json.dumps(browser_plan, sort_keys=True),
         'VITE_DEV_API_TARGET': review_api_origin(),
         'VITE_REVIEW_LAB': '1',
+        'VITE_FINDER_F4_ENABLED': '1',
     }
 
     run_subprocess(['pnpm', 'build'], cwd=FRONTEND_DIR, env_overrides=env, timeout_seconds=TIMEOUTS.frontend_build, failure_code='FRONTEND_BUILD_TIMEOUT')
@@ -216,5 +219,11 @@ def run_browser_phase(run_dir: Path, selected_scenarios: tuple[ScenarioDefinitio
         'browser_console': evaluate_browser_console(summary),
         'unexpected_api_errors': list_unexpected_api_errors(summary.get('apiResponses', [])),
         'unexpected_console_errors': list_unexpected_console_errors(summary),
-        'synthetic_failure_injection_verified': summary.get('scenarios', {}).get('apiFailure', {}).get('status') == 'passed',
+        'synthetic_failure_injection_verified': any(
+            summary.get('scenarios', {}).get(flow, {}).get('status') == 'passed'
+            and all(summary['scenarios'][flow].get('checks', {}).get(check)
+                    for check in REQUIRED_CHECKS_BY_FLOW[flow])
+            for flow in selected_browser_flow_keys(selected_scenarios)
+            if flow in {'apiFailure', 'rankingsApiFailure'}
+        ),
     }

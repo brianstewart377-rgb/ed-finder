@@ -11,6 +11,31 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — Finder F4b: picker, ranked cards and browser contracts behind the default-off flag
+
+F4b implements the archetype picker, selected-only minimum tier, ranked cards,
+one-envelope paging, URL-owned selection and retained map markers, plus
+state-carrying Explore/Inspect/watchlist round trips. Selected cards use the
+owner's amended best-rival Clear fit / Close fit rule. Any keeps its no-floor
+search; Compare distance remains suppressed in enabled builds pending F4c.
+
+The protected Product E2E bundle and disposable Review Lab bundle alone opt in
+to `VITE_FINDER_F4_ENABLED=1`. The web image accepts a validated `0`/`1` build
+argument with a fail-closed default of `0`; workflow and release-image contracts
+enforce these boundaries. Product E2E covers the three committed PostgreSQL
+fixture rows, keyboard selection, paging, clean-session selection hydration,
+Inspect return, history, axe and desktop/mobile screenshots. Review Lab adds
+backend-owned ranking failure/empty modes and verifies selection survival,
+normal Any recovery, failure tagging and the support-route matrix.
+
+These are fixture-based implementation and validation changes. The prerequisite
+migration/build/validation and step 9′ product-publication sequence completed
+2026-10-23; slice 1c's representative-scale proof passed all 72 measurements on
+2026-10-31. Before the flag may be enabled in any governed production or release
+build, F4c, F4e, browser acceptance, visual approval, the owner enablement decision
+and the separate governed application-release gate remain required. F4b does not
+enable the flag in such a build or authorize a deployment.
+
 ## 2026-11-01 — CI runs the V3 journal flow tests; the stale export-limit test is fixed
 
 `tests/integration/test_v3_journal_research_flow.py` and
@@ -34,6 +59,7 @@ requires a reviewed code change. Withdrawal still supersedes lineage batches,
 and all consent and export reads remain available. Database-free route tests
 cover the refusals and withdrawal; PostgreSQL integration coverage preserves
 the export-builder and consent flows with the pause explicitly disabled.
+
 
 ## 2026-10-31 — Finder: ranking rows carry their best rival archetype (F4b fit label)
 

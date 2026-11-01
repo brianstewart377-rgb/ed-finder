@@ -119,4 +119,22 @@ describe('comparison snapshots', () => {
     );
     expect(csv).toContain('"Landable","Unavailable"');
   });
+
+  it('suppresses distance from both F4 table rows and CSV without altering other metrics', () => {
+    const entries = [
+      entry('1', { distance: 12, archetype_score: 88 }),
+      entry('2', { distance: 20, archetype_score: 76 }),
+    ];
+    const options = { suppressDistance: true };
+    expect(buildCompareRows(entries, options)).toEqual(
+      buildCompareRows(entries).filter(
+        (row) => row.label !== 'Distance from ref',
+      ),
+    );
+    expect(compareCsv(entries, options)).not.toMatch(/distance/i);
+    expect(compareCsv(entries, options)).toContain(
+      '"Development score","88","76"',
+    );
+    expect(compareCsv(entries)).toContain('"Distance from ref LY","12","20"');
+  });
 });

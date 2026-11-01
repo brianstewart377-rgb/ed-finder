@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
+  import { FINDER_F4_ENABLED } from '$lib/config';
 
   import type {
     CameraState,
@@ -88,6 +89,7 @@
     | { type: 'FLY_TO'; target: SpatialTarget; reducedMotion: boolean };
   let pendingCameraMove: PendingCameraMove | null = null;
   let pendingScene: SpatialSceneContract | null = null;
+  let recoverCurrentCamera = false;
   let hoverFrame: number | null = null;
 
   function setCameraTransitionActive(
@@ -207,6 +209,44 @@
 
   function applyScene(nextScene: SpatialSceneContract): void {
     if (!runtime || status.state !== 'ready') return;
+    if (FINDER_F4_ENABLED && recoverCurrentCamera) {
+      // F4 camera receipts do not rebuild the parent's scene snapshot. A
+      // context recovery must resume the view currently owned by the canvas.
+      const camera = untrack(() =>
+        nextScene.kind === 'galaxy' ? currentCamera : currentSystemCamera,
+      );
+      if (nextScene.kind === 'galaxy' && camera && 'focusLy' in camera) {
+        nextScene = { ...nextScene, camera };
+      } else if (
+        nextScene.kind === 'system' &&
+        camera &&
+        'systemId64' in camera &&
+        camera.systemId64 === nextScene.systemId64
+      ) {
+        nextScene = { ...nextScene, camera };
+      }
+    }
+    // Density can be patched while a scene waits for a camera flight to settle,
+    // or after the parent last built a scene that must now be recovered. Keep
+    // that newer contribution in its reserved position without a second patch
+    // dispatch or making patch receipts a scene-effect dependency.
+    const latestPatch = FINDER_F4_ENABLED
+      ? untrack(() => contributionPatch)
+      : null;
+    if (
+      latestPatch &&
+      nextScene.contributions.some(
+        (part) =>
+          part.id === latestPatch.id && part.revision < latestPatch.revision,
+      )
+    ) {
+      nextScene = {
+        ...nextScene,
+        contributions: nextScene.contributions.map((part) =>
+          part.id === latestPatch.id ? latestPatch : part,
+        ),
+      };
+    }
     if (
       runtime.dispatch({ type: 'LOAD_SCENE', scene: nextScene }).status ===
       'executed'
@@ -218,6 +258,7 @@
         currentSystemCamera = nextScene.camera;
       }
       lastLoadedRevision = nextScene.revision;
+      recoverCurrentCamera = false;
     }
   }
 
@@ -703,20 +744,41 @@
           } else if (transitionCamera && 'systemId64' in transitionCamera) {
             currentSystemCamera = transitionCamera;
           }
-          setCameraTransitionActive(
-            false,
+          const settledCamera =
             transitionCamera ??
-              (event.target?.kind === 'body'
-                ? currentSystemCamera
-                : currentCamera),
-          );
+            (event.target?.kind === 'body'
+              ? currentSystemCamera
+              : currentCamera);
+          setCameraTransitionActive(false, settledCamera);
           transitionCamera = null;
           const queuedMove = pendingCameraMove;
           pendingCameraMove = null;
           const nextScene = pendingScene;
           pendingScene = null;
           if (nextScene) {
-            applyScene(nextScene);
+            // Finder/refetch updates queued during a flight still carry the
+            // parent's pre-flight camera. Its settle callback cannot update
+            // that snapshot synchronously: loading it as-is would undo the
+            // completed move. Keep the new contributions at the settled view;
+            // an intentional change of scene kind or system owns its camera.
+            if (
+              FINDER_F4_ENABLED &&
+              nextScene.kind === 'galaxy' &&
+              settledCamera &&
+              'focusLy' in settledCamera
+            ) {
+              applyScene({ ...nextScene, camera: settledCamera });
+            } else if (
+              FINDER_F4_ENABLED &&
+              nextScene.kind === 'system' &&
+              settledCamera &&
+              'systemId64' in settledCamera &&
+              nextScene.systemId64 === settledCamera.systemId64
+            ) {
+              applyScene({ ...nextScene, camera: settledCamera });
+            } else {
+              applyScene(nextScene);
+            }
           }
           if (queuedMove) {
             dispatchCameraMove(queuedMove);
@@ -730,6 +792,7 @@
             runtime?.dispatch({ type: 'PICK', ...point });
           }
         } else if (event.type === 'RECOVERED' && scene) {
+          recoverCurrentCamera = FINDER_F4_ENABLED;
           lastLoadedRevision = -1;
         }
         onRuntimeEvent?.(event);
