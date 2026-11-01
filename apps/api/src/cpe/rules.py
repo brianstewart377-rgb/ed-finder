@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
+from types import MappingProxyType
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -17,6 +20,16 @@ class Rule:
     statement: str
     quote: str
     page: int | None
+    value: Mapping[str, Any] | None = None
+
+
+def _freeze(value: Any) -> Any:
+    """Keep cached structured rule values read-only at every depth."""
+    if isinstance(value, dict):
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze(item) for item in value)
+    return value
 
 
 @cache
@@ -34,6 +47,7 @@ def _rulebook() -> tuple[str, dict[str, Rule]]:
             statement=item['statement'],
             quote=source['quote'],
             page=source.get('page'),
+            value=_freeze(item['value']),
         )
     return data['release_tag'], rules
 
