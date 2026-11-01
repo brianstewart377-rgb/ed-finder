@@ -11,6 +11,22 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-10-31 — Finder: ranking rows carry their best rival archetype (F4b fit label)
+
+Selected-archetype ranking rows now carry `rival_archetype` and `rival_score`,
+computed from the wide row already fetched for each result. The rival is the
+highest-scoring other archetype excluding Flexible, with ties resolved in
+`ARCHETYPE_KEYS` order; picking Flexible compares against the other seven.
+The generated API clients and application facade carry both optional fields.
+
+F4 section 9 records the owner's amended label rule: Clear fit requires the
+picked score to exceed the rival by at least three points; otherwise Close fit
+names the rival and its score. Rendering that label remains F4b UI work.
+Ranking membership, order, windows, counts, existing fields and identity are
+unchanged, as are Any-mode queries and responses. Regression tests cover rival
+selection, the final-SELECT-only SQL addition, fixture recomputation at every
+floor and facade compatibility with servers that omit the new fields.
+
 ## 2026-10-31 — Finder: /api/archetypes/rankings accepts its documented min_score values
 
 Production evidence reported on 2026-10-31: `GET

@@ -424,7 +424,10 @@ export type ExploreSystem = Readonly<
     | 'geo_signal_total'
     | 'confidence'
     | 'completeness'
-  > & { id64: Id64 } & Partial<RankingIdentityFields>
+  > &
+    Pick<ArchetypeRankingRow, 'rival_archetype' | 'rival_score'> & {
+      id64: Id64;
+    } & Partial<RankingIdentityFields>
 >;
 
 /** Exclusive offset ceiling and navigable window applied to every mode. */
@@ -907,6 +910,10 @@ export function normalizeRankingRow(
     distance,
     primary_archetype: row.primary_archetype ?? null,
     secondary_archetype: row.secondary_archetype ?? null,
+    ...(row.rival_archetype !== undefined
+      ? { rival_archetype: row.rival_archetype }
+      : {}),
+    ...(row.rival_score !== undefined ? { rival_score: row.rival_score } : {}),
     archetype_confidence: row.archetype_confidence ?? null,
     overall_development_potential: row.overall_development_potential ?? null,
     buildability_score: row.buildability_score ?? null,

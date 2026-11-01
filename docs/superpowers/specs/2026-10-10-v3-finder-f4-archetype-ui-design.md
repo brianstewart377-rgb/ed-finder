@@ -2503,6 +2503,24 @@ are kept verbatim; these answers govern where they differ from earlier text.
   fit” is rendered in visible or accessible text; section 5's mode-neutral
   classification rule (**Clear primary classification**) is unchanged by this
   answer.
+- **Question 1 — amended 2026-10-31 (owner).** Published data showed that the
+  primary/secondary separation cannot carry this label in selected mode: in the
+  top 1,000 rows of every archetype's live `/api/archetypes/rankings` list, all
+  1,000 systems have Flexible as their primary type, so `archetype_confidence`
+  mostly measures Flexible against its runner-up. The label is therefore driven
+  by the picked archetype's own score against its **best rival**: the highest
+  score among the other archetypes, not counting Flexible (for Flexible itself,
+  among the other seven), with ties going to the earliest key in `ARCHETYPE_KEYS`
+  order. **Clear fit** when the picked score is at least **3 points** above the
+  rival's; otherwise **Close fit**, and a Close fit row names the rival and its
+  score (for example “Close fit · Megacomplex 79”). Evidence, from the top 100
+  systems for each non-Flexible archetype (700 rows, live
+  `/api/archetypes/system/{id64}`, 2026-10-31): the rival ties or beats the picked
+  type in 62% of rows; the middle gap is 0 points; a 3-point cut-off marks 24% of
+  those rows (26% of first-page rows) Clear fit. The ranking rows carry
+  `rival_archetype` and `rival_score` for this. The label stays selected-mode only,
+  Any mode is unchanged, and the Product fixture's labels follow from its pinned
+  scores.
 - **Question 5 — Yes.** The proposed slice 1c latency budgets are accepted
   unchanged as the pass/fail line: warm ≤ 300 ms first page and ≤ 600 ms for the
   near-ceiling page and the within-window count; cold ≤ 1,500 / 2,500 / 2,500 ms
