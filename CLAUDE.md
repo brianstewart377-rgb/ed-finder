@@ -29,12 +29,14 @@ promotion path is now `authorized` and has accepted governed promotions
 `bed755b9` 2026-09-25; first F2d release `f667bb4d` 2026-10-18; second F2d
 release `0dddc78d` 2026-10-19; third F2d release `a031c2da` 2026-10-23; fourth F2d
 release `1e748c9d` 2026-10-29; fifth F2d release `3fd8e719` 2026-11-01; sixth F2d
-release `181f6fed` 2026-11-01 per the accepted-release attestation), with exact CPython
+release `181f6fed` 2026-11-01; seventh F2d release `293bc72b` 2026-11-01, the first
+with the Finder archetype UI on, per the accepted-release attestation), with exact CPython
 3.14.7 installed on the host. Deploys
 still run **only** through the governed application-promotion workflow and its
 fail-closed target authority — being authorized is not blanket permission to
-promote. Current programme status (prod app on `181f6fed`, the sixth F2d release, which carries the
-Colony Planner `/plan` page through S5b with Raven layout import and the 2026-10-31 audit fixes; the
+promote. Current programme status (prod app on `293bc72b`, the seventh F2d release, which carries the
+Finder archetype UI (F4a–F4c, F4e) switched on, the Colony Planner `/plan` page through S5b with S3b slot predictions,
+Raven layout import and the floating facility picker, and the 2026-10-31 audit fixes; the
 **Finder is LIVE** — both products published 2026-10-23 09:45 UTC; it carries the
 `bed755b9` watchlist/pins/compare + Galaxy Impact scoreboard + map fixes; density swirl LIVE;
 identity/journal shipped; both Finder products (`system_search`, `system_archetype`) are

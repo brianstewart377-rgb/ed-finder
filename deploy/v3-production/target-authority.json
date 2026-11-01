@@ -24,17 +24,17 @@
     }
   },
   "observed_runtime": {
-    "api_container": "edfinder-v3-production-api-blue",
-    "api_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:986ea8969c927a06848b5646d9313d91b9e60d56944f91cb64f77a19c9485ba8",
-    "api_build_sha": "181f6feda2b7d671ea5cda7d4a961a671b01c927",
-    "web_slot_container": "edfinder-v3-production-web-blue",
-    "web_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:eddf982490d857fa07c5aa620a0accceff0fbd98195f6057f068d0d08cce10c5",
+    "api_container": "edfinder-v3-production-api-green",
+    "api_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:f7e82138532e97a0cac8d652ae72161ec2a4689032bfbd52e3b42b59c84a2b98",
+    "api_build_sha": "293bc72b16f69a9735d165c628426b9c7ac9a98c",
+    "web_slot_container": "edfinder-v3-production-web-green",
+    "web_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:039e7d7f4336778c5562abae7e0fa53ddc77c2f0350925737a67b6ab14c6a6c1",
     "accepted_promotion": {
-      "received_at": "2026-11-01T15:21:35Z",
-      "release_run_id": "41319999720",
-      "source_sha": "181f6feda2b7d671ea5cda7d4a961a671b01c927",
+      "received_at": "2026-11-01T19:37:23Z",
+      "release_run_id": "41342325477",
+      "source_sha": "293bc72b16f69a9735d165c628426b9c7ac9a98c",
       "mode": "upgrade",
-      "active_slot": "blue",
+      "active_slot": "green",
       "rollback_kind": "recorded-schema-compatible-release"
     },
     "retired_legacy_containers": [
@@ -51,23 +51,23 @@
     "redis_container": "edfinder-v3-support-redis",
     "nats_container": "edfinder-v3-support-nats",
     "octopus_and_unrelated_containers": "preserve-all",
-    "public_ui": "svelte-release-181f6fed",
-    "live_topology_note": "Accepted upgrade receipt from promotion run 41320746913 at 2026-11-01T15:21:35Z binds release run 41319999720 and source 181f6feda2b7d671ea5cda7d4a961a671b01c927 to active slot blue, promoted from the fifth F2d release 3fd8e7195447501c4ca6354a2551c241fc8f2f15 (green), which is the recorded rollback artifact; the first F2d release f667bb4d remains the minimum schema-compatible image. Preflight run 41320584087 passed. Staging, active and public smoke returned 200; the F2d image contract, OpenAPI bounds, hard-filter 422 rejections and behavioural probes passed; both Finder products are READY/VERIFIED and published on ratings_v4_prod_p4_parallel_v1 (seq 1). migrations_performed, database_writes_performed, edge_recreated and protected_resources_changed are false and the retained database, edge, redis and nats containers were preserved. Retired and retained legacy-container records above remain historical inventory facts."
+    "public_ui": "svelte-release-293bc72b",
+    "live_topology_note": "Accepted upgrade receipt from promotion run 41342589203 at 2026-11-01T19:37:23Z binds release run 41342325477 and source 293bc72b16f69a9735d165c628426b9c7ac9a98c to active slot green, promoted from the sixth F2d release 181f6feda2b7d671ea5cda7d4a961a671b01c927 (blue), which is the recorded rollback artifact; the first F2d release f667bb4d remains the minimum schema-compatible image. Preflight run 41342504519 passed. Staging, active and public smoke returned 200; the F2d image contract, OpenAPI bounds, hard-filter 422 rejections and behavioural probes passed; both Finder products are READY/VERIFIED and published on ratings_v4_prod_p4_parallel_v1 (seq 1). This is the first governed web image built with VITE_FINDER_F4_ENABLED=1 (owner decision 2026-11-01, PR 974). migrations_performed, database_writes_performed, edge_recreated and protected_resources_changed are false and the retained database, edge, redis and nats containers were preserved. Retired and retained legacy-container records above remain historical inventory facts."
   },
   "accepted_release_schema_compatibility": {
     "schema_version": "ed-finder/v3-production-accepted-release-schema-compatibility/v1",
-    "source_sha": "181f6feda2b7d671ea5cda7d4a961a671b01c927",
-    "release_run_id": "41319999720",
-    "manifest_sha256": "62f5920913c6d9dd97bf2beffd9184dd973a66f3e1b77f1e21bba44c0aff1565",
+    "source_sha": "293bc72b16f69a9735d165c628426b9c7ac9a98c",
+    "release_run_id": "41342325477",
+    "manifest_sha256": "86b41fca6e524242c3e126b192f75f5d7389e5bf7b4140aaba14b3a2401f8c24",
     "images": {
-      "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:986ea8969c927a06848b5646d9313d91b9e60d56944f91cb64f77a19c9485ba8",
-      "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:eddf982490d857fa07c5aa620a0accceff0fbd98195f6057f068d0d08cce10c5"
+      "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:f7e82138532e97a0cac8d652ae72161ec2a4689032bfbd52e3b42b59c84a2b98",
+      "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:039e7d7f4336778c5562abae7e0fa53ddc77c2f0350925737a67b6ab14c6a6c1"
     },
     "compatible_migration_sets": [
       "sha256:3b7d5eef5a451fc79315758541e694d3f5e7791590caa4159bca27a5d698e3cf",
       "sha256:828bf02d263d7ab27b3764cbfa3457859aeb229ccf16cb9929d586136f8e83d7"
     ],
-    "evidence": "Release run 41319999720 built source 181f6feda2b7d671ea5cda7d4a961a671b01c927. Sixth F2d release for the installed through-022 schema (migration set sha256:828bf02d263d7ab27b3764cbfa3457859aeb229ccf16cb9929d586136f8e83d7; 022 applied 2026-10-31 by apply run 41180459540). No migration since 022. App changes since the accepted 3fd8e719: Colony Planner S5b economy facts from the published generation (967), Raven Colonial layout import with DaftMav's 112 build types (970), Finder F4c saved surfaces behind the default-off F4 flag (969); docs and test-only changes (961, 966, 968). Each with its own CI, E2E and review. Ranking identity unchanged (v3-colony-potential-2, ec353306); f2d_operator_code_sha256 unchanged (8696feb8): no scripts/operator, sql or purge operator files changed since 3fd8e719. Promotion run 41320746913 accepted it at 2026-11-01T15:21:35Z (receipt status accepted, active slot blue, migrations_performed and database_writes_performed false, protected resources unchanged, rollback recorded to the 3fd8e719 artifact) after preflight run 41320584087 passed.",
+    "evidence": "Release run 41342325477 built source 293bc72b16f69a9735d165c628426b9c7ac9a98c. Seventh F2d release for the installed through-022 schema (migration set sha256:828bf02d263d7ab27b3764cbfa3457859aeb229ccf16cb9929d586136f8e83d7; 022 applied 2026-10-31 by apply run 41180459540). No migration since 022; no sql/, scripts/operator, scripts/rehearsal or purge changes since the accepted 181f6fed. App changes: Colony Planner S3b surface slot predictions (972), Finder F4e per-archetype explanations (973), Finder F4 UI enabled in governed release web builds by owner decision 2026-11-01 (974), floating facility picker, Planner on the home page and Explore waiting for a requested search (975); release record 971. Each with its own CI, E2E, Review Lab and review. Ranking identity unchanged. f2d_operator_code_sha256 unchanged (8696feb8). Promotion run 41342589203 accepted it at 2026-11-01T19:37:23Z (receipt status accepted, active slot green, migrations_performed and database_writes_performed false, protected resources unchanged, rollback recorded to the 181f6fed artifact) after preflight run 41342504519 passed.",
     "ranking_version": "v3-colony-potential-2",
     "ranking_sha256": "ec3533063f422f5859a26baf422974f9d330466f2ad675505fac2743bbca89e4",
     "f2d_operator_code_sha256": "8696feb81e46b6b3b54d7ea89e7ef956f47cb465bbc66bb75ff64e9fad55052f",
@@ -78,7 +78,8 @@
       "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:d8d7603e79c2213c4fc6534f16967f51498e73a80743e00d444d0b1c6f87db67",
       "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:7498c1ee965dd658bdc5dedc44fa5c90259c0dc732fe757a042c23709bcd3449",
       "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:7d446a8982e17bfbd211cbc300820e2b44072505a8556b55cf22581c067709c3",
-      "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:986ea8969c927a06848b5646d9313d91b9e60d56944f91cb64f77a19c9485ba8"
+      "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:986ea8969c927a06848b5646d9313d91b9e60d56944f91cb64f77a19c9485ba8",
+      "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:f7e82138532e97a0cac8d652ae72161ec2a4689032bfbd52e3b42b59c84a2b98"
     ]
   },
   "schema_transition": {

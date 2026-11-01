@@ -215,7 +215,13 @@ describe('isolated V3 Review Lab', () => {
     let anchorAutocompleteCount = 0;
     const chooseReviewAnchor = () => {
       const autocompleteAlias = `anchorAutocomplete${++anchorAutocompleteCount}`;
-      cy.intercept('GET', '/api/local/autocomplete*').as(autocompleteAlias);
+      // Typing sends a request per debounced prefix and cancels the earlier
+      // ones; wait for the complete name's request, not the first prefix.
+      cy.intercept({
+        method: 'GET',
+        pathname: '/api/local/autocomplete',
+        query: { q: REVIEW_SYSTEM.name },
+      }).as(autocompleteAlias);
       cy.get('#system-search').clear().type(REVIEW_SYSTEM.name);
       cy.wait(`@${autocompleteAlias}`)
         .its('response.statusCode')

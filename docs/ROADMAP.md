@@ -353,6 +353,21 @@ newer dated source wins).
   then the post-go-live work recorded in the 2026-10-21 entries. Known
   follow-ups: the dense-window development sort is slow near the galactic core,
   and the PR #877 visual polish list.
+- **Production app promoted to `293bc72b`, the seventh F2d release (2026-11-01).**
+  Owner-approved. Release run 41342325477, preflight run 41342504519, promote
+  run 41342589203, receipt `created_at` `2026-11-01T19:37:23Z`, active slot
+  blue→green, `status: accepted`; app-only, no migration, no database writes.
+  The **Finder archetype UI is on** for the first time (owner decision #974:
+  F4a–F4c and F4e, explanations included). It also carries Colony Planner S3b
+  slot predictions (#972), the floating tabbed facility picker, the Planner on
+  the home page and header, and Explore waiting for a requested search (#975).
+  Operator-code and ranking identities are unchanged. Public checks after
+  promotion: `/api/health` reports build `293bc72b` with the database
+  connected; the home page lists Explore, Inspect and Plan; `/explore` opens
+  empty; choosing Paradise World loads the galaxy-wide Paradise World ranking
+  with explanation buttons and no API errors. The `181f6fed` backend is the
+  recorded rollback artifact; `f667bb4d` stays the minimum schema-compatible
+  image. Receipts under `docs/operations/evidence/2026-11-01-v3-production-*-run-4134*`.
 - **Production app promoted to `181f6fed`, the sixth F2d release (2026-11-01).**
   Owner-approved. Release run 41319999720, preflight run 41320584087, promote
   run 41320746913, receipt `created_at` `2026-11-01T15:21:35Z`, active slot
