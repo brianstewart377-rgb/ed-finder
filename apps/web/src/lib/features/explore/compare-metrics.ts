@@ -1,4 +1,13 @@
-import type { CompareEntry } from '$lib/persistence/storage';
+import {
+  snapshotRankingIdentity,
+  type CompareEntry,
+} from '$lib/persistence/storage';
+import {
+  archetypeLabel,
+  isArchetypeKey,
+  isTier,
+  tierLabel,
+} from './archetypes';
 
 export const COMPARE_MAX = 6;
 const UNAVAILABLE = 'Unavailable';
@@ -15,11 +24,12 @@ export interface CompareMetricRow {
 }
 
 export interface CompareMetricOptions {
-  /** F4b hides unlike search-reference distances until F4c defines comparability. */
-  suppressDistance?: boolean;
+  finderF4Enabled?: boolean;
 }
 
-const archetypeLabels: Readonly<Record<string, string>> = {
+// The default-off surface retains its released presentation. F4 never uses
+// this historical mapping or derives an API-owned tier from a score.
+const legacyArchetypeLabels: Readonly<Record<string, string>> = {
   refinery_industrial: 'Refinery / Industrial Megacomplex',
   extraction_refinery: 'Extraction / Refinery Mining Hub',
   agriculture_terraforming: 'Agriculture / Terraforming Colony',
@@ -40,10 +50,10 @@ function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
 }
 
-function archetype(value: unknown): string {
+function legacyArchetype(value: unknown): string {
   const key = text(value);
   return key
-    ? (archetypeLabels[key] ??
+    ? (legacyArchetypeLabels[key] ??
         key
           .split(/[_-]+/)
           .filter(Boolean)
@@ -52,7 +62,7 @@ function archetype(value: unknown): string {
     : UNAVAILABLE;
 }
 
-function development(value: number | null): string {
+function legacyDevelopment(value: number | null): string {
   if (value === null) return UNAVAILABLE;
   const tier =
     value >= 88
@@ -65,6 +75,147 @@ function development(value: number | null): string {
             ? 'C'
             : 'D';
   return `${tier} ${value}`;
+}
+
+const SEMANTIC_PROVENANCE_FIELDS = [
+  'ranking_version',
+  'ranking_sha256',
+  'archetype_version',
+  'archetype_model_sha256',
+] as const;
+
+/** Data refreshes change freshness, not the four score-semantics identities. */
+export function comparableOverallScores(
+  entries: readonly CompareEntry[],
+): boolean {
+  const identities = entries.map(snapshotRankingIdentity);
+  if (identities.some((identity) => identity.score_kind === 'unknown'))
+    return false;
+  const provenance = identities.map((identity) => identity.ranking_provenance);
+  const first = provenance[0];
+  return Boolean(
+    first &&
+    SEMANTIC_PROVENANCE_FIELDS.every((field) => text(first[field])) &&
+    provenance.every(
+      (value) =>
+        value &&
+        SEMANTIC_PROVENANCE_FIELDS.every(
+          (field) => value[field] === first[field],
+        ),
+    ),
+  );
+}
+
+function comparableSelectedArchetype(
+  entries: readonly CompareEntry[],
+): string | null {
+  const identities = entries.map(snapshotRankingIdentity);
+  const first = identities[0];
+  return first?.score_kind === 'selected_fit' &&
+    isArchetypeKey(first.selected_archetype) &&
+    identities.every(
+      (identity) =>
+        identity.score_kind === 'selected_fit' &&
+        identity.selected_archetype === first.selected_archetype,
+    )
+    ? first.selected_archetype
+    : null;
+}
+
+function comparableDistance(entries: readonly CompareEntry[]): boolean {
+  const references = entries.map(
+    (entry) => snapshotRankingIdentity(entry).distance_reference,
+  );
+  const first = references[0];
+  return Boolean(
+    first &&
+    references.every(
+      (reference) =>
+        reference?.kind === first.kind && reference.id64 === first.id64,
+    ),
+  );
+}
+
+export function distanceReferenceLabel(entry: CompareEntry): string | null {
+  const reference = snapshotRankingIdentity(entry).distance_reference;
+  if (!reference) return null;
+  return `Distance from ${reference.kind === 'sol' ? 'Sol' : (text(reference.name) ?? reference.id64)}`;
+}
+
+/** A reference proves a measurement, including zero; no reference is unknown. */
+export function snapshotDistance(entry: CompareEntry): number | null {
+  return snapshotRankingIdentity(entry).distance_reference
+    ? finite(entry.distance)
+    : null;
+}
+
+function apiScore(value: number | null, tier: unknown): string {
+  if (value === null) return UNAVAILABLE;
+  return `${value}${isTier(tier) ? ` · ${tierLabel(tier)}` : ''}`;
+}
+
+/** Stored values remain readable even when they cannot enter a comparison. */
+export function snapshotScoreSummary(entry: CompareEntry): string {
+  const identity = snapshotRankingIdentity(entry);
+  const parts: string[] = [];
+  const overall = finite(entry.overall_development_potential);
+  if (overall !== null)
+    parts.push(`Best Colony Potential ${apiScore(overall, entry.best_tier)}`);
+  if (identity.score_kind === 'selected_fit') {
+    const label = archetypeLabel(text(entry.selected_archetype));
+    parts.push(
+      `${label ? `${label}${isArchetypeKey(entry.selected_archetype) ? '' : ' (historical archetype)'} fit` : 'Stored selected fit'} ${apiScore(identity.ranking_score, identity.ranking_tier)}`,
+    );
+  } else if (overall === null && identity.ranking_score !== null) {
+    parts.push(`Stored ranking score ${identity.ranking_score}`);
+  }
+  if (parts.length === 0) {
+    const stored = finite(entry.archetype_score);
+    parts.push(`Stored score ${stored === null ? UNAVAILABLE : stored}`);
+  }
+  if (!identity.ranking_provenance || identity.score_kind === 'unknown')
+    parts.push('Older save: ranking mode or provenance unknown');
+  return parts.join('; ');
+}
+
+export function snapshotProvenanceSummary(entry: CompareEntry): string | null {
+  const provenance = snapshotRankingIdentity(entry).ranking_provenance;
+  if (!provenance) return null;
+  return `Ranked on generation ${provenance.derived_generation_id}; publication ${provenance.publication_sequence}; archetype manifest ${provenance.archetype_manifest_sha256}`;
+}
+
+export function buildCompareNotes(
+  entries: readonly CompareEntry[],
+  options?: CompareMetricOptions,
+): string[] {
+  if (!options?.finderF4Enabled || entries.length === 0) return [];
+  const identities = entries.map(snapshotRankingIdentity);
+  const notes: string[] = [];
+  if (
+    identities.some(
+      (identity) =>
+        !identity.ranking_provenance || identity.score_kind === 'unknown',
+    )
+  )
+    notes.push(
+      'Older save: ranking mode or provenance unknown. Stored scores remain visible.',
+    );
+  if (!comparableOverallScores(entries))
+    notes.push(
+      identities.some((identity) => identity.score_kind === 'unknown')
+        ? 'Score comparison omitted: ranking mode unknown.'
+        : 'Score comparison omitted: different ranking versions or missing ranking provenance.',
+    );
+  if (
+    identities.some((identity) => identity.score_kind === 'selected_fit') &&
+    !comparableSelectedArchetype(entries)
+  )
+    notes.push('Selected-fit comparison omitted: different ranking modes.');
+  if (!comparableDistance(entries))
+    notes.push(
+      'Distance comparison omitted: different or unknown distance references.',
+    );
+  return notes;
 }
 
 function population(entry: CompareEntry): string {
@@ -95,7 +246,7 @@ export function buildCompareRows(
   entries: readonly CompareEntry[],
   options?: CompareMetricOptions,
 ): CompareMetricRow[] {
-  const suppressDistance = options?.suppressDistance ?? false;
+  const finderF4Enabled = options?.finderF4Enabled ?? false;
   const plain = (
     label: string,
     render: (entry: CompareEntry) => string,
@@ -109,7 +260,7 @@ export function buildCompareRows(
   const numeric = (
     label: string,
     extract: (entry: CompareEntry) => unknown,
-    render: (value: number | null) => string = (value) =>
+    render: (value: number | null, entry: CompareEntry) => string = (value) =>
       value === null ? UNAVAILABLE : String(value),
     higherIsBetter = true,
   ): CompareMetricRow => {
@@ -125,8 +276,8 @@ export function buildCompareRows(
       : null;
     return {
       label,
-      cells: values.map((value) => ({
-        display: render(value),
+      cells: values.map((value, index) => ({
+        display: render(value, entries[index]),
         csvValue: value ?? UNAVAILABLE,
         best: value !== null && best !== null && value === best,
       })),
@@ -138,17 +289,52 @@ export function buildCompareRows(
       return value !== null && value >= 0 ? value : null;
     });
 
+  const selected = comparableSelectedArchetype(entries);
+  const scoresComparable = comparableOverallScores(entries);
+  const labelArchetype = finderF4Enabled
+    ? (value: unknown) => archetypeLabel(text(value)) ?? UNAVAILABLE
+    : legacyArchetype;
+
   return [
-    numeric(
-      'Development score',
-      (entry) =>
-        finite(entry.archetype_score) ??
-        finite(entry.overall_development_potential),
-      development,
+    ...(finderF4Enabled
+      ? [
+          ...(scoresComparable
+            ? [
+                numeric(
+                  'Best Colony Potential',
+                  (entry) => entry.overall_development_potential,
+                  (value, entry) => apiScore(value, entry.best_tier),
+                ),
+              ]
+            : []),
+          ...(scoresComparable && selected
+            ? [
+                numeric(
+                  `${archetypeLabel(selected)} fit`,
+                  (entry) => snapshotRankingIdentity(entry).ranking_score,
+                  (value, entry) =>
+                    apiScore(
+                      value,
+                      snapshotRankingIdentity(entry).ranking_tier,
+                    ),
+                ),
+              ]
+            : []),
+        ]
+      : [
+          numeric(
+            'Development score',
+            (entry) =>
+              finite(entry.archetype_score) ??
+              finite(entry.overall_development_potential),
+            legacyDevelopment,
+          ),
+        ]),
+    plain('Primary archetype', (entry) =>
+      labelArchetype(entry.primary_archetype),
     ),
-    plain('Primary archetype', (entry) => archetype(entry.primary_archetype)),
     plain('Secondary archetype', (entry) =>
-      archetype(entry.secondary_archetype),
+      labelArchetype(entry.secondary_archetype),
     ),
     plain('Archetype confidence', (entry) => {
       const confidence = finite(entry.archetype_confidence);
@@ -166,11 +352,14 @@ export function buildCompareRows(
         text(entry.primary_economy) ??
         UNAVAILABLE,
     ),
-    ...(!suppressDistance
+    ...(!finderF4Enabled || comparableDistance(entries)
       ? [
           numeric(
-            'Distance from ref',
+            finderF4Enabled
+              ? distanceReferenceLabel(entries[0])!
+              : 'Distance from ref',
             (entry) => {
+              if (finderF4Enabled) return snapshotDistance(entry);
               const distance = finite(entry.distance);
               // Legacy searches can use zero when no reference was chosen.
               return distance !== null && distance > 0 ? distance : null;
@@ -216,7 +405,7 @@ export function compareCsv(
   return [
     ['Metric', ...entries.map((entry) => entry.name)],
     ...buildCompareRows(entries, options).map((row) => [
-      row.label === 'Distance from ref' ? 'Distance from ref LY' : row.label,
+      row.label.startsWith('Distance from ') ? `${row.label} LY` : row.label,
       ...row.cells.map((cell) => cell.csvValue),
     ]),
   ]

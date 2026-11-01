@@ -51,6 +51,12 @@ browser acceptance, visual approval, the owner enablement decision and the
 separate governed application-release gate remain required. F4b does not enable
 the flag in such a build or authorize a deployment.
 
+**Status update — 2026-11-01:** F4c is implemented behind the default-off
+`VITE_FINDER_F4_ENABLED` flag: saved surfaces compare only compatible score
+identities and exact distance references, including measured zero distances.
+F4e, browser and visual acceptance, the owner's enablement decision (question 3),
+and the governed release still remain before the flag may be enabled.
+
 F4a and F4b are code-only increments validated against disposable fixtures.
 They remain hidden behind a default-off build feature gate until the governed
 production sequence has applied the pending migrations (rewritten `011` and

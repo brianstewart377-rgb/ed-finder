@@ -1,6 +1,7 @@
 import { writable, type Readable } from 'svelte/store';
 import { ADMIN_TOKEN_SESSION_KEY as SHARED_ADMIN_TOKEN_SESSION_KEY } from '@ed-finder/api-client/core';
 
+import { FINDER_F4_ENABLED } from '../config';
 import { parseId64, type Id64 } from '../domain/id64';
 import { isArchetypeKey } from '../features/explore/archetypes';
 
@@ -569,7 +570,16 @@ export function snapshotRankingIdentity(
  */
 function normaliseSnapshotRankingFields<T extends JsonRecord>(entry: T): T {
   if (!RANKING_IDENTITY_FIELDS.some((field) => field in entry)) return entry;
-  return { ...entry, ...snapshotRankingIdentity(entry) };
+  return {
+    ...entry,
+    ...snapshotRankingIdentity(entry),
+    // Historical keys remain readable evidence, even though they cannot be a
+    // V3 selected-fit identity. Keep the raw key on hydration/write-through;
+    // comparison eligibility always uses snapshotRankingIdentity instead.
+    ...(FINDER_F4_ENABLED && typeof entry.selected_archetype === 'string'
+      ? { selected_archetype: entry.selected_archetype }
+      : {}),
+  };
 }
 
 /**

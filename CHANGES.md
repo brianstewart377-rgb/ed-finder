@@ -11,6 +11,23 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — Finder F4c: mode- and reference-safe saved surfaces
+
+Behind the default-off `VITE_FINDER_F4_ENABLED` flag, Compare and Watchlist use
+canonical archetype labels and API-supplied tiers. Saved snapshots retain overall
+potential separately from the selected fit and its identity. Compare checks the
+four semantic ranking/model provenance fields before comparing scores; matching
+generations and build manifests are not required. Selected fits additionally
+require the same archetype. Older saves remain readable without guessing their
+mode or reference or rewriting browser storage.
+
+Compare distance returns in enabled builds only for one shared reference, named
+in the table and CSV. Every finite referenced distance, including zero, is valid;
+unreferenced legacy distances cannot participate. Disabled builds retain their
+existing behavior. F4e, browser and visual acceptance, the owner's enablement
+decision (F4 design question 3), and the governed release remain required before
+the flag may be enabled.
+
 ## 2026-11-01 — Fifth F2d release `3fd8e719` accepted in production
 
 Owner-approved, after the post-purge Sunday full backup finished. Release run

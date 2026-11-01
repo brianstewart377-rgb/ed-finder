@@ -10,7 +10,12 @@ import axe from 'axe-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseId64 } from '$lib/domain/id64';
 import { compare } from '$lib/persistence/stores';
-import { PERSISTENCE_KEYS } from '$lib/persistence/storage';
+import {
+  PERSISTENCE_KEYS,
+  SNAPSHOT_SOL_ID64,
+  type CompareEntry,
+  type SnapshotRankingProvenance,
+} from '$lib/persistence/storage';
 import CompareTestHost from './CompareTestHost.svelte';
 
 const { feature, mockedPage, mockedGoto } = vi.hoisted(() => ({
@@ -25,6 +30,65 @@ vi.mock('$lib/config', () => ({
 }));
 vi.mock('$app/state', () => ({ page: mockedPage }));
 vi.mock('$app/navigation', () => ({ goto: mockedGoto }));
+
+const provenance: SnapshotRankingProvenance = {
+  ranking_version: 'ranking-v1',
+  ranking_sha256: 'a'.repeat(64),
+  archetype_version: 'archetype-v1',
+  archetype_model_sha256: 'b'.repeat(64),
+  derived_generation_id: 'generation-1',
+  publication_sequence: 1,
+  archetype_manifest_sha256: 'c'.repeat(64),
+};
+const solReference = {
+  kind: 'sol' as const,
+  id64: SNAPSHOT_SOL_ID64,
+  name: 'Sol',
+};
+function savedEntry(
+  id: string,
+  fields: Partial<CompareEntry> = {},
+): CompareEntry {
+  return {
+    id64: parseId64(id),
+    name: `Candidate ${id}`,
+    score_kind: 'selected_fit',
+    selected_archetype: 'flexible',
+    ranking_score: 88,
+    ranking_tier: 'B',
+    overall_development_potential: 91,
+    ranking_provenance: provenance,
+    distance_reference: solReference,
+    distance: 12,
+    primary_archetype: 'flexible',
+    ...fields,
+  };
+}
+
+function metricRow(name: RegExp): HTMLElement {
+  return screen.getByRole('rowheader', { name }).closest('tr')!;
+}
+
+function captureCsv() {
+  const createObjectURL = vi.fn<(blob: Blob) => string>(() => 'blob:compare');
+  vi.stubGlobal(
+    'URL',
+    class extends URL {
+      static createObjectURL = createObjectURL;
+      static revokeObjectURL = vi.fn();
+    },
+  );
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  return async () => {
+    await fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = reject;
+      reader.readAsText(createObjectURL.mock.calls[0]![0]);
+    });
+  };
+}
 
 describe('comparison panel', () => {
   beforeEach(() => {
@@ -160,49 +224,165 @@ describe('comparison panel', () => {
     expect(result.violations).toEqual([]);
   });
 
-  it('omits distance from the enabled F4 comparison table, explanatory copy, and exported CSV', async () => {
+  it('compares same-reference zero distances and exports them with a reference label in F4', async () => {
+    feature.enabled = true;
+    compare.set([
+      savedEntry('42', { distance: 0 }),
+      savedEntry('43', { distance: 20 }),
+    ]);
+    const exportCsv = captureCsv();
+    render(CompareTestHost);
+    const distanceRow = metricRow(/Distance from Sol/);
+    expect(within(distanceRow).getByText('0.00 LY')).toBeInTheDocument();
+    expect(within(distanceRow).getAllByRole('cell')[0]).toHaveTextContent(
+      '0.00 LY Best value',
+    );
+    expect(within(distanceRow).getAllByText('Best value')).toHaveLength(1);
+    expect(await exportCsv()).toContain('"Distance from Sol LY","0","20"');
+  });
+
+  it.each([
+    ['legacy zero', { distance: 0, distance_reference: null }],
+    [
+      'another anchor',
+      {
+        distance_reference: {
+          kind: 'anchor',
+          id64: parseId64('7'),
+          name: 'Achenar',
+        },
+      },
+    ],
+  ])(
+    'omits distance from the F4 table and CSV for %s',
+    async (_label, fields) => {
+      feature.enabled = true;
+      compare.set([savedEntry('42'), savedEntry('43', fields)]);
+      const exportCsv = captureCsv();
+      render(CompareTestHost);
+      expect(
+        screen.queryByRole('rowheader', { name: /Distance from/ }),
+      ).not.toBeInTheDocument();
+      expect(await exportCsv()).not.toMatch(/Distance from/);
+    },
+  );
+
+  it('uses canonical labels and only the API selected-fit tier, across generations of the same model', () => {
+    feature.enabled = true;
+    compare.set([
+      savedEntry('42'),
+      savedEntry('43', {
+        ranking_score: 76,
+        ranking_tier: null,
+        primary_archetype: 'old_custom_key',
+        ranking_provenance: {
+          ...provenance,
+          derived_generation_id: 'generation-2',
+          publication_sequence: 9,
+          archetype_manifest_sha256: 'd'.repeat(64),
+        },
+      }),
+    ]);
+    render(CompareTestHost);
+    const fitRow = metricRow(/Flexible Multi-Role Colony fit/);
+    expect(within(fitRow).getAllByRole('cell')[0]).toHaveTextContent(
+      /B.*88|88.*B/,
+    );
+    expect(within(fitRow).getAllByRole('cell')[1]).toHaveTextContent(/^76$/);
+    expect(metricRow(/Primary archetype/)).toHaveTextContent('old custom key');
+    const overall = metricRow(/Best Colony Potential/);
+    expect(within(overall).getAllByRole('cell')[0]).toHaveTextContent(/^91$/);
+    expect(
+      screen.getByText(/Ranked on generation generation-1/i),
+    ).toHaveTextContent('publication 1');
+    expect(
+      screen.getByText(/Ranked on generation generation-2/i),
+    ).toHaveTextContent('d'.repeat(64));
+  });
+
+  it('compares overall potential across Any and selected modes but omits unlike fits', () => {
+    feature.enabled = true;
+    compare.set([
+      savedEntry('42'),
+      savedEntry('43', {
+        score_kind: 'overall_potential',
+        selected_archetype: null,
+        ranking_score: 80,
+        ranking_tier: null,
+        overall_development_potential: 80,
+        distance_reference: { ...solReference, kind: 'anchor' },
+        distance: 0,
+      }),
+    ]);
+    render(CompareTestHost);
+    expect(metricRow(/Best Colony Potential/)).toHaveTextContent(
+      '91 Best value',
+    );
+    expect(
+      screen.queryByRole('rowheader', { name: /Colony fit/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/different ranking modes/i)).toBeInTheDocument();
+    expect(metricRow(/Distance from Sol/)).toHaveTextContent(
+      '0.00 LY Best value',
+    );
+  });
+
+  it('omits both score comparisons for different model versions while retaining stored scores', () => {
+    feature.enabled = true;
+    compare.set([
+      savedEntry('42'),
+      savedEntry('43', {
+        ranking_provenance: {
+          ...provenance,
+          archetype_model_sha256: 'f'.repeat(64),
+        },
+      }),
+    ]);
+    render(CompareTestHost);
+    expect(
+      screen.queryByRole('rowheader', { name: /Best Colony Potential/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('rowheader', { name: /Colony fit/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/different ranking versions/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Best Colony Potential.*91/)).toHaveLength(2);
+  });
+
+  it('keeps older saved scores visible without guessed mode, tier or comparison', () => {
     feature.enabled = true;
     compare.set([
       {
         id64: parseId64('42'),
-        name: 'Candidate A',
+        name: 'Older candidate',
         archetype_score: 88,
-        distance: 12,
+        distance: 0,
       },
-      {
-        id64: parseId64('43'),
-        name: 'Candidate B',
-        archetype_score: 76,
-        distance: 20,
-      },
+      savedEntry('43'),
     ]);
-    const createObjectURL = vi.fn<(blob: Blob) => string>(() => 'blob:compare');
-    vi.stubGlobal(
-      'URL',
-      class extends URL {
-        static createObjectURL = createObjectURL;
-        static revokeObjectURL = vi.fn();
-      },
+    render(CompareTestHost);
+    expect(
+      screen.getByRole('link', { name: 'Older candidate' }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText(/older save/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/stored score.*88/i)).not.toHaveTextContent(
+      /Tier [SABCD]/,
     );
-    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    const { container } = render(CompareTestHost);
     expect(
-      screen.queryByRole('row', { name: /Distance from ref/ }),
+      screen.queryByRole('rowheader', {
+        name: /Best Colony Potential|Colony fit|Distance from/,
+      }),
     ).not.toBeInTheDocument();
-    expect(container.textContent).not.toMatch(/distance/i);
-    expect(
-      screen.getByRole('row', { name: /Development score/ }),
-    ).toHaveTextContent('S 88');
-    await fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
-    const blob = createObjectURL.mock.calls[0]![0] as Blob;
-    const csv = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = reject;
-      reader.readAsText(blob);
+  });
+
+  it('has no automated accessibility violations for F4 comparison notes and snapshot provenance', async () => {
+    feature.enabled = true;
+    compare.set([savedEntry('42'), savedEntry('43', { distance: 0 })]);
+    const { container } = render(CompareTestHost);
+    const result = await axe.run(container, {
+      rules: { 'color-contrast': { enabled: false } },
     });
-    expect(csv).not.toMatch(/distance/i);
-    expect(csv).toContain('"Development score","88","76"');
+    expect(result.violations).toEqual([]);
   });
 
   it('carries the originating Explore query and anchor state through the F4 Inspect link', async () => {
