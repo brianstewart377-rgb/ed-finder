@@ -3,8 +3,14 @@
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import { auth } from '$lib/auth/auth';
+  import { FINDER_F4_ENABLED } from '$lib/config';
   import { parseId64, type Id64 } from '$lib/domain/id64';
+  import {
+    inspectHref,
+    navigateWithAnchor,
+  } from '$lib/features/explore/navigation';
   import { usePersistenceContext } from '$lib/persistence/context';
   import { hydrateApplicationStores } from '$lib/persistence/stores';
   import { applyLegacyHash } from '$lib/routing/legacy-hash';
@@ -14,9 +20,8 @@
   const persistence = usePersistenceContext();
   const { selectedSystem } = persistence;
   let persistenceReady = $state(false);
-  let lastUrlSelection: Id64 | null = null;
 
-  let urlSelection = $derived.by((): Id64 | null => {
+  const detailId = $derived.by((): Id64 | null => {
     const raw = page.url.searchParams.get('system');
     if (!raw) return null;
     try {
@@ -26,20 +31,44 @@
     }
   });
 
+  const exploreSelection = $derived(
+    FINDER_F4_ENABLED && page.url.pathname === '/explore',
+  );
+  const urlSelection = $derived.by((): Id64 | null => {
+    if (!exploreSelection) return detailId;
+    const values = page.url.searchParams.getAll('selected');
+    if (values.length !== 1) return null;
+    try {
+      return parseId64(values[0]);
+    } catch {
+      return null;
+    }
+  });
+
   // Inspect is the canonical detail route. The modal lifecycle is retained
   // only as an Explore-context affordance, never as a competing route model.
-  let overlayId = $derived(
-    page.url.pathname === '/explore' ? urlSelection : null,
-  );
+  let overlayId = $derived(page.url.pathname === '/explore' ? detailId : null);
 
   function establishUrlSelection(): void {
-    if (!urlSelection) {
-      lastUrlSelection = null;
+    // Explore owns even an absent selection. Other routes and disabled builds
+    // keep the existing detail-driven selection without clearing on omission.
+    if (!urlSelection && !exploreSelection) return;
+    if (get(selectedSystem).value !== urlSelection)
+      selectedSystem.set(urlSelection);
+  }
+
+  function followInspect(event: MouseEvent, id64: Id64): void {
+    if (
+      !exploreSelection ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    )
       return;
-    }
-    if (urlSelection === lastUrlSelection) return;
-    selectedSystem.set(urlSelection);
-    lastUrlSelection = urlSelection;
+    event.preventDefault();
+    void navigateWithAnchor(inspectHref(id64, page.url));
   }
 
   $effect(() => {
@@ -68,7 +97,15 @@
 {#if persistenceReady && $selectedSystem.hydrated && $selectedSystem.value}
   <aside class="context-chip" data-testid="selected-system-context">
     Selected system <strong>{$selectedSystem.value}</strong>
-    <a href={resolve(`/inspect?system=${$selectedSystem.value}`)}>Inspect</a>
+    <!-- eslint-disable svelte/no-navigation-without-resolve -- inspectHref resolves the Inspect route -->
+    <a
+      href={exploreSelection
+        ? inspectHref($selectedSystem.value, page.url)
+        : resolve(`/inspect?system=${$selectedSystem.value}`)}
+      onclick={(event) => followInspect(event, $selectedSystem.value!)}
+      >Inspect</a
+    >
+    <!-- eslint-enable svelte/no-navigation-without-resolve -->
     <a href={resolve(`/plan?system=${$selectedSystem.value}`)}>Open plan</a>
   </aside>
 {/if}

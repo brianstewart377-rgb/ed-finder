@@ -27,12 +27,31 @@ import {
   PERSISTENCE_KEYS,
 } from '$lib/persistence/storage';
 import WatchlistTestHost from './WatchlistTestHost.svelte';
+import InspectPageTestHost from '../../../routes/inspect/InspectPageTestHost.svelte';
+
+const { mockedPage, mockedGoto, featureGate } = vi.hoisted(() => ({
+  mockedPage: {
+    url: new URL('http://localhost/explore'),
+    state: {} as App.PageState,
+  },
+  mockedGoto: vi.fn(),
+  featureGate: { enabled: false },
+}));
+
+vi.mock('$app/state', () => ({ page: mockedPage }));
+vi.mock('$app/navigation', () => ({ goto: mockedGoto }));
+vi.mock('$lib/config', () => ({
+  get FINDER_F4_ENABLED() {
+    return featureGate.enabled;
+  },
+}));
 
 vi.mock('$lib/api/client', async (loadOriginal) => ({
   ...(await loadOriginal<typeof import('$lib/api/client')>()),
   getWatchlist: vi.fn(),
   addWatchlist: vi.fn(),
   removeWatchlist: vi.fn(),
+  getSystem: vi.fn(() => new Promise(() => {})),
 }));
 vi.mock('$lib/persistence/context', async (loadOriginal) => ({
   ...(await loadOriginal<typeof import('$lib/persistence/context')>()),
@@ -78,6 +97,13 @@ beforeEach(() => {
   queryClient.clear();
   localStorage.clear();
   session.set(signedOut);
+  featureGate.enabled = false;
+  mockedPage.url = new URL('http://localhost/explore');
+  mockedPage.state = {};
+  mockedGoto.mockImplementation(async (destination, options) => {
+    mockedPage.url = new URL(destination, mockedPage.url);
+    mockedPage.state = options.state;
+  });
   services = {
     ...applicationStores,
     pins: createPersistedStore({
@@ -115,6 +141,68 @@ afterEach(() => {
 });
 
 describe('saved systems panel', () => {
+  it.each(['Pinned systems', 'Watched systems'])(
+    'retains Finder query and anchor through the %s Inspect round trip',
+    async (tableName) => {
+      featureGate.enabled = true;
+      const source =
+        'archetype=flexible&min-tier=A&page_size=1&offset=2&selected=42&survey=outer';
+      mockedPage.url = new URL(`http://localhost/explore?${source}`);
+      const anchor = {
+        id64: parseId64('128666762'),
+        name: 'Achenar',
+        x: 67.5,
+        y: -12.25,
+        z: 42,
+      };
+      mockedPage.state = { anchor };
+      const outboundState = mockedPage.state;
+      services.pins.set([
+        { id64, name: entry.name, pinned_at: '2026-09-01T12:00:00Z' },
+      ]);
+      getMock.mockResolvedValue({
+        sync_key: 'commander-a-key-1234',
+        watchlist: [entry],
+      });
+      const mounted = render(WatchlistTestHost);
+      const table = await screen.findByRole('table', { name: tableName });
+      const link = within(table).getByRole('link', {
+        name: 'Inspect Far Reach',
+      });
+      const destination = new URL(link.getAttribute('href')!, mockedPage.url);
+      expect(destination.pathname).toBe('/inspect');
+      expect(destination.searchParams.get('system')).toBe(id64);
+      expect(destination.searchParams.get('from')).toBe(source);
+      await fireEvent.click(link);
+      expect(mockedGoto).toHaveBeenLastCalledWith(link.getAttribute('href'), {
+        state: outboundState,
+        replaceState: false,
+        keepFocus: true,
+        noScroll: true,
+      });
+      expect(mockedPage.state).toBe(outboundState);
+      mounted.unmount();
+      render(InspectPageTestHost);
+      await fireEvent.click(
+        screen.getByRole('link', { name: 'Open in Explore' }),
+      );
+      expect(mockedPage.url.pathname).toBe('/explore');
+      expect(Object.fromEntries(mockedPage.url.searchParams)).toEqual({
+        archetype: 'flexible',
+        'min-tier': 'A',
+        page_size: '1',
+        offset: '2',
+        survey: 'outer',
+        selected: id64,
+        system: id64,
+      });
+      expect(mockedPage.url.searchParams.getAll('selected')).toEqual([id64]);
+      expect(mockedPage.url.searchParams.getAll('system')).toEqual([id64]);
+      expect(mockedPage.state).toBe(outboundState);
+      expect(mockedPage.state.anchor).toEqual(anchor);
+    },
+  );
+
   it('explains the independent empty lists and sync-key ownership', async () => {
     render(WatchlistTestHost);
     expect(
