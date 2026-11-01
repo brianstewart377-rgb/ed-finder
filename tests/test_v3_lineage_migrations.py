@@ -137,7 +137,7 @@ def test_004_never_touches_canonical_truth():
 
 
 def test_governed_purge_is_registered_immediately_after_product_publication():
-    assert _entries()[-6:] == [
+    assert _entries()[-7:] == [
         ("015_v3_derived_product_publication.sql",
          "sql/v3/migrations/015_v3_derived_product_publication.sql"),
         ("016_v3_governed_derived_purge.sql",
@@ -150,7 +150,21 @@ def test_governed_purge_is_registered_immediately_after_product_publication():
          "sql/v3/migrations/021_v3_purge_long_phase_bounds.sql"),
         ("022_v3_purge_keyset_start.sql",
          "sql/v3/migrations/022_v3_purge_keyset_start.sql"),
+        ("023_v3_system_search_name_prefix_index.sql",
+         "sql/v3/migrations/023_v3_system_search_name_prefix_index.sql"),
     ]
+
+
+def test_023_adds_only_a_transactional_bounded_generation_prefix_index():
+    source = (ROOT / "sql/v3/migrations/023_v3_system_search_name_prefix_index.sql").read_text()
+    statements = re.sub(r"--[^\n]*", "", source)
+    assert "CREATE INDEX IF NOT EXISTS system_search_name_prefix" in statements
+    assert "ON v3_derived.system_search (derived_generation_id, lower(name) text_pattern_ops)" in statements
+    assert "SET LOCAL lock_timeout = '5s';" in statements
+    assert "SET LOCAL statement_timeout = '4h';" in statements
+    assert "i.indisvalid AND i.indisready" in statements
+    assert "incompatible definition" in statements
+    assert not re.search(r"\b(?:CONCURRENTLY|DROP|INSERT|UPDATE|DELETE|TRUNCATE|ALTER)\b", statements)
 
 
 def _function(source, name):

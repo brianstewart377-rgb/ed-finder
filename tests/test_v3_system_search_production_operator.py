@@ -148,7 +148,7 @@ def test_search_finalize_is_verified_receipted_and_vacuums_outside_transaction()
     assert "idempotent_reverification" in finalize
 
 
-def test_target_authority_reviews_transition_from_through_020_to_long_phase_bounds_lineage():
+def test_target_authority_reviews_transition_from_through_022_to_name_prefix_index():
     import importlib.util
 
     spec = importlib.util.spec_from_file_location("v3_schema_identity_test", IDENTITY_TOOL)
@@ -156,15 +156,11 @@ def test_target_authority_reviews_transition_from_through_020_to_long_phase_boun
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     document = module.build(ROOT)
-    # The Finder transition (through-012 -> ...-016) was applied on 2026-10-18
-    # (apply run 39113822236), 019 on 2026-10-26 (apply run 40338736148), 020
-    # on 2026-10-27 (apply run 40551173291) and 021 on 2026-10-28 (apply run
-    # 40654201809). Reproduce that installed through-021 prefix independently and
-    # assert both endpoints of the through-021 -> through-022 keyset-start
-    # registration.
+    # Reproduce the installed through-022 prefix independently and assert
+    # both endpoints of the additive 023 prefix-index registration.
     desired_document = dict(document)
     entries = document['migration_set_entries']
-    stop = next(i for i, row in enumerate(entries) if row['ledger_name'] == '021_v3_purge_long_phase_bounds.sql') + 1
+    stop = next(i for i, row in enumerate(entries) if row['ledger_name'] == '022_v3_purge_keyset_start.sql') + 1
     prefix = entries[:stop]
     document = {**document, 'migration_set_entries': prefix,
                 'migration_set_identity': module.migration_set_identity(prefix)}
@@ -173,10 +169,10 @@ def test_target_authority_reviews_transition_from_through_020_to_long_phase_boun
     authority = json.loads(AUTHORITY.read_text(encoding="utf-8"))
     transition = authority["schema_transition"]
     assert transition["from_schema_identity_sha256"] == expected_sha
-    assert expected_sha == "c54f861f1dfac64cad9e543da47fe709492c2ad1f468f86f44dd706fa1d40679"
+    assert expected_sha == "c58e73a572dc24bb920c3cc595089460ccaaa44024de07ea3a73bdff87fe891f"
     assert transition["from_migration_set_identity"] == document["migration_set_identity"]
-    assert transition["from_migration_set_identity"] == "sha256:931f8d06edef15c79d79f537aa63c4131fe4e5f49add904383cfc3428ad33edf"
-    assert [row['ledger_name'] for row in prefix[-10:]] == [
+    assert transition["from_migration_set_identity"] == "sha256:828bf02d263d7ab27b3764cbfa3457859aeb229ccf16cb9929d586136f8e83d7"
+    assert [row['ledger_name'] for row in prefix[-11:]] == [
         '012_v3_spatial_pyramid_decouple.sql',
         '014_v3_watchlist.sql',
         '010_v3_system_search_body_type_counts.sql',
@@ -187,16 +183,16 @@ def test_target_authority_reviews_transition_from_through_020_to_long_phase_boun
         '019_v3_purge_copy_and_drop.sql',
         '020_v3_purge_swap_lock_order.sql',
         '021_v3_purge_long_phase_bounds.sql',
+        '022_v3_purge_keyset_start.sql',
     ]
-    assert [row['ledger_name'] for row in entries[stop:]] == ['022_v3_purge_keyset_start.sql']
+    assert [row['ledger_name'] for row in entries[stop:]] == ['023_v3_system_search_name_prefix_index.sql']
     assert transition["to_migration_set_identity"] == desired_document["migration_set_identity"]
     desired_payload = (json.dumps(desired_document, indent=2, sort_keys=True) + "\n").encode()
     assert authority["external_authority"]["schema_identity_sha256"] == hashlib.sha256(desired_payload).hexdigest()
     compatible = authority['accepted_release_schema_compatibility']['compatible_migration_sets']
-    # 022 was applied on 2026-10-31 (apply run 41180459540). The accepted
-    # release is now the seventh F2d release (293bc72b, 2026-11-01), attested
-    # only for the installed through-022 target, not the superseded through-021.
-    assert transition['from_migration_set_identity'] not in compatible
+    # The additive index is compatible with the accepted application at both
+    # the installed and target schema identities.
+    assert transition['from_migration_set_identity'] in compatible
     assert transition['to_migration_set_identity'] in compatible
 
 

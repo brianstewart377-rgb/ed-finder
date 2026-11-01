@@ -22,6 +22,7 @@ access. The legacy `cluster_summary` / `systems` / `ratings` readers are
 gone from this module; a static test walks every string literal here to
 keep it that way.
 """
+import hashlib
 import json
 import time
 from typing import Any, Optional
@@ -37,7 +38,6 @@ from edfinder_api.models import (
     SearchResponse, SearchFilters, LocalSearchRequest,
     GalaxySearchRequest, ClusterSearchRequest, ClusterSearchResponse, AutocompleteResponse,
 )
-from edfinder_api.v3_schema import current_generation_schema
 from edfinder_api.ranking.profile import RANKING_VERSION, ranking_sha256
 
 # Single search implementation. If this import fails the app cannot
@@ -46,7 +46,9 @@ import edfinder_api.local_search as _ls
 
 router = APIRouter(tags=['search'])
 
-AUTOCOMPLETE_CACHE_VERSION = 'v3'
+# The V3 projection replaces both canonical and legacy autocomplete readers.
+# Include generation identity and the entire literal prefix in every key.
+AUTOCOMPLETE_CACHE_VERSION = 'v4'
 # Bumped v4 -> v5 at the F3 V3 cutover: pre-cutover `search:v4:*` entries were
 # written by the legacy code path (different semantics, no generation/ranking
 # identity) and must never be served after the repoint.
@@ -120,46 +122,29 @@ async def autocomplete(
     if len(q) < 2:
         return {'results': []}
 
-    cache_key = f'ac:{AUTOCOMPLETE_CACHE_VERSION}:{q.lower()[:20]}'
-    cached = await cache_get(cache_key, redis)
-    if cached:
-        return cached
-
     try:
-        schema = await current_generation_schema(pool)
-        if schema is None:
-            results = await _ls.local_db_autocomplete(q, pool)
-        else:
-            async with pool.acquire() as conn:
-                rows = await conn.fetch(
-                    f"""
-                    SELECT id64, name, x_ly AS x, y_ly AS y, z_ly AS z
-                      FROM {schema}.systems
-                     WHERE name ILIKE $1
-                     ORDER BY name
-                     LIMIT $2
-                    """,
-                    f"{q}%",
-                    limit,
-                )
-            results = [
-                {
-                    "id64": row["id64"],
-                    "name": row["name"],
-                    "x": row["x"],
-                    "y": row["y"],
-                    "z": row["z"],
-                }
-                for row in rows
-            ]
-    except asyncpg.exceptions.UndefinedTableError:
-        results = await _ls.local_db_autocomplete(q, pool)
+        # Resolve before consulting Redis, so an unpublished generation or
+        # unavailable Finder product cannot be hidden by a warm cache entry.
+        generation_row = await _ls.resolve_published_generation(pool)
+        result_limit = max(0, min(limit, _ls.AUTOCOMPLETE_RESULT_LIMIT))
+        query_hash = hashlib.sha256(q.lower().encode('utf-8')).hexdigest()
+        cache_key = (
+            f'ac:{AUTOCOMPLETE_CACHE_VERSION}:'
+            f'g{generation_row["derived_generation_id"]}:'
+            f's{generation_row["publication_sequence"]}:'
+            f'{result_limit}:{query_hash}'
+        )
+        cached = await cache_get(cache_key, redis)
+        if cached:
+            return cached
+
+        results = await _ls.local_db_autocomplete(q, pool, generation_row=generation_row)
     except Exception as exc:
         log.error('v3 autocomplete failed: %s', exc, exc_info=True)
         return _search_unavailable(f'autocomplete: {exc!r}',
                                     hint='Try again in a few seconds.')
 
-    result = {'results': results, 'source': 'local_db'}
+    result = {'results': results[:result_limit], 'source': 'local_db'}
     await cache_set(cache_key, result, settings.ttl_autocomplete, redis)
     return result
 

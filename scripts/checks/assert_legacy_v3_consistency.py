@@ -1,9 +1,9 @@
 """Fail CI if the browser-journey systems drift between the legacy ``systems``
 table and the published ``v3_app.system_search`` projection.
 
-After F3, autocomplete + system detail still read legacy ``public.systems``
-while search reads the V3 projection -- the two MUST agree on the journey
-id64s, or the Cypress product-journey (search -> detail) breaks silently.
+The retained legacy system-detail route reads ``public.systems`` while
+search and autocomplete read the V3 projection. Fixture data must agree on
+the journey id64s while that legacy route remains covered by browser tests.
 Both relations expose a ``name`` column (``v3_derived.system_search.name``,
 exposed via ``v3_app.system_search`` = ``SELECT s.*``).
 """
