@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { QueryClient } from '@tanstack/svelte-query';
 import { queryClient, queryKeys } from './query';
 import { parseId64 } from '$lib/domain/id64';
 
@@ -124,5 +125,66 @@ describe('Finder ranking query keys', () => {
     expect(queryKeys.explore(clamped, null, 25)).toEqual(
       queryKeys.explore(clamped),
     );
+  });
+});
+
+describe('Finder archetype explanation query keys', () => {
+  const id64 = parseId64('9007199254740993');
+  const expected = {
+    derived_generation_id: 'generation-1',
+    archetype_version: 'archetype-v1',
+    archetype_manifest_sha256: 'manifest-a',
+  };
+
+  it('partitions by the system and every identity sent to the endpoint', () => {
+    const key = queryKeys.archetypeExplanation(id64, expected);
+    expect(key).toEqual([
+      'ed-finder',
+      'explore',
+      'archetype-explanation',
+      id64,
+      'generation-1',
+      'archetype-v1',
+      'manifest-a',
+    ]);
+    expect(
+      queryKeys.archetypeExplanation(parseId64('42'), expected),
+    ).not.toEqual(key);
+    for (const field of Object.keys(expected) as (keyof typeof expected)[]) {
+      expect(
+        queryKeys.archetypeExplanation(id64, {
+          ...expected,
+          [field]: 'changed',
+        }),
+      ).not.toEqual(key);
+    }
+    expect(queryKeys.archetypeExplanation(id64, null)).not.toEqual(key);
+  });
+
+  it('fetches again for a manifest-only rebuild while the previous explanation is still fresh', async () => {
+    const client = new QueryClient({
+      defaultOptions: queryClient.getDefaultOptions(),
+    });
+    const queryFn = vi.fn(async () => ({ kind: 'explained' }));
+    try {
+      const original = {
+        queryKey: queryKeys.archetypeExplanation(id64, expected),
+        queryFn,
+      };
+      await client.fetchQuery(original);
+      await client.fetchQuery(original);
+      expect(queryFn).toHaveBeenCalledTimes(1);
+
+      await client.fetchQuery({
+        queryKey: queryKeys.archetypeExplanation(id64, {
+          ...expected,
+          archetype_manifest_sha256: 'manifest-b',
+        }),
+        queryFn,
+      });
+      expect(queryFn).toHaveBeenCalledTimes(2);
+    } finally {
+      client.clear();
+    }
   });
 });

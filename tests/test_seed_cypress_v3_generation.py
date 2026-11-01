@@ -868,11 +868,14 @@ async def test_seeded_product_fixture_archetype_output_contract(monkeypatch):
     """Seed the committed Product corpus exactly as the Cypress lane does, then
     read it back through the stored projections and through the real ranking
     handlers (`_archetype_rankings_v3` for selected mode, `local_db_search_v3`
-    for Any) and compare every field to the pinned tables above."""
+    for Any) and compare every field to the pinned tables above. The real
+    explanation route must also verify all three fixtures and answer 200."""
     if not os.environ.get('CORS_ORIGINS'):
         monkeypatch.setenv('CORS_ORIGINS', 'https://seed-cypress-v3-contract.invalid')
 
     import asyncpg
+    from fastapi import FastAPI
+    import httpx
     import psycopg
     from psycopg import sql
     from psycopg.conninfo import conninfo_to_dict, make_conninfo
@@ -989,6 +992,40 @@ async def test_seeded_product_fixture_archetype_output_contract(monkeypatch):
                     {field: row[field] for field in EXPECTED_FLEXIBLE_B_ROWS[0]}
                     for row in flexible['results']
                 ] == list(EXPECTED_FLEXIBLE_B_ROWS)
+
+                # F4e's browser disclosure uses this endpoint, which recomputes
+                # all scores before returning them. Prove that the Product seed
+                # remains compatible for every fixture, including the unsafe ID64.
+                monkeypatch.setattr(archetypes_router, 'get_pool', lambda: pool)
+                app = FastAPI()
+                app.state.limiter = archetypes_router.limiter
+                app.include_router(archetypes_router.router)
+                ranking = flexible['ranking']
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app), base_url='http://test',
+                ) as client:
+                    for id64, stored_archetypes in EXPECTED_WIDE_ARCHETYPES.items():
+                        response = await client.get(
+                            f'/api/archetypes/system/{id64}/explanation',
+                            params={
+                                'expected_generation_id': ranking['derived_generation_id'],
+                                'expected_archetype_version': ranking['archetype_version'],
+                                'expected_manifest_sha256': ranking['archetype_manifest_sha256'],
+                            },
+                        )
+                        assert response.status_code == 200, response.text
+                        explanation = response.json()
+                        assert explanation['id64'] == id64
+                        assert explanation['ranking'] == ranking
+                        assert [entry['key'] for entry in explanation['archetypes']] == list(
+                            ARCHETYPE_KEYS
+                        )
+                        assert {
+                            entry['key']: (entry['score'], entry['tier'])
+                            for entry in explanation['archetypes']
+                        } == {
+                            key: values[:2] for key, values in stored_archetypes.items()
+                        }
 
                 # The E2E pagination contract: page_size=1 -> wire limit=1 gives
                 # three deterministic one-row pages at offsets 0, 1 and 2 over

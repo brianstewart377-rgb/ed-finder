@@ -1,10 +1,24 @@
 import { GALAXY_REGION_NAMES } from '../../src/lib/spatial/galaxy-regions';
+import type {
+  RankingIdentity,
+  SystemArchetypeExplanationResponse,
+} from '../../src/lib/api/generated/types.gen';
 
 type ProductWindow = Window & { __productRuntimeFailures?: string[] };
 
 const readySelector = '[role="status"][data-renderer-state="ready"]';
 const canvasSelector = 'canvas[data-spatial-canvas]';
 const requestTimeout = 20_000;
+const ARCHETYPE_KEYS = [
+  'paradise',
+  'mining_hub',
+  'manufacturing_hub',
+  'megacomplex',
+  'research_hub',
+  'stronghold',
+  'population_capital',
+  'flexible',
+] as const;
 
 const visitExplore = (path = '/explore') => {
   cy.intercept('GET', '/api/local/autocomplete*').as('autocomplete');
@@ -155,38 +169,40 @@ const assertRankingsRequest = (
   minimumTier: 'B' | 'A' = 'B',
 ) => {
   const expected = FLEXIBLE_B_FIXTURE_ROWS[offset];
-  cy.wait('@rankings', { requestTimeout }).then(({ request, response }) => {
-    const params = new URL(request.url).searchParams;
-    expect(Object.fromEntries(params)).to.deep.equal({
-      archetype: 'flexible',
-      min_score: minimumTier === 'B' ? '60' : '76',
-      limit: '1',
-      offset: String(offset),
+  return cy
+    .wait('@rankings', { requestTimeout })
+    .then(({ request, response }) => {
+      const params = new URL(request.url).searchParams;
+      expect(Object.fromEntries(params)).to.deep.equal({
+        archetype: 'flexible',
+        min_score: minimumTier === 'B' ? '60' : '76',
+        limit: '1',
+        offset: String(offset),
+      });
+      expect(response?.statusCode).to.equal(200);
+      expect(response?.body).to.include({
+        archetype: 'flexible',
+        count: 1,
+        total: minimumTier === 'B' ? 3 : 2,
+        is_truncated: false,
+      });
+      expect(response?.body.results).to.have.length(1);
+      // Cypress's JSON decoder cannot preserve the unsafe integer ID64. Its
+      // exact identity is checked on the DOM and URL, never rounded here.
+      expect(response?.body.results[0]).to.include({
+        name: expected.name,
+        score: expected.score,
+        tier: expected.tier,
+        selected_archetype: 'flexible',
+        primary_archetype: 'flexible',
+        secondary_archetype: expected.rival,
+        confidence: expected.confidence,
+        completeness: expected.completeness,
+        overall_development_potential: expected.overall,
+        rival_archetype: expected.rival,
+        rival_score: expected.rivalScore,
+      });
     });
-    expect(response?.statusCode).to.equal(200);
-    expect(response?.body).to.include({
-      archetype: 'flexible',
-      count: 1,
-      total: minimumTier === 'B' ? 3 : 2,
-      is_truncated: false,
-    });
-    expect(response?.body.results).to.have.length(1);
-    // Cypress's JSON decoder cannot preserve the unsafe integer ID64. Its
-    // exact identity is checked on the DOM and URL, never rounded here.
-    expect(response?.body.results[0]).to.include({
-      name: expected.name,
-      score: expected.score,
-      tier: expected.tier,
-      selected_archetype: 'flexible',
-      primary_archetype: 'flexible',
-      secondary_archetype: expected.rival,
-      confidence: expected.confidence,
-      completeness: expected.completeness,
-      overall_development_potential: expected.overall,
-      rival_archetype: expected.rival,
-      rival_score: expected.rivalScore,
-    });
-  });
 };
 
 const assertFlexiblePage = (
@@ -206,7 +222,8 @@ const assertFlexiblePage = (
       )
       .find('[data-tier]')
       .should('have.attr', 'data-tier', expected.tier)
-      .and('have.text', `Tier ${expected.tier}`);
+      .and('have.text', `Tier ${expected.tier}`)
+      .and('have.css', 'white-space', 'nowrap');
     cy.get('.overall-potential')
       .should('contain.text', `Best Colony Potential: ${expected.overall}`)
       .find('[data-tier]')
@@ -296,7 +313,7 @@ const assertRetainedSelection = () => {
     .and('contain.text', selected.name);
 };
 
-const captureFinder = (state: 'any' | 'flexible') => {
+const captureFinder = (state: 'any' | 'flexible' | 'flexible-explanation') => {
   cy.get('[data-region-resource-state="ready"]', { timeout: 20_000 }).should(
     'contain.text',
     '42/42 regions',
@@ -330,6 +347,12 @@ const captureFinder = (state: 'any' | 'flexible') => {
         disableTimersAndAnimations: true,
       },
     );
+    if (state === 'flexible-explanation') {
+      cy.get('[data-system-result]').screenshot(
+        `product/finder-expanded-card-${Cypress.browser.name}-${width}x${height}`,
+        { overwrite: true, disableTimersAndAnimations: true },
+      );
+    }
   }
   cy.viewport(1280, 800);
 };
@@ -339,9 +362,16 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     const selectedId = FLEXIBLE_B_FIXTURE_ROWS[0].id64;
     let copiedExploreUrl = '';
     let copiedExploreQuery = '';
+    let rankingIdentity: RankingIdentity;
     cy.viewport(1280, 800);
     // Observe real API traffic only: the Product lane never supplies a response.
     cy.intercept('GET', '/api/archetypes/rankings*').as('rankings');
+    cy.intercept('GET', '/api/archetypes/system/*/explanation*').as(
+      'archetypeExplanation',
+    );
+    cy.intercept('GET', /\/api\/archetypes\/system\/\d+(?:\?.*)?$/).as(
+      'legacyArchetype',
+    );
     visitExplore('/explore?page_size=1');
 
     // Section 7 steps 1–3: Any is floor-free; keyboard selection commits the
@@ -353,7 +383,9 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       .should('be.focused');
     cy.press(Cypress.Keyboard.Keys.SPACE);
     cy.get('input[type="radio"][value="flexible"]').should('be.checked');
-    assertRankingsRequest(0);
+    assertRankingsRequest(0).then(({ response }) => {
+      rankingIdentity = response?.body.ranking;
+    });
     assertFinderUrl('flexible', 0, null);
     waitForExploreSettled();
     cy.location('search', { timeout: 15_000 }).should(
@@ -361,6 +393,83 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       '?archetype=flexible&page_size=1',
     );
     assertFlexiblePage(0);
+
+    // F4e: opening the sibling disclosure fetches the real, version-pinned
+    // explanation lazily without selecting the card. The endpoint verifies
+    // recomputation against all eight stored archetype scores and tiers.
+    const card = `[data-system-result="${selectedId}"]`;
+    const explanationRegion = `${card} [data-archetype-explanation]`;
+    cy.get('@archetypeExplanation.all').should('have.length', 0);
+    cy.get(`${card} [data-archetype-explanation-toggle]`)
+      .should('have.attr', 'aria-expanded', 'false')
+      .click()
+      .should('have.attr', 'aria-expanded', 'true');
+    cy.wait('@archetypeExplanation', { requestTimeout }).then(
+      ({ request, response }) => {
+        const url = new URL(request.url);
+        expect(url.pathname).to.equal(
+          `/api/archetypes/system/${selectedId}/explanation`,
+        );
+        expect(Object.fromEntries(url.searchParams)).to.deep.equal({
+          expected_generation_id: rankingIdentity.derived_generation_id,
+          expected_archetype_version: rankingIdentity.archetype_version,
+          expected_manifest_sha256: rankingIdentity.archetype_manifest_sha256,
+        });
+        expect(response?.statusCode).to.equal(200);
+        const explanation: SystemArchetypeExplanationResponse = response?.body;
+        expect(explanation.ranking).to.deep.equal(rankingIdentity);
+        expect(explanation.archetypes.map(({ key }) => key)).to.have.members([
+          ...ARCHETYPE_KEYS,
+        ]);
+        expect(explanation.archetypes).to.have.length(8);
+        const flexible = explanation.archetypes.find(
+          ({ key }) => key === 'flexible',
+        );
+        expect(flexible).to.include({
+          score: FLEXIBLE_B_FIXTURE_ROWS[0].score,
+          tier: FLEXIBLE_B_FIXTURE_ROWS[0].tier,
+        });
+        cy.get(`${card} .selected-fit`)
+          .should(
+            'contain.text',
+            `Flexible Multi-Role Colony fit: ${flexible?.score}`,
+          )
+          .find('[data-tier]')
+          .should('have.attr', 'data-tier', flexible?.tier);
+        for (const entry of explanation.archetypes) {
+          cy.get(
+            `${explanationRegion} [data-explanation-archetype="${entry.key}"]`,
+          ).within(() => {
+            cy.get('.explanation-score').should(
+              'have.text',
+              String(entry.score),
+            );
+            cy.get('[data-tier]')
+              .should('have.attr', 'data-tier', entry.tier)
+              .and('have.text', `Tier ${entry.tier}`);
+          });
+        }
+      },
+    );
+    cy.get(`${explanationRegion} [data-explanation-archetype]`).should(
+      ($sections) => {
+        expect(
+          [...$sections].map((section) => section.dataset.explanationArchetype),
+        ).to.have.members([...ARCHETYPE_KEYS]);
+      },
+    );
+    cy.get(`${card} [data-result-select]`).should(
+      'have.attr',
+      'aria-pressed',
+      'false',
+    );
+    cy.get('@legacyArchetype.all').should('have.length', 0);
+    cy.injectAxe();
+    cy.checkA11y(explanationRegion);
+    captureFinder('flexible-explanation');
+    cy.get(`${card} [data-archetype-explanation-toggle]`)
+      .click()
+      .should('have.attr', 'aria-expanded', 'false');
 
     // Steps 4–5: the current page owns the results, while selected= owns the
     // retained point independently. All three pages come from PostgreSQL.

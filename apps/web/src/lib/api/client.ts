@@ -32,6 +32,7 @@ import { parseLosslessJson } from '@ed-finder/api-client/lossless-json';
 import { parseId64, type Id64 } from '@ed-finder/api-client/id64';
 import { FINDER_F4_ENABLED } from '$lib/config';
 import {
+  ARCHETYPE_KEYS,
   isArchetypeKey,
   isTier,
   type ArchetypeKey,
@@ -47,6 +48,7 @@ import {
   claimOwnerApiV1AuthOwnerClaimPost,
   frontierLinkApiV1AuthFrontierLinkPost,
   getArchetypeRankingsApiArchetypesRankingsGet,
+  getSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGet,
   getProfileSyncApiProfileSyncSyncKeyGet,
   getV3CurrentGeneration,
   getV3JournalTravelHeatmap,
@@ -93,6 +95,8 @@ import type {
   RingV1,
   SearchResponse,
   StationV1,
+  SystemArchetypeExplanationEntry,
+  SystemArchetypeExplanationSummary,
   SystemExplanationResponse,
   SystemRatingsResponse,
   SystemRow,
@@ -388,6 +392,31 @@ export type RankingProvenance = Readonly<{
   archetype_manifest_sha256: string;
   archetype_model_sha256: string;
 }>;
+
+/** The product identity carried by the ranking card, pinned on expansion. */
+export type ArchetypeExplanationIdentity = Readonly<
+  Pick<
+    RankingProvenance,
+    'derived_generation_id' | 'archetype_version' | 'archetype_manifest_sha256'
+  >
+>;
+
+export type ArchetypeExplanationEntry = Readonly<
+  Omit<SystemArchetypeExplanationEntry, 'key'> & { key: ArchetypeKey }
+>;
+
+/** Bounded disclosure states: API failures never throw into the result card. */
+export type ArchetypeExplanationResult =
+  | Readonly<{
+      kind: 'explained';
+      id64: Id64;
+      archetypes: readonly ArchetypeExplanationEntry[];
+      completeness: number;
+      summary: SystemArchetypeExplanationSummary;
+      ranking: RankingProvenance;
+    }>
+  | Readonly<{ kind: 'explanation_unavailable' }>
+  | Readonly<{ kind: 'error'; status: number }>;
 
 /**
  * `unknown` is only the decoder's result for a pre-F4 snapshot carrying the
@@ -1035,6 +1064,90 @@ export async function getArchetypeRankings(
     signal,
   });
   return normalizeRankingsResponse(data, request);
+}
+
+/**
+ * Replay all eight explanations only for the product behind the visible card.
+ * Both the request gate and the successful response echo must match: a product
+ * republish between ranking and expansion must never explain a different score.
+ */
+export async function getArchetypeExplanation(
+  id64: Id64,
+  expected: ArchetypeExplanationIdentity,
+  signal?: AbortSignal,
+): Promise<ArchetypeExplanationResult> {
+  try {
+    if (
+      !expected.derived_generation_id ||
+      !expected.archetype_version ||
+      !expected.archetype_manifest_sha256
+    )
+      return { kind: 'explanation_unavailable' };
+
+    const { data, response } =
+      await getSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGet({
+        path: { id64: parseId64(id64) as unknown as number },
+        query: {
+          expected_generation_id: expected.derived_generation_id,
+          expected_archetype_version: expected.archetype_version,
+          expected_manifest_sha256: expected.archetype_manifest_sha256,
+        },
+        throwOnError: false,
+        signal,
+      });
+    if (!data)
+      return response?.status === 409
+        ? { kind: 'explanation_unavailable' }
+        : { kind: 'error', status: response?.status ?? 0 };
+
+    const ranking = normalizeRankingProvenance(data.ranking);
+    if (
+      !ranking ||
+      ranking.derived_generation_id !== expected.derived_generation_id ||
+      ranking.archetype_version !== expected.archetype_version ||
+      ranking.archetype_manifest_sha256 !== expected.archetype_manifest_sha256
+    )
+      return { kind: 'explanation_unavailable' };
+
+    const responseId = losslessId64(data.id64);
+    if (
+      responseId !== id64 ||
+      !isUnitInterval(data.completeness) ||
+      !Array.isArray(data.archetypes) ||
+      data.archetypes.length !== ARCHETYPE_KEYS.length
+    )
+      return { kind: 'error', status: 0 };
+
+    const archetypes = new Map<ArchetypeKey, ArchetypeExplanationEntry>();
+    for (const entry of data.archetypes) {
+      if (
+        !entry ||
+        !isArchetypeKey(entry.key) ||
+        !isScore(entry.score) ||
+        !isTier(entry.tier) ||
+        !isUnitInterval(entry.confidence) ||
+        !finiteNumber(entry.weighted_e4) ||
+        !entry.explanation ||
+        typeof entry.explanation !== 'object' ||
+        Array.isArray(entry.explanation) ||
+        archetypes.has(entry.key)
+      )
+        return { kind: 'error', status: 0 };
+      archetypes.set(entry.key, { ...entry, key: entry.key });
+    }
+    return {
+      kind: 'explained',
+      id64: responseId,
+      archetypes: ARCHETYPE_KEYS.map((key) => archetypes.get(key)!),
+      completeness: data.completeness,
+      summary: data.summary,
+      ranking,
+    };
+  } catch (error) {
+    return error instanceof ApiError && error.status === 409
+      ? { kind: 'explanation_unavailable' }
+      : { kind: 'error', status: error instanceof ApiError ? error.status : 0 };
+  }
 }
 
 export async function getCatalogueViewportSystems(

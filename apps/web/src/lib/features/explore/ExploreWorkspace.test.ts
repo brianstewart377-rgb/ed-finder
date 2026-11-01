@@ -50,6 +50,7 @@ vi.mock('$lib/api/client', async (loadOriginal) => {
     autocompleteSystems: vi.fn(),
     searchExploreSystems: vi.fn(),
     getArchetypeRankings: vi.fn(),
+    getArchetypeExplanation: vi.fn(),
     getSystem: vi.fn(),
     getCatalogueViewportSystems: vi.fn(),
     getCommanderTravelHeatmap: vi.fn(),
@@ -389,6 +390,10 @@ describe('ExploreWorkspace Finder F4 gate (default off)', () => {
     // The rankings facade is unreachable and the local-search body is exactly
     // today's unanchored request: no tier floor, no codec-driven size/from.
     expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+    expect(api.getArchetypeExplanation).not.toHaveBeenCalled();
+    expect(
+      document.querySelector('[data-archetype-explanation-toggle]'),
+    ).not.toBeInTheDocument();
     expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
     expect(vi.mocked(api.searchExploreSystems).mock.calls[0]?.[0]).toEqual({
       galaxy_wide: true,
@@ -452,6 +457,7 @@ const rankedRows: api.ExploreSystem[] = [1, 2, 3].map((index) => ({
   ranking_tier: 'A',
   score_kind: 'selected_fit',
   selected_archetype: 'manufacturing_hub',
+  ranking_provenance: rankingIdentity,
   primary_archetype: 'manufacturing_hub',
   confidence: 0.9,
   completeness: 0.9,
@@ -646,6 +652,89 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
 
     expect(await screen.findByText(status)).toBeInTheDocument();
   });
+
+  it.each(['click', 'Enter', ' '])(
+    'keeps explanation disclosure and result selection independent with %s activation',
+    async (activation) => {
+      vi.mocked(api.getArchetypeExplanation).mockResolvedValue({
+        kind: 'explanation_unavailable',
+      });
+      renderEnabled('archetype=manufacturing_hub&page_size=3');
+      await screen.findByText('3 results on this page.');
+      const list = screen.getByRole('list', { name: 'System results' });
+      const rows = within(list).getAllByRole('listitem');
+      const selection = rows.map((row) =>
+        row.querySelector<HTMLButtonElement>('[data-result-select]')!,
+      );
+      const disclosure = rows[0].querySelector<HTMLButtonElement>(
+        '[data-archetype-explanation-toggle]',
+      )!;
+
+      expect(disclosure).toBeInstanceOf(HTMLButtonElement);
+      expect(disclosure.closest('[data-result-select]')).toBeNull();
+      expect(disclosure.closest('[data-system-result]')).toBe(rows[0]);
+      expect(api.getArchetypeExplanation).not.toHaveBeenCalled();
+      await fireEvent.click(selection[2]);
+      await waitFor(() =>
+        expect(selection[2]).toHaveAttribute('aria-pressed', 'true'),
+      );
+
+      disclosure.focus();
+      expect(disclosure).toHaveFocus();
+      if (activation === 'click') await fireEvent.click(disclosure);
+      else {
+        await fireEvent.keyDown(disclosure, { key: activation });
+        await fireEvent.keyUp(disclosure, { key: activation });
+        // jsdom does not synthesize the native button click from a keyboard
+        // event. detail: 0 is the browser's keyboard activation click.
+        await fireEvent.click(disclosure, { detail: 0 });
+      }
+      await screen.findByText(
+        'Explanation unavailable for this ranking version',
+      );
+      expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+      expect(selection[0]).toHaveAttribute('aria-pressed', 'false');
+      expect(selection[2]).toHaveAttribute('aria-pressed', 'true');
+      expect(api.getArchetypeExplanation).toHaveBeenCalledTimes(1);
+      expect(api.getArchetypeExplanation).toHaveBeenCalledWith(
+        rankedRows[0].id64,
+        expect.objectContaining({
+          derived_generation_id: rankingIdentity.derived_generation_id,
+          archetype_version: rankingIdentity.archetype_version,
+          archetype_manifest_sha256: rankingIdentity.archetype_manifest_sha256,
+        }),
+        expect.any(AbortSignal),
+      );
+      const region = within(rows[0]).getByRole('region', { name: 'Ranked 1' });
+      expect(region).toHaveAttribute(
+        'aria-labelledby',
+        `finder-result-heading-${rankedRows[0].id64}`,
+      );
+      expect(
+        within(selection[0]).getByText(/Best Colony Potential: 89/),
+      ).toBeVisible();
+      expect(
+        within(selection[0]).getByText(/Manufacturing Hub fit: 79/),
+      ).toBeVisible();
+      expect(within(selection[0]).getByText('Tier A')).toBeVisible();
+
+      // Selection has its own keyboard handler and must leave the open
+      // disclosure alone, even when the selected row changes.
+      selection[1].focus();
+      if (activation === 'click') await fireEvent.click(selection[1]);
+      else await fireEvent.keyDown(selection[1], { key: activation });
+      await waitFor(() =>
+        expect(selection[1]).toHaveAttribute('aria-pressed', 'true'),
+      );
+      expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+      expect(region).toBeVisible();
+      expect(api.getArchetypeExplanation).toHaveBeenCalledTimes(1);
+
+      await fireEvent.click(disclosure);
+      expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+      expect(selection[1]).toHaveAttribute('aria-pressed', 'true');
+    },
+  );
 
   it('styles both paging buttons and keeps Previous disabled on the first page', async () => {
     renderEnabled('page_size=1');

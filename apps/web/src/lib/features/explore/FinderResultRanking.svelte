@@ -145,6 +145,9 @@
     border-radius: 0.3rem;
     font-size: 0.8rem;
   }
+  .tier-badge {
+    white-space: nowrap;
+  }
   [data-tier='S'] {
     color: var(--color-tier-s);
   }

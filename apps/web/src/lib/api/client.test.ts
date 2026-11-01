@@ -478,6 +478,7 @@ import {
   SOL_ID64,
   distanceReferenceForAnchor,
   getArchetypeRankings,
+  getArchetypeExplanation,
   normalizeAnySearchResponse,
   normalizeRankingProvenance,
   normalizeRankingsResponse,
@@ -485,6 +486,7 @@ import {
   type DistanceAnchor,
 } from './client';
 import { parseId64 } from '@ed-finder/api-client/id64';
+import { ARCHETYPE_KEYS } from '$lib/features/explore/archetypes';
 
 const provenance = {
   ranking_version: 'v3-colony-potential-2',
@@ -533,6 +535,144 @@ const flexibleRequest = {
   page_size: 1,
   offset: 0,
 };
+
+describe('Finder archetype explanation facade', () => {
+  const id64 = parseId64('9007199254740993');
+  const expected = {
+    derived_generation_id: provenance.derived_generation_id,
+    archetype_version: provenance.archetype_version,
+    archetype_manifest_sha256: provenance.archetype_manifest_sha256,
+  };
+  const explanationEnvelope = () => ({
+    id64,
+    ranking: { ...provenance },
+    completeness: 0.84,
+    summary: {
+      primary_archetype: 'flexible',
+      secondary_archetype: 'paradise',
+      best_colony_potential: 88,
+      best_tier: 'S',
+      archetype_confidence: 0.91,
+      weighted_potential: 80,
+    },
+    archetypes: ARCHETYPE_KEYS.map((key, index) => ({
+      key,
+      score: 88 - index,
+      tier: index === 0 ? 'S' : 'A',
+      confidence: 0.91,
+      weighted_e4: 800_000,
+      explanation: { contributions: { Agriculture: 0.2 } },
+    })),
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('calls only the generated explanation endpoint, pins all three identities and retains eight stored score/tier/confidence entries', async () => {
+    const envelope = explanationEnvelope();
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify(envelope).replace(`"${id64}"`, id64), {
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    const result = await getArchetypeExplanation(id64, expected);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const request = fetchMock.mock.calls[0]?.[0] as Request;
+    const url = new URL(request.url);
+    expect(url.pathname).toBe(`/api/archetypes/system/${id64}/explanation`);
+    expect(url.pathname).not.toBe(`/api/archetypes/system/${id64}`);
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      expected_generation_id: expected.derived_generation_id,
+      expected_archetype_version: expected.archetype_version,
+      expected_manifest_sha256: expected.archetype_manifest_sha256,
+    });
+    expect(request.credentials).toBe('include');
+    expect(result).toEqual({ kind: 'explained', ...envelope });
+  });
+
+  it('returns explanation_unavailable for HTTP 409 without exposing server detail', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ detail: 'internal mismatch detail' }, { status: 409 }),
+    );
+    await expect(getArchetypeExplanation(id64, expected)).resolves.toEqual({
+      kind: 'explanation_unavailable',
+    });
+  });
+
+  it.each([
+    'derived_generation_id',
+    'archetype_version',
+    'archetype_manifest_sha256',
+  ] as const)('rejects a 200 response with a changed %s', async (field) => {
+    const envelope = explanationEnvelope();
+    envelope.ranking[field] = 'republished';
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(envelope));
+    await expect(getArchetypeExplanation(id64, expected)).resolves.toEqual({
+      kind: 'explanation_unavailable',
+    });
+  });
+
+  it.each([404, 503])(
+    'returns the bounded HTTP %s state without throwing',
+    async (status) => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        jsonResponse({ detail: 'private diagnostic detail' }, { status }),
+      );
+      await expect(getArchetypeExplanation(id64, expected)).resolves.toEqual({
+        kind: 'error',
+        status,
+      });
+    },
+  );
+
+  it('contains transport failures', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('offline'));
+    await expect(getArchetypeExplanation(id64, expected)).resolves.toEqual({
+      kind: 'error',
+      status: 0,
+    });
+  });
+
+  it('does not issue an unpinned request when identity is missing', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    await expect(
+      getArchetypeExplanation(id64, {
+        ...expected,
+        archetype_manifest_sha256: '',
+      }),
+    ).resolves.toEqual({ kind: 'explanation_unavailable' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'missing',
+    'duplicate',
+    'unknown',
+    'score',
+    'confidence',
+    'tier',
+    'explanation',
+    'system',
+  ])('fails closed for a malformed %s in a 200 response', async (malformed) => {
+    const envelope = explanationEnvelope();
+    if (malformed === 'missing') envelope.archetypes.pop();
+    if (malformed === 'duplicate')
+      envelope.archetypes[1] = envelope.archetypes[0];
+    if (malformed === 'unknown')
+      envelope.archetypes[0].key = 'unknown' as never;
+    if (malformed === 'score') envelope.archetypes[0].score = 101;
+    if (malformed === 'confidence') envelope.archetypes[0].confidence = -1;
+    if (malformed === 'tier') envelope.archetypes[0].tier = 'Z';
+    if (malformed === 'explanation')
+      envelope.archetypes[0].explanation = null as never;
+    if (malformed === 'system') envelope.id64 = parseId64('42');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(envelope));
+    await expect(getArchetypeExplanation(id64, expected)).resolves.toEqual({
+      kind: 'error',
+      status: 0,
+    });
+  });
+});
 
 describe('selected-archetype rankings facade', () => {
   beforeEach(() => {

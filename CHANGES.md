@@ -11,6 +11,19 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — Finder F4e: per-archetype explanations
+
+Behind the default-off `VITE_FINDER_F4_ENABLED` flag, Explore result cards lazily
+load all eight archetype explanations from the F2d endpoint. Requests and cached
+results are bound to the card's generation, archetype version and manifest hash;
+a mismatch leaves the scores visible with an explanation-unavailable message.
+The accessible disclosure operates independently of result selection, and tier
+badges stay on one line in narrow result cards. Product coverage expands a real
+fixture explanation, compares stored scores and tiers, and checks accessibility.
+
+Browser and visual acceptance, the owner's enablement decision (F4 design
+question 3), and the governed release still remain before the flag may be enabled.
+
 ## 2026-11-01 — Colony Planner S4b part 2: Raven layout file import
 
 The `/plan` page imports commander-exported Raven Colonial JSON files with
