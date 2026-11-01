@@ -1068,55 +1068,116 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
     await waitFor(() => expect(scenePointIds()).toEqual([rankedRows[0].id64]));
   });
 
-  it('hydrates a clean off-page selection even when the catalogue arrives before rankings', async () => {
-    let finishRankings!: (page: api.ArchetypeRankingsPage) => void;
-    vi.mocked(api.getArchetypeRankings).mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          finishRankings = resolve;
-        }),
-    );
-    vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue({
-      systems: [{ ...anchorA, populated: false }],
-      truncated: false,
-    });
-    renderEnabled(
-      `archetype=manufacturing_hub&page_size=1&offset=1&selected=${anchorA.id64}`,
-    );
-    // The normal wide catalogue includes every Product fixture system. Hold
-    // rankings pending until that response has reached the real component.
-    await screen.findByRole('heading', { name: 'Anchor A' });
-    expect(api.getSystem).not.toHaveBeenCalled();
-    finishRankings({
-      ...finderPage(1, 1, 3, true),
-      archetype: 'manufacturing_hub',
-      archetype_label: 'Manufacturing Hub',
-    });
-    await screen.findByText('Ranked 2');
-    await waitFor(() =>
-      expect(api.getSystem).toHaveBeenCalledExactlyOnceWith(
-        anchorA.id64,
-        expect.anything(),
-      ),
-    );
-    expect(
-      within(screen.getByRole('list', { name: 'System results' })).queryByText(
-        'Anchor A',
-      ),
-    ).not.toBeInTheDocument();
-    await waitFor(() =>
+  it.each(['any', 'selected'])(
+    'hydrates a clean off-page %s selection from getSystem when the catalogue arrives first',
+    async (mode) => {
+      let finishResults!: () => void;
+      const pendingResults = new Promise<void>((resolve) => {
+        finishResults = resolve;
+      });
+      vi.mocked(api.searchExploreSystems).mockImplementation(async () => {
+        await pendingResults;
+        return finderPage(1);
+      });
+      vi.mocked(api.getArchetypeRankings).mockImplementation(async () => {
+        await pendingResults;
+        return {
+          ...finderPage(1, 1, 3, true),
+          archetype: 'manufacturing_hub',
+          archetype_label: 'Manufacturing Hub',
+        };
+      });
+      let finishSelection!: (detail: api.SystemDetail) => void;
+      vi.mocked(api.getSystem).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finishSelection = resolve;
+          }),
+      );
+      vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue({
+        systems: [{ ...anchorA, populated: false }],
+        truncated: false,
+      });
+      renderEnabled(
+        `${mode === 'selected' ? 'archetype=manufacturing_hub&' : ''}page_size=1&offset=1&selected=${anchorA.id64}`,
+      );
+      // Hold results until the catalogue's selected system reaches the map.
+      // Its point must never supply the separate Finder selection contribution.
+      await waitFor(() =>
+        expect(
+          document.querySelector('[data-catalogue-star-count]'),
+        ).toHaveAttribute('data-catalogue-star-count', '1'),
+      );
+      expect(api.getSystem).not.toHaveBeenCalled();
+      await waitFor(() =>
+        expect(
+          currentScene().contributions.some(
+            (contribution) => contribution.id === 'finder-selection',
+          ),
+        ).toBe(false),
+      );
+      finishResults();
+      await screen.findByText('Ranked 2');
+      await waitFor(() =>
+        expect(api.getSystem).toHaveBeenCalledExactlyOnceWith(
+          anchorA.id64,
+          expect.anything(),
+        ),
+      );
       expect(
-        currentScene().contributions.filter(
+        screen.getByRole('heading', { name: `System ${anchorA.id64}` }),
+      ).toBeInTheDocument();
+      expect(
+        currentScene().contributions.some(
           (contribution) => contribution.id === 'finder-selection',
         ),
-      ).toHaveLength(1),
-    );
-    expect(currentScene().selection).toEqual([
-      { kind: 'system', systemId64: anchorA.id64 },
-    ]);
-    expect(mockedPage.url.searchParams.get('selected')).toBe(anchorA.id64);
-    expect(mockedPage.url.searchParams.has('system')).toBe(false);
-  });
+      ).toBe(false);
+      finishSelection({
+        id64: anchorA.id64,
+        name: 'Resolved selection',
+        lifecycleState: 'ACTIVE',
+        x: 50,
+        y: 60,
+        z: 70,
+        sourceBodyCount: null,
+        loadedBodyCount: 0,
+        sourceUpdatedAt: null,
+        bodies: [],
+        stations: [],
+      });
+      await screen.findByRole('heading', { name: 'Resolved selection' });
+      expect(
+        within(
+          screen.getByRole('list', { name: 'System results' }),
+        ).queryByText('Resolved selection'),
+      ).not.toBeInTheDocument();
+      await waitFor(() =>
+        expect(
+          currentScene()
+            .contributions.filter(
+              (contribution) => contribution.id === 'finder-selection',
+            )
+            .flatMap((contribution) => contribution.layers)
+            .map((layer) => layer.payload),
+        ).toEqual([
+          {
+            systems: [
+              expect.objectContaining({
+                systemId64: anchorA.id64,
+                positionLy: { x: 50, y: 60, z: 70 },
+              }),
+            ],
+          },
+        ]),
+      );
+      expect(api.getSystem).toHaveBeenCalledTimes(1);
+      expect(currentScene().selection).toEqual([
+        { kind: 'system', systemId64: anchorA.id64 },
+      ]);
+      expect(mockedPage.url.searchParams.get('selected')).toBe(anchorA.id64);
+      expect(mockedPage.url.searchParams.has('system')).toBe(false);
+    },
+  );
 
   it.each([
     {

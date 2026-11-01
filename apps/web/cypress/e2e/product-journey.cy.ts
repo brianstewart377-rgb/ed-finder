@@ -549,7 +549,10 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.get('h1')
       .should('contain.text', 'Chart a promising system')
       .and('be.visible');
-    cy.get('[data-system-result]').should('have.length.greaterThan', 0);
+    cy.get('[data-system-result]', { timeout: 15_000 }).should(
+      'have.length.greaterThan',
+      0,
+    );
     assertSpatialResultsReady();
     cy.get('[data-region-resource-state="ready"]', { timeout: 20_000 }).should(
       'contain.text',
@@ -603,7 +606,9 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     });
 
     keyboardChooseAnchor('Achenar');
-    cy.get('[data-system-result="10477373803000"] [data-result-select]')
+    cy.get('[data-system-result="10477373803000"] [data-result-select]', {
+      timeout: 15_000,
+    })
       .should('be.focused')
       .and('have.attr', 'aria-pressed', 'true');
     cy.get('[data-testid="selected-system-context"]')

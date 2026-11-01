@@ -702,12 +702,10 @@
   const selectedOnPage = $derived(
     systems.find((system) => system.id64 === selectedId),
   );
-  const selectedInCatalogue = $derived(
-    viewportSystems.find((system) => system.id64 === selectedId),
-  );
+  // F4 URL selection uses result pages or exact-system resolution, independent
+  // of catalogue viewport response timing.
   const knownSelectedSystem = $derived(
     selectedOnPage ??
-      selectedInCatalogue ??
       (retainedSelectedSystem?.id64 === selectedId
         ? retainedSelectedSystem
         : null),
@@ -814,8 +812,6 @@
   $effect(() => {
     if (!FINDER_F4_ENABLED) return;
     // Retain a selected result or exact-system resolution across page changes.
-    // A fresh catalogue sample may present the point, but must not suppress the
-    // clean-session exact-system hydration required by the shared URL contract.
     // Resolution is keyed by id, so late responses cannot move the selection.
     const selected = selectedOnPage ?? reconstructedSelection;
     if (
