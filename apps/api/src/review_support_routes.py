@@ -13,7 +13,10 @@ from edfinder_api.routers.evidence import evidence_system_summary
 
 
 router = APIRouter(tags=['review-support'])
-REVIEW_SCENARIO_MODES = frozenset({'normal', 'api_failure', 'empty_results'})
+REVIEW_SCENARIO_MODES = frozenset({
+    'normal', 'api_failure', 'empty_results',
+    'rankings_api_failure', 'rankings_empty_results',
+})
 
 
 @router.post('/api/review/scenario/{mode}', include_in_schema=False)

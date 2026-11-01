@@ -30,6 +30,7 @@ import {
 } from '@ed-finder/api-client/core';
 import { parseLosslessJson } from '@ed-finder/api-client/lossless-json';
 import { parseId64, type Id64 } from '@ed-finder/api-client/id64';
+import { FINDER_F4_ENABLED } from '$lib/config';
 import {
   isArchetypeKey,
   isTier,
@@ -579,9 +580,10 @@ export type SystemDetail = Readonly<{
   name: string;
   /** The system's own catalogue lifecycle: ACTIVE, MISSING_CANDIDATE, RETIRED. */
   lifecycleState: string;
-  x: number;
-  y: number;
-  z: number;
+  /** F4 omits an unknown legacy origin; only Sol is known to occupy (0, 0, 0). */
+  x?: number;
+  y?: number;
+  z?: number;
   sourceBodyCount: number | null;
   loadedBodyCount: number;
   sourceUpdatedAt: string | null;
@@ -1318,13 +1320,24 @@ export async function getSystem(
       bodies.status === 'fulfilled' &&
       rings.status === 'fulfilled' &&
       stations.status === 'fulfilled'
-    )
-      return systemDetailFromV3(
+    ) {
+      const detail = systemDetailFromV3(
         system.value.data,
         bodies.value.data,
         rings.value.data,
         stations.value.data,
       );
+      if (
+        FINDER_F4_ENABLED &&
+        detail.id64 !== SOL_ID64 &&
+        detail.x === 0 &&
+        detail.y === 0 &&
+        detail.z === 0
+      ) {
+        return { ...detail, x: undefined, y: undefined, z: undefined };
+      }
+      return detail;
+    }
   }
   throw new ApiError(
     503,

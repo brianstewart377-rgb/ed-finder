@@ -15,6 +15,11 @@
   --line: hsl(216 10% 24%);
   --muted: #a6acb4;
   --panel-raised: hsl(216 10% 14%);
+  --color-tier-s: var(--color-signal);
+  --color-tier-a: var(--color-cyan);
+  --color-tier-b: #86d99c;
+  --color-tier-c: #e9c46a;
+  --color-tier-d: var(--muted);
   --metal: linear-gradient(135deg, #202329, #15171c 65%);
 }
 * {

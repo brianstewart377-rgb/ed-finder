@@ -66,6 +66,8 @@ def test_review_lab_collector_does_not_duplicate_normal_product_acceptance():
     assert 'api_failure' in scenarios
     assert 'empty_results' in scenarios
     assert 'renderer_recovery' in scenarios
+    assert 'rankings_api_failure' in scenarios
+    assert 'rankings_empty_results' in scenarios
 
 
 @pytest.mark.unit
@@ -77,6 +79,8 @@ def test_review_lab_uses_backend_owned_synthetic_conditions_not_cypress_stubs():
     assert 'review_lab_synthetic_empty' not in review
     assert "mode == 'api_failure'" in review_main
     assert "mode == 'empty_results'" in review_main
+    assert "mode == 'rankings_api_failure'" in review_main
+    assert "mode == 'rankings_empty_results'" in review_main
 
 
 @pytest.mark.unit

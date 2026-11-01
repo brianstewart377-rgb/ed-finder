@@ -1,9 +1,13 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
+  import { page } from '$app/state';
   import type { WatchlistEntry } from '$lib/api/client';
+  import { FINDER_F4_ENABLED } from '$lib/config';
+  import type { Id64 } from '$lib/domain/id64';
   import { usePersistenceContext } from '$lib/persistence/context';
   import type { CompareEntry, PinnedEntry } from '$lib/persistence/storage';
   import { COMPARE_MAX } from './compare-metrics';
+  import { inspectHref, navigateWithAnchor } from './navigation';
   import {
     snapshotFromPin,
     snapshotFromWatchlist,
@@ -132,6 +136,19 @@
       : 'Your pins could not be cleared in this browser. Try again.';
     confirmClear = false;
   }
+  function followInspect(event: MouseEvent, id64: Id64): void {
+    if (
+      !FINDER_F4_ENABLED ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    )
+      return;
+    event.preventDefault();
+    void navigateWithAnchor(inspectHref(id64, page.url));
+  }
 </script>
 
 <section class="saved-systems" aria-labelledby="saved-systems-title">
@@ -215,14 +232,21 @@
           <tbody>
             {#each sortedPins as entry (entry.id64)}
               <tr>
+                <!-- eslint-disable svelte/no-navigation-without-resolve -- inspectHref resolves the Inspect route -->
                 <th scope="row"
                   ><a
-                    href={resolve(`/inspect?system=${entry.id64}`)}
+                    href={FINDER_F4_ENABLED
+                      ? inspectHref(entry.id64, page.url)
+                      : resolve(`/inspect?system=${entry.id64}`)}
+                    onclick={FINDER_F4_ENABLED
+                      ? (event) => followInspect(event, entry.id64)
+                      : undefined}
                     aria-label={`Inspect ${entry.name}`}>{entry.name}</a
                   >{#if entry.is_colonised}<span class="detail-line"
                       >Colonised</span
                     >{/if}</th
                 >
+                <!-- eslint-enable svelte/no-navigation-without-resolve -->
                 <td
                   >{coordinates(entry)}{#if distance(entry) !== null}<span
                       class="detail-line"
@@ -361,14 +385,21 @@
           <tbody>
             {#each sortedWatchlist as entry (entry.system_id64)}
               <tr>
+                <!-- eslint-disable svelte/no-navigation-without-resolve -- inspectHref resolves the Inspect route -->
                 <th scope="row"
                   ><a
-                    href={resolve(`/inspect?system=${entry.system_id64}`)}
+                    href={FINDER_F4_ENABLED
+                      ? inspectHref(entry.system_id64, page.url)
+                      : resolve(`/inspect?system=${entry.system_id64}`)}
+                    onclick={FINDER_F4_ENABLED
+                      ? (event) => followInspect(event, entry.system_id64)
+                      : undefined}
                     aria-label={`Inspect ${entry.name}`}>{entry.name}</a
                   >{#if entry.is_colonised}<span class="detail-line"
                       >Colonised</span
                     >{/if}</th
                 >
+                <!-- eslint-enable svelte/no-navigation-without-resolve -->
                 <td
                   >{coordinates(entry)}{#if distance(entry) !== null}<span
                       class="detail-line"

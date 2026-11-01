@@ -9,6 +9,7 @@ import {
   RANKING_URL_PARAMETERS,
   WEIGHT_CONTRACT_DEFINED,
   hasRankingSearchParams,
+  lastPageCorrection,
   lastValidOffset,
   legacyExploreRequest,
   normalizeRankingState,
@@ -112,6 +113,82 @@ describe('last valid page calculation', () => {
     expect(lastValidOffset(2_000_000_000, 50)).toBe(9_950);
     expect(lastValidOffset(-5, 50)).toBe(0);
     expect(lastValidOffset(120, 0)).toBe(100);
+  });
+
+  const envelope = (overrides = {}) => ({
+    total: 3,
+    navigable_total: 3,
+    navigation_limit: 10_000,
+    page_size: 1,
+    offset: 0,
+    ...overrides,
+  });
+
+  it('corrects a positive out-of-range response using its own page size', () => {
+    expect(lastPageCorrection(envelope({ offset: 3 }))).toBe(2);
+    expect(
+      lastPageCorrection(
+        envelope({ total: 57, navigable_total: 57, page_size: 24, offset: 72 }),
+      ),
+    ).toBe(48);
+    expect(lastPageCorrection(envelope({ total: 1, offset: 50 }))).toBe(0);
+  });
+
+  it('keeps a genuine zero-result response at the requested offset', () => {
+    for (const offset of [0, 3, 9_999]) {
+      expect(
+        lastPageCorrection(envelope({ total: 0, navigable_total: 0, offset })),
+      ).toBeNull();
+    }
+  });
+
+  it('does not replace valid pages, including a partially filled final page', () => {
+    for (const offset of [0, 1, 2]) {
+      expect(lastPageCorrection(envelope({ offset }))).toBeNull();
+    }
+    expect(
+      lastPageCorrection(
+        envelope({ total: 57, navigable_total: 57, page_size: 24, offset: 48 }),
+      ),
+    ).toBeNull();
+  });
+
+  it('aligns a crossing page to the last page of the 10,000 navigation window', () => {
+    const saturated = {
+      total: 10_000,
+      navigable_total: 10_000,
+      page_size: 50,
+    };
+    expect(lastPageCorrection(envelope({ ...saturated, offset: 9_975 }))).toBe(
+      9_950,
+    );
+    expect(
+      lastPageCorrection(envelope({ ...saturated, offset: 9_950 })),
+    ).toBeNull();
+    expect(
+      lastPageCorrection(
+        envelope({ ...saturated, page_size: 24, offset: 9_999 }),
+      ),
+    ).toBe(9_984);
+    expect(
+      lastPageCorrection(
+        envelope({ ...saturated, page_size: 24, offset: 9_984 }),
+      ),
+    ).toBeNull();
+  });
+
+  it('bounds correction to the envelope navigation total and hard ceiling', () => {
+    expect(
+      lastPageCorrection(
+        envelope({
+          total: 20_000,
+          navigable_total: 20_000,
+          navigation_limit: 20_000,
+          page_size: 50,
+          offset: 10_000,
+        }),
+      ),
+    ).toBe(9_950);
   });
 });
 

@@ -176,6 +176,32 @@ export function minimumScoreForTier(tier: SelectedMinimumTier): MinimumScore {
 
 export type RankingMode = 'any' | 'selected';
 
+/** Owner decision 2026-10-31: selected score versus the API's best rival. */
+export const CLEAR_FIT_MINIMUM_GAP = 3;
+
+/**
+ * The caller renders this only for a committed selected-archetype ranking.
+ * Missing or unrecognised evidence cannot establish a meaningful comparison.
+ * The returned text is both the visible and accessible label.
+ */
+export function selectedFitLabel(
+  score: number | null | undefined,
+  rivalArchetype: string | null | undefined,
+  rivalScore: number | null | undefined,
+): string | null {
+  if (
+    typeof score !== 'number' ||
+    !Number.isFinite(score) ||
+    typeof rivalScore !== 'number' ||
+    !Number.isFinite(rivalScore) ||
+    !isArchetypeKey(rivalArchetype)
+  )
+    return null;
+  return score - rivalScore >= CLEAR_FIT_MINIMUM_GAP
+    ? 'Clear fit'
+    : `Close fit · ${archetypeMetadata(rivalArchetype).label} ${rivalScore}`;
+}
+
 export type EvidenceLevel = 'unknown' | 'limited' | 'moderate' | 'strong';
 
 export type EvidenceBadge = Readonly<{

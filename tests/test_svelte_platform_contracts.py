@@ -157,7 +157,14 @@ def test_canonical_v3_journey_stays_explore_inspect_plan_review():
     assert not (routes / "finder").exists()
     assert not (routes / "system").exists()
     assert not (routes / "colony-planner").exists()
-    assert "page.url.pathname === '/explore' ? urlSelection : null" in shell
+    assert (
+        "const detailId = $derived.by((): Id64 | null => {\n"
+        "    const raw = page.url.searchParams.get('system');"
+    ) in shell
+    assert (
+        "let overlayId = $derived("
+        "page.url.pathname === '/explore' ? detailId : null);"
+    ) in shell
 
 
 def test_root_layout_owns_the_configured_query_and_persistence_singletons():

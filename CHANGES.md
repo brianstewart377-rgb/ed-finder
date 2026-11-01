@@ -46,6 +46,47 @@ assertion was weakened, retried or skipped. Database-free tests: 45 passed.
 The reviewer ran the targeted PostgreSQL tests locally (35 passed), and CI's
 Finder shards run the full purge suites.
 
+## 2026-11-01 — Fifth F2d release `3fd8e719` accepted in production
+
+Owner-approved, after the post-purge Sunday full backup finished. Release run
+41293253404 (source `3fd8e719`) passed preflight run 41293445849 and was
+accepted by promotion run 41293577222 at 2026-11-01T09:33:27Z to slot green:
+staging, active and public smoke 200, F2d image contract, OpenAPI bounds, 422
+rejections and behavioural probes passed; no migration, no database writes,
+protected resources unchanged. It carries the Colony Planner `/plan` page
+through S5a, the 2026-10-31 audit fixes A1–A4 (#956, #957, #958, #962), the
+Finder F4b work behind its default-off flag and the journal export pause. The
+accepted F2d operator-code identity is now `8696feb8…`; ranking identity is
+unchanged. `deploy/v3-production/target-authority.json` records it as the
+accepted release, attested for the installed through-022 set; `1e748c9d` is the
+recorded rollback artifact and `f667bb4d` stays the minimum schema-compatible
+image. Receipts are under `docs/operations/evidence/2026-11-01-v3-production-*`.
+
+## 2026-11-01 — Finder F4b: picker, ranked cards and browser contracts behind the default-off flag
+
+F4b implements the archetype picker, selected-only minimum tier, ranked cards,
+one-envelope paging, URL-owned selection and retained map markers, plus
+state-carrying Explore/Inspect/watchlist round trips. Selected cards use the
+owner's amended best-rival Clear fit / Close fit rule. Any keeps its no-floor
+search; Compare distance remains suppressed in enabled builds pending F4c.
+
+The protected Product E2E bundle and disposable Review Lab bundle alone opt in
+to `VITE_FINDER_F4_ENABLED=1`. The web image accepts a validated `0`/`1` build
+argument with a fail-closed default of `0`; workflow and release-image contracts
+enforce these boundaries. Product E2E covers the three committed PostgreSQL
+fixture rows, keyboard selection, paging, clean-session selection hydration,
+Inspect return, history, axe and desktop/mobile screenshots. Review Lab adds
+backend-owned ranking failure/empty modes and verifies selection survival,
+normal Any recovery, failure tagging and the support-route matrix.
+
+These are fixture-based implementation and validation changes. The prerequisite
+migration/build/validation and step 9′ product-publication sequence completed
+2026-10-23; slice 1c's representative-scale proof passed all 72 measurements on
+2026-10-31. Before the flag may be enabled in any governed production or release
+build, F4c, F4e, browser acceptance, visual approval, the owner enablement decision
+and the separate governed application-release gate remain required. F4b does not
+enable the flag in such a build or authorize a deployment.
+
 ## 2026-11-01 — CI runs the V3 journal flow tests; the stale export-limit test is fixed
 
 `tests/integration/test_v3_journal_research_flow.py` and
@@ -69,6 +110,7 @@ requires a reviewed code change. Withdrawal still supersedes lineage batches,
 and all consent and export reads remain available. Database-free route tests
 cover the refusals and withdrawal; PostgreSQL integration coverage preserves
 the export-builder and consent flows with the pause explicitly disabled.
+
 
 ## 2026-10-31 — Finder: ranking rows carry their best rival archetype (F4b fit label)
 
