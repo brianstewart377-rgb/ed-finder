@@ -37,6 +37,15 @@ need an explicit disposition and a fresh run after a remedy. This closes the
 2026-10-31 audit's missing repeatable smoke procedure; it does not claim a new
 public verification or change deployment acceptance gates.
 
+## 2026-11-01 — Roadmap opening status summary
+
+Added “Where things stand (2026-11-01)” directly below the roadmap title,
+linking current release, schema, purge, backup, product and next-work evidence.
+It records the unrun A5 restore practice and open owner decisions, and makes
+missing detailed redesign, S5c and ingestion-enablement records explicit.
+All existing roadmap content is unchanged. No opening-line contract test
+exists, so no test was added or changed.
+
 ## 2026-11-01 — Seventh F2d release `293bc72b` accepted in production: Finder archetype UI on
 
 Owner-approved. Release run 41342325477 (source `293bc72b`) passed preflight
