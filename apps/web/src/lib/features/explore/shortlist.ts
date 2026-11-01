@@ -1,5 +1,7 @@
 import { get } from 'svelte/store';
 import type { ExploreSystem, WatchlistEntry } from '$lib/api/client';
+import { FINDER_F4_ENABLED } from '$lib/config';
+import { snapshotRankingIdentity } from '$lib/persistence/storage';
 import type {
   CompareEntry,
   PersistedStore,
@@ -10,6 +12,18 @@ import { COMPARE_MAX } from './compare-metrics';
 type SelectionResult = { selected: boolean; error: string | null };
 const saveError =
   'Your shortlist could not be saved in this browser. Check browser storage before leaving this page.';
+
+/** Missing facts on an older saved surface stay unknown when saved again. */
+function withSavedRankingIdentity(snapshot: CompareEntry): CompareEntry {
+  if (!FINDER_F4_ENABLED) return snapshot;
+  return {
+    ...snapshotRankingIdentity(snapshot),
+    overall_development_potential: null,
+    // Preserve stored scores and historical keys; the identity reader decides
+    // whether they are comparable without rewriting the original evidence.
+    ...snapshot,
+  };
+}
 
 /**
  * Snapshot a Finder row for pin/compare. The ranking identity the facade
@@ -37,7 +51,7 @@ export function snapshotFromExplore(system: ExploreSystem): CompareEntry {
 }
 
 export function snapshotFromPin(pin: PinnedEntry): CompareEntry {
-  return {
+  return withSavedRankingIdentity({
     ...pin,
     coords: pin.coords ?? {
       x: pin.x ?? null,
@@ -46,11 +60,11 @@ export function snapshotFromPin(pin: PinnedEntry): CompareEntry {
     },
     // Legacy pin.economy is a suggestion, not the system's current economy.
     primaryEconomy: pin.primaryEconomy ?? pin.primary_economy ?? null,
-  };
+  });
 }
 
 export function snapshotFromWatchlist(entry: WatchlistEntry): CompareEntry {
-  return {
+  return withSavedRankingIdentity({
     id64: entry.system_id64,
     name: entry.name,
     coords: { x: entry.x ?? null, y: entry.y ?? null, z: entry.z ?? null },
@@ -62,7 +76,7 @@ export function snapshotFromWatchlist(entry: WatchlistEntry): CompareEntry {
     buildability_score: entry.buildability_score,
     purity_score: entry.purity_score,
     economy_suggestion: entry.economy_suggestion,
-  };
+  });
 }
 
 /** Retain complete snapshots so a different Finder search never loses facts. */

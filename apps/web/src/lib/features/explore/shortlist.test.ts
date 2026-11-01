@@ -2,7 +2,10 @@ import { get } from 'svelte/store';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseId64 } from '$lib/domain/id64';
 import { compare, pins } from '$lib/persistence/stores';
-import { PERSISTENCE_KEYS } from '$lib/persistence/storage';
+import {
+  PERSISTENCE_KEYS,
+  snapshotRankingIdentity,
+} from '$lib/persistence/storage';
 import {
   snapshotFromExplore,
   snapshotFromPin,
@@ -10,6 +13,13 @@ import {
   toggleComparison,
   togglePin,
 } from './shortlist';
+
+const f4 = vi.hoisted(() => ({ enabled: false }));
+vi.mock('$lib/config', () => ({
+  get FINDER_F4_ENABLED() {
+    return f4.enabled;
+  },
+}));
 
 const system = {
   id64: parseId64('9007199254740993'),
@@ -23,6 +33,7 @@ const system = {
 
 describe('Finder shortlist actions', () => {
   beforeEach(() => {
+    f4.enabled = false;
     localStorage.clear();
     pins.set([]);
     compare.set([]);
@@ -111,51 +122,136 @@ describe('Finder shortlist actions', () => {
     spy.mockRestore();
   });
 
-  it('persists the ranking identity of a selected fit without putting it in archetype_score', () => {
-    const provenance = {
-      ranking_version: 'v3-colony-potential-2',
-      ranking_sha256: 'ranking-sha',
-      derived_generation_id: 'generation-id',
-      publication_sequence: 1,
-      archetype_version: 'v3-archetype-1',
-      archetype_manifest_sha256: 'manifest-sha',
-      archetype_model_sha256: 'model-sha',
-    };
-    const selected = snapshotFromExplore({
-      ...system,
-      archetype_score: null,
-      overall_development_potential: 100,
-      ranking_score: 75,
-      ranking_tier: 'B',
+  it.each([false, true])(
+    'persists distinct overall and selected scores, API tiers, zero distance and provenance (F4=%s)',
+    (enabled) => {
+      f4.enabled = enabled;
+      const provenance = {
+        ranking_version: 'v3-colony-potential-2',
+        ranking_sha256: 'ranking-sha',
+        derived_generation_id: 'generation-id',
+        publication_sequence: 1,
+        archetype_version: 'v3-archetype-1',
+        archetype_manifest_sha256: 'manifest-sha',
+        archetype_model_sha256: 'model-sha',
+      };
+      const selected = snapshotFromExplore({
+        ...system,
+        archetype_score: null,
+        overall_development_potential: 100,
+        ranking_score: 75,
+        ranking_tier: 'B',
+        archetype_tier: null,
+        distance: 0,
+        // A future API best_tier belongs to the separate overall value only.
+        ...{ best_tier: 'A' },
+        score_kind: 'selected_fit',
+        selected_archetype: 'flexible',
+        distance_reference: {
+          kind: 'sol',
+          id64: parseId64('10477373803'),
+          name: 'Sol',
+        },
+        ranking_provenance: provenance,
+      });
+      expect(selected).toMatchObject({
+        archetype_score: 100,
+        overall_development_potential: 100,
+        ranking_score: 75,
+        ranking_tier: 'B',
+        archetype_tier: null,
+        distance: 0,
+        best_tier: 'A',
+        score_kind: 'selected_fit',
+        selected_archetype: 'flexible',
+        distance_reference: { kind: 'sol', id64: '10477373803', name: 'Sol' },
+        ranking_provenance: provenance,
+      });
+      expect(toggleComparison(compare, selected).selected).toBe(true);
+      expect(get(compare).value[0]).toMatchObject({
+        overall_development_potential: 100,
+        ranking_score: 75,
+        ranking_tier: 'B',
+        score_kind: 'selected_fit',
+        selected_archetype: 'flexible',
+        distance: 0,
+        distance_reference: { kind: 'sol', id64: '10477373803', name: 'Sol' },
+        ranking_provenance: provenance,
+      });
+      expect(togglePin(pins, selected).selected).toBe(true);
+      expect(get(pins).value[0]).toMatchObject({
+        overall_development_potential: 100,
+        ranking_score: 75,
+        ranking_tier: 'B',
+        distance: 0,
+        distance_reference: { kind: 'sol', id64: '10477373803', name: 'Sol' },
+        ranking_provenance: provenance,
+      });
+      compare.hydrate();
+      pins.hydrate();
+      expect(get(compare).value[0]).toEqual(selected);
+      expect(snapshotFromPin(get(pins).value[0])).toMatchObject(selected);
+    },
+  );
+
+  it.each([false, true])(
+    'keeps old pin and watchlist scores separate from known overall potential (F4=%s)',
+    (enabled) => {
+      f4.enabled = enabled;
+      const legacyPin = {
+        id64: system.id64,
+        name: 'Older pin',
+        pinned_at: '2026-09-21T00:00:00Z',
+        archetype_score: 84,
+        primary_archetype: 'agri_hub',
+        distance: 0,
+        notes: 'Keep this',
+      };
+      const fromPin = snapshotFromPin(legacyPin);
+      const fromWatchlist = snapshotFromWatchlist({
+        system_id64: system.id64,
+        name: 'Older watchlist entry',
+        score: 12,
+        archetype_score: 84,
+        primary_archetype: 'agri_hub',
+      });
+      expect(fromPin).toMatchObject(legacyPin);
+      for (const snapshot of [fromPin, fromWatchlist]) {
+        expect(snapshot.archetype_score).toBe(84);
+        expect(snapshot.primary_archetype).toBe('agri_hub');
+        expect(snapshotRankingIdentity(snapshot)).toMatchObject({
+          score_kind: 'unknown',
+          ranking_score: null,
+          selected_archetype: null,
+          distance_reference: null,
+          ranking_provenance: null,
+        });
+        if (enabled) {
+          expect(snapshot.overall_development_potential).toBeNull();
+          expect(snapshot.score_kind).toBe('unknown');
+        } else {
+          expect(snapshot).not.toHaveProperty('overall_development_potential');
+          expect(snapshot).not.toHaveProperty('score_kind');
+        }
+      }
+    },
+  );
+
+  it('preserves the historical selected key when an older F4 pin is compared again', () => {
+    f4.enabled = true;
+    const snapshot = snapshotFromPin({
+      id64: system.id64,
+      name: 'Historical archetype',
+      pinned_at: '',
+      selected_archetype: 'agri_hub',
+      ranking_score: 73,
       score_kind: 'selected_fit',
-      selected_archetype: 'flexible',
-      distance_reference: {
-        kind: 'sol',
-        id64: parseId64('10477373803'),
-        name: 'Sol',
-      },
-      ranking_provenance: provenance,
     });
-    expect(selected).toMatchObject({
-      archetype_score: 100,
-      overall_development_potential: 100,
-      ranking_score: 75,
-      ranking_tier: 'B',
-      score_kind: 'selected_fit',
-      selected_archetype: 'flexible',
-      distance_reference: { kind: 'sol', id64: '10477373803', name: 'Sol' },
-      ranking_provenance: provenance,
-    });
-    expect(toggleComparison(compare, selected).selected).toBe(true);
-    expect(get(compare).value[0]).toMatchObject({
-      score_kind: 'selected_fit',
-      ranking_provenance: provenance,
-    });
-    expect(togglePin(pins, selected).selected).toBe(true);
-    expect(get(pins).value[0]).toMatchObject({
-      ranking_score: 75,
-      ranking_provenance: provenance,
-    });
+    expect(toggleComparison(compare, snapshot).selected).toBe(true);
+    expect(get(compare).value[0].selected_archetype).toBe('agri_hub');
+    expect(
+      snapshotRankingIdentity(get(compare).value[0]).selected_archetype,
+    ).toBeNull();
   });
 
   it('records a pre-F4 row without identity as unknown mode with null provenance', () => {

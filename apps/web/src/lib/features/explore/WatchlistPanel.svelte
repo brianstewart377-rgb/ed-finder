@@ -6,7 +6,15 @@
   import type { Id64 } from '$lib/domain/id64';
   import { usePersistenceContext } from '$lib/persistence/context';
   import type { CompareEntry, PinnedEntry } from '$lib/persistence/storage';
-  import { COMPARE_MAX } from './compare-metrics';
+  import { archetypeLabel } from './archetypes';
+  import {
+    comparableOverallScores,
+    COMPARE_MAX,
+    distanceReferenceLabel,
+    snapshotDistance,
+    snapshotProvenanceSummary,
+    snapshotScoreSummary,
+  } from './compare-metrics';
   import { inspectHref, navigateWithAnchor } from './navigation';
   import {
     snapshotFromPin,
@@ -31,11 +39,41 @@
   const watchedIds = $derived(
     new Set(watched.map((entry) => entry.system_id64)),
   );
+  const pinScoresComparable = $derived(
+    !FINDER_F4_ENABLED || comparableOverallScores($pins.value),
+  );
+  const watchScoresComparable = $derived(
+    !FINDER_F4_ENABLED ||
+      comparableOverallScores(watched.map(snapshotFromWatchlist)),
+  );
+  $effect(() => {
+    if (FINDER_F4_ENABLED) {
+      if (pinSort === 'development' && !pinScoresComparable) pinSort = 'recent';
+      if (watchSort === 'development' && !watchScoresComparable)
+        watchSort = 'recent';
+    }
+  });
   const sortedPins = $derived(
-    [...$pins.value].sort((a, b) => sortRows(a, b, pinSort, 'pinned_at')),
+    [...$pins.value].sort((a, b) =>
+      sortRows(
+        a,
+        b,
+        pinSort === 'development' && !pinScoresComparable ? 'recent' : pinSort,
+        'pinned_at',
+      ),
+    ),
   );
   const sortedWatchlist = $derived(
-    [...watched].sort((a, b) => sortRows(a, b, watchSort, 'added_at')),
+    [...watched].sort((a, b) =>
+      sortRows(
+        a,
+        b,
+        watchSort === 'development' && !watchScoresComparable
+          ? 'recent'
+          : watchSort,
+        'added_at',
+      ),
+    ),
   );
   const exportHref = $derived(
     `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify($pins.value, null, 2))}`,
@@ -81,6 +119,10 @@
   function score(
     entry: Record<string, unknown> | WatchlistEntry,
   ): number | null {
+    if (FINDER_F4_ENABLED)
+      return numeric(
+        (entry as Record<string, unknown>).overall_development_potential,
+      );
     return numeric(entry.archetype_score) ?? numeric(entry.score);
   }
   function dateValue(value: unknown): number {
@@ -108,7 +150,9 @@
   }
   function label(value: unknown): string | null {
     return typeof value === 'string' && value
-      ? value.replaceAll('_', ' ')
+      ? FINDER_F4_ENABLED
+        ? archetypeLabel(value)
+        : value.replaceAll('_', ' ')
       : null;
   }
   function archetype(entry: PinnedEntry | WatchlistEntry): string {
@@ -177,7 +221,10 @@
         <select bind:value={pinSort}>
           <option value="recent">Recently pinned</option><option value="name"
             >Name</option
-          ><option value="development">Development: highest first</option
+          ><option value="development" disabled={!pinScoresComparable}
+            >{FINDER_F4_ENABLED
+              ? 'Best Colony Potential: highest first'
+              : 'Development: highest first'}</option
           ><option value="distance">Distance from Sol: nearest first</option>
         </select>
       </label>
@@ -191,6 +238,12 @@
         >
       {/if}
     </header>
+    {#if FINDER_F4_ENABLED && sortedPins.length > 0 && !pinScoresComparable}
+      <p>
+        Score sorting is unavailable for older saves or different ranking
+        versions.
+      </p>
+    {/if}
     {#if confirmClear && $pins.value.length > 0}
       <div
         class="clear-confirmation"
@@ -222,8 +275,10 @@
           <thead
             ><tr
               ><th scope="col">System</th><th scope="col">Coords (LY)</th><th
-                scope="col">Development</th
-              ><th scope="col">Archetype</th><th scope="col">Dist. from ref.</th
+                scope="col"
+                >{FINDER_F4_ENABLED ? 'Saved scores' : 'Development'}</th
+              ><th scope="col">Archetype</th><th scope="col"
+                >{FINDER_F4_ENABLED ? 'Saved distance' : 'Dist. from ref.'}</th
               ><th scope="col">Pinned</th><th scope="col">Links</th><th
                 scope="col">Actions</th
               ></tr
@@ -253,18 +308,39 @@
                       >{distance(entry)?.toFixed(1)} ly from Sol</span
                     >{/if}</td
                 >
-                <td>{score(entry) ?? 'Unknown'}</td>
+                <td>
+                  {#if FINDER_F4_ENABLED}
+                    {snapshotScoreSummary(entry)}
+                    {#if snapshotProvenanceSummary(entry)}
+                      <span class="detail-line snapshot-provenance"
+                        >{snapshotProvenanceSummary(entry)}</span
+                      >
+                    {/if}
+                  {:else}
+                    {score(entry) ?? 'Unknown'}
+                  {/if}
+                </td>
                 <td
                   >{archetype(entry)}{#if label(entry.secondary_archetype)}<span
                       class="detail-line"
                       >{label(entry.secondary_archetype)}</span
                     >{/if}</td
                 >
-                <td
-                  >{referenceDistance(entry) !== null
-                    ? `${referenceDistance(entry)?.toFixed(1)} ly`
-                    : 'Unknown'}</td
-                >
+                <td>
+                  {#if FINDER_F4_ENABLED}
+                    {snapshotDistance(entry) !== null
+                      ? `${snapshotDistance(entry)?.toFixed(2)} LY`
+                      : 'Unknown'}
+                    <span class="detail-line"
+                      >{distanceReferenceLabel(entry) ??
+                        'Reference unknown'}</span
+                    >
+                  {:else}
+                    {referenceDistance(entry) !== null
+                      ? `${referenceDistance(entry)?.toFixed(1)} ly`
+                      : 'Unknown'}
+                  {/if}
+                </td>
                 <td>{formattedDate(entry.pinned_at)}</td>
                 <td
                   ><div class="row-actions">
@@ -329,7 +405,10 @@
         <select bind:value={watchSort}>
           <option value="recent">Recently added</option><option value="name"
             >Name</option
-          ><option value="development">Development: highest first</option
+          ><option value="development" disabled={!watchScoresComparable}
+            >{FINDER_F4_ENABLED
+              ? 'Best Colony Potential: highest first'
+              : 'Development: highest first'}</option
           ><option value="distance">Distance from Sol: nearest first</option>
         </select>
       </label>
@@ -341,6 +420,12 @@
         onclick={() => watchlist.query.refetch()}>Refresh watchlist</button
       >
     </header>
+    {#if FINDER_F4_ENABLED && watched.length > 0 && !watchScoresComparable}
+      <p>
+        Watchlist scores have unknown ranking provenance and cannot be sorted by
+        potential.
+      </p>
+    {/if}
     {#if watchlist.error}
       <p role="alert">{watchlist.error}</p>
       <button
@@ -377,9 +462,11 @@
             ><tr
               ><th scope="col">System</th><th scope="col">Coords (LY)</th><th
                 scope="col">Population</th
-              ><th scope="col">Development</th><th scope="col">Archetype</th><th
-                scope="col">Added</th
-              ><th scope="col">Actions</th></tr
+              ><th scope="col"
+                >{FINDER_F4_ENABLED ? 'Saved scores' : 'Development'}</th
+              ><th scope="col">Archetype</th><th scope="col">Added</th><th
+                scope="col">Actions</th
+              ></tr
             ></thead
           >
           <tbody>
@@ -407,7 +494,11 @@
                     >{/if}</td
                 >
                 <td>{populationLabel(entry)}</td>
-                <td>{score(entry) ?? 'Unknown'}</td>
+                <td
+                  >{FINDER_F4_ENABLED
+                    ? snapshotScoreSummary(snapshotFromWatchlist(entry))
+                    : (score(entry) ?? 'Unknown')}</td
+                >
                 <td
                   >{archetype(entry)}{#if label(entry.secondary_archetype)}<span
                       class="detail-line"
@@ -561,6 +652,10 @@
     margin-top: 0.2rem;
     font-size: 0.75rem;
     color: var(--muted);
+  }
+  .snapshot-provenance {
+    max-width: 24rem;
+    overflow-wrap: anywhere;
   }
   .row-actions {
     min-width: 10rem;
