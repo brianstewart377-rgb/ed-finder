@@ -703,20 +703,39 @@
           } else if (transitionCamera && 'systemId64' in transitionCamera) {
             currentSystemCamera = transitionCamera;
           }
-          setCameraTransitionActive(
-            false,
+          const settledCamera =
             transitionCamera ??
-              (event.target?.kind === 'body'
-                ? currentSystemCamera
-                : currentCamera),
-          );
+            (event.target?.kind === 'body'
+              ? currentSystemCamera
+              : currentCamera);
+          setCameraTransitionActive(false, settledCamera);
           transitionCamera = null;
           const queuedMove = pendingCameraMove;
           pendingCameraMove = null;
           const nextScene = pendingScene;
           pendingScene = null;
           if (nextScene) {
-            applyScene(nextScene);
+            // Finder/refetch updates queued during a flight still carry the
+            // parent's pre-flight camera. Its settle callback cannot update
+            // that snapshot synchronously: loading it as-is would undo the
+            // completed move. Keep the new contributions at the settled view;
+            // an intentional change of scene kind or system owns its camera.
+            if (
+              nextScene.kind === 'galaxy' &&
+              settledCamera &&
+              'focusLy' in settledCamera
+            ) {
+              applyScene({ ...nextScene, camera: settledCamera });
+            } else if (
+              nextScene.kind === 'system' &&
+              settledCamera &&
+              'systemId64' in settledCamera &&
+              nextScene.systemId64 === settledCamera.systemId64
+            ) {
+              applyScene({ ...nextScene, camera: settledCamera });
+            } else {
+              applyScene(nextScene);
+            }
           }
           if (queuedMove) {
             dispatchCameraMove(queuedMove);

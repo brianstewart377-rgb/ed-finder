@@ -360,10 +360,10 @@ describe('V3 Explore to Inspect product checkpoint', () => {
         .should('have.attr', 'href', inspect);
     });
 
-    // A full document load drops in-memory result/camera/query state as well
-    // as both persistence stores. With the selected row absent, the real
-    // system read must reconstruct its validated point exactly once.
-    cy.intercept('GET', `/api/system/${selectedId}`).as('selectedPoint');
+    // F4 design section 7, step 5: a full document load drops in-memory
+    // result/camera/query state and both persistence stores. The facade now
+    // reads the V3 system route to reconstruct the omitted selected point.
+    cy.intercept('GET', `/api/v1/systems/${selectedId}`).as('selectedPoint');
     cy.clearLocalStorage();
     cy.window().then((window) => window.sessionStorage.clear());
     cy.then(() => {
@@ -662,6 +662,8 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       overwrite: true,
     });
 
+    // F4 design section 6, "Detail overlay": Inspect carries the originating
+    // Explore query in `from` so its return links restore the Finder state.
     cy.location('search').then((search) => {
       originatingExploreQuery = search.slice(1);
     });

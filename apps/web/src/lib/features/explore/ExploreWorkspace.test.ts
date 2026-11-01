@@ -9,7 +9,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import axe from 'axe-core';
 import * as api from '$lib/api/client';
-import { queryClient } from '$lib/api/query';
+import { queryClient, queryKeys } from '$lib/api/query';
 import { auth } from '$lib/auth/auth';
 import { FINDER_F4_ENABLED } from '$lib/config';
 import { parseId64 } from '$lib/domain/id64';
@@ -1252,6 +1252,90 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
       ).toHaveFocus(),
     );
     expect(mockedPage.state.anchor).toEqual(anchorA);
+  });
+
+  it('keeps F4 results and the settled selection camera when a refetch arrives during fly-to', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    renderEnabled('page_size=2', { anchor: anchorA });
+    await screen.findByText('Showing 2 of 3 (results 1–2)');
+    await waitFor(() =>
+      expect(scenePointIds()).toEqual([rankedRows[0].id64, rankedRows[1].id64]),
+    );
+
+    const runtime = runtimeAdapter.create.mock.results.at(-1)!.value;
+    // Match the real adapter's synchronous camera receipt on scene replacement.
+    // The test controls the animation's completion while Finder data is pending.
+    runtime.dispatch.mockImplementation((command: RuntimeCommand) => {
+      if (command.type === 'LOAD_SCENE')
+        emitRuntime({ type: 'CAMERA_CHANGED', camera: command.scene.camera });
+      return { status: 'executed' as const };
+    });
+    const overviewCamera = {
+      ...currentScene().camera,
+      distanceLy: 118_000,
+      revision: 10,
+    };
+    emitRuntime({ type: 'CAMERA_CHANGED', camera: overviewCamera });
+    const target = {
+      kind: 'system' as const,
+      systemId64: rankedRows[0].id64,
+    };
+    await fireEvent.click(
+      within(screen.getByRole('list', { name: 'System results' })).getByRole(
+        'button',
+        { name: /Ranked 1.*9007199254741001/ },
+      ),
+    );
+    await waitFor(() =>
+      expect(runtime.dispatch).toHaveBeenCalledWith({
+        type: 'FLY_TO',
+        target,
+        reducedMotion: false,
+      }),
+    );
+    expect(mockedPage.url.searchParams.get('selected')).toBe(target.systemId64);
+    expect(mockedPage.state.anchor).toEqual(anchorA);
+
+    let finish!: (
+      response: Awaited<ReturnType<typeof api.searchExploreSystems>>,
+    ) => void;
+    vi.mocked(api.searchExploreSystems).mockImplementationOnce(
+      () => new Promise((resolve) => (finish = resolve)),
+    );
+    const refetch = queryClient.invalidateQueries({
+      queryKey: [...queryKeys.all, 'explore', 'results'],
+    });
+    await screen.findByText(/Updating…/);
+    expect(scenePointIds()).toEqual([rankedRows[0].id64, rankedRows[1].id64]);
+    expect(screen.getByText('Ranked 2')).toBeInTheDocument();
+    finish({
+      ...finderPage(0, 2),
+      results: [rankedRows[0], rankedRows[2]],
+    });
+    await refetch;
+    await screen.findByText('Ranked 3');
+
+    const settledCamera = {
+      ...overviewCamera,
+      focusLy: { x: 10, y: 1, z: 20 },
+      distanceLy: 60,
+      revision: 11,
+    };
+    emitRuntime({ type: 'CAMERA_CHANGED', camera: settledCamera });
+    emitRuntime({ type: 'TRANSITION_FINISHED', target });
+
+    await waitFor(() => expect(currentScene().camera).toEqual(settledCamera));
+    expect(scenePointIds()).toEqual([rankedRows[0].id64, rankedRows[2].id64]);
+    expect(currentScene().selection).toContainEqual(target);
+    expect(document.querySelector('[data-camera-distance]')).toHaveAttribute(
+      'data-camera-distance',
+      '60',
+    );
+    expect(
+      document.querySelector(
+        `[data-map-label-key="system:${target.systemId64}"]`,
+      ),
+    ).toHaveTextContent('Ranked 1');
   });
 
   it('cancels pending anchor autofocus when the user changes archetype before the anchored response', async () => {
