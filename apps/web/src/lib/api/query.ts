@@ -1,6 +1,7 @@
 import { QueryClient } from '@tanstack/svelte-query';
 import type { Id64 } from '$lib/domain/id64';
 import type {
+  ArchetypeExplanationIdentity,
   ArchetypeRankingsRequest,
   CatalogueViewportRequest,
   DistanceAnchor,
@@ -71,6 +72,20 @@ export const queryKeys = {
       request.min_score,
       request.page_size,
       request.offset,
+    ] as const,
+  /** Every identity sent to the explanation gate, including hash-only rebuilds. */
+  archetypeExplanation: (
+    id64: Id64,
+    expected: ArchetypeExplanationIdentity | null,
+  ) =>
+    [
+      ...queryKeys.all,
+      'explore',
+      'archetype-explanation',
+      id64,
+      expected?.derived_generation_id ?? null,
+      expected?.archetype_version ?? null,
+      expected?.archetype_manifest_sha256 ?? null,
     ] as const,
   catalogueViewport: (request: CatalogueViewportRequest) =>
     [

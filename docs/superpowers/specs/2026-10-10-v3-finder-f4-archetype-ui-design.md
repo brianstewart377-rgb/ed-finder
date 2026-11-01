@@ -57,6 +57,11 @@ identities and exact distance references, including measured zero distances.
 F4e, browser and visual acceptance, the owner's enablement decision (question 3),
 and the governed release still remain before the flag may be enabled.
 
+**Status update — 2026-11-01:** F4e is implemented behind the default-off
+`VITE_FINDER_F4_ENABLED` flag. Browser and visual acceptance, the owner's
+enablement decision (question 3), and the governed release still remain before
+the flag may be enabled.
+
 F4a and F4b are code-only increments validated against disposable fixtures.
 They remain hidden behind a default-off build feature gate until the governed
 production sequence has applied the pending migrations (rewritten `011` and

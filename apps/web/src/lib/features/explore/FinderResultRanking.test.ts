@@ -78,6 +78,12 @@ describe('ranked card facts', () => {
     expect(screen.getByText('Tier A').parentElement).toHaveTextContent(
       'Manufacturing Hub fit: 81',
     );
+    for (const tier of ['Tier S', 'Tier A']) {
+      expect(screen.getByText(tier)).toHaveAttribute(
+        'data-tier',
+        tier.slice(-1),
+      );
+    }
   });
 
   it('renders neither selected scores nor any fit wording in Any mode', () => {

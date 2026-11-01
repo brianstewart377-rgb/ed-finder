@@ -44,6 +44,7 @@
     readExploreAnchor,
   } from './navigation';
   import ArchetypePicker from './ArchetypePicker.svelte';
+  import ArchetypeExplanation from './ArchetypeExplanation.svelte';
   import FinderResultRanking from './FinderResultRanking.svelte';
   import { usePersistenceContext } from '$lib/persistence/context';
   import SpatialCanvas from '$lib/spatial/SpatialCanvas.svelte';
@@ -1457,7 +1458,11 @@
                 onkeydown={(event) => handleResultKeydown(event, system)}
               >
                 <span class="result-title"
-                  ><strong>{system.name ?? `System ${system.id64}`}</strong
+                  ><strong
+                    id={FINDER_F4_ENABLED
+                      ? `finder-result-heading-${system.id64}`
+                      : undefined}
+                    >{system.name ?? `System ${system.id64}`}</strong
                   ><code>{system.id64}</code></span
                 >
                 {#if FINDER_F4_ENABLED && displayedResults && !(rankingState.archetype === 'any' && displayedResults.finderState!.archetype !== 'any')}
@@ -1497,6 +1502,14 @@
                 Inspect <ArrowRight aria-hidden="true" size={16} />
               </a>
               <!-- eslint-enable svelte/no-navigation-without-resolve -->
+              {#if FINDER_F4_ENABLED && displayedResults && !(rankingState.archetype === 'any' && displayedResults.finderState!.archetype !== 'any')}
+                <ArchetypeExplanation
+                  {system}
+                  expected={system.ranking_provenance ?? null}
+                  archetype={displayedResults.finderState!.archetype}
+                  headingId={`finder-result-heading-${system.id64}`}
+                />
+              {/if}
               <div class="finder-actions"><SystemActions {system} /></div>
             </li>
           {/each}
