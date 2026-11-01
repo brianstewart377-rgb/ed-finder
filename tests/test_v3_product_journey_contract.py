@@ -24,7 +24,7 @@ def test_first_checkpoint_product_journey_keeps_real_v3_browser_coverage():
     assert 'pnpm exec cypress run --browser ${{ matrix.browser }}' in workflow
 
     for contract in (
-        "cy.visit('/explore'",
+        "const visitExplore = (path = '/explore')",
         "cy.intercept('GET', '/api/local/autocomplete*')",
         "cy.intercept('POST', '/api/local/search')",
         'data-system-result',
@@ -43,6 +43,42 @@ def test_first_checkpoint_product_journey_keeps_real_v3_browser_coverage():
         r"cy\.location\('pathname', \{ timeout: \d+_?\d* \}\)\.should\('eq', '/inspect'\)",
         journey,
     )
+
+
+@pytest.mark.unit
+def test_f4_product_journey_covers_fixture_ranking_and_url_owned_selection():
+    journey = PRODUCT_SPECS[-1].read_text(encoding='utf-8')
+
+    for contract in (
+        'tests/test_seed_cypress_v3_generation.py',
+        'FLEXIBLE_B_FIXTURE_ROWS',
+        'EXPECTED_WIDE_ARCHETYPES',
+        'assertRankingsRequest',
+        'assertFlexiblePage',
+        'assertRetainedSelection',
+        "'min_development_score'",
+        "min_score: minimumTier === 'B' ? '60' : '76'",
+        "limit: '1'",
+        'offset: String(offset)',
+        'Best Colony Potential:',
+        'Primary: Flexible Multi-Role Colony;',
+        'Secondary:',
+        'Fit confidence: moderate',
+        "fitLabel: 'Clear fit'",
+        "cy.intercept('GET', `/api/system/${selectedId}`).as('selectedPoint')",
+        "cy.wait('@selectedPoint')",
+        'window.localStorage.clear()',
+        'window.sessionStorage.clear()',
+        'from: copiedExploreQuery',
+        "cy.contains('a', 'Open in Explore').click()",
+        "cy.get('[data-testid=\"system-detail-modal\"]').should('not.exist')",
+        'cy.go(state.direction)',
+        'assertRankingsRequest(state.offset, state.tier)',
+        '[1280, 800]',
+        '[390, 844]',
+        'disableTimersAndAnimations: true',
+    ):
+        assert contract in journey
 
 
 @pytest.mark.unit

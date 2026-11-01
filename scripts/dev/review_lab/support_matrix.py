@@ -26,7 +26,20 @@ REVIEW_SUPPORT_ROUTE_MATRIX: tuple[SupportRoute, ...] = (
             'tagged review-only 503 in api_failure mode',
             'contract-shaped empty result in empty_results mode',
         ),
-        scenario_coverage=('synthetic_wiring', 'api_failure', 'empty_results', 'renderer_recovery'),
+        scenario_coverage=('synthetic_wiring', 'api_failure', 'empty_results', 'renderer_recovery', 'rankings_empty_results'),
+        validation_mode='api_contract_validated',
+    ),
+    SupportRoute(
+        route='/api/archetypes/rankings',
+        frontend_caller='apps/web ExploreWorkspace through the normal generated SDK facade',
+        required_for_reviewed_flow=True,
+        expected_status=200,
+        review_only_handling='Backend-owned review-only ranked failure/empty mode.',
+        allowed_response_characteristics=(
+            'tagged review-only 503 in rankings_api_failure mode',
+            'contract-shaped empty result with ranking identity in rankings_empty_results mode',
+        ),
+        scenario_coverage=('rankings_api_failure', 'rankings_empty_results'),
         validation_mode='api_contract_validated',
     ),
     SupportRoute(
@@ -35,8 +48,10 @@ REVIEW_SUPPORT_ROUTE_MATRIX: tuple[SupportRoute, ...] = (
         required_for_reviewed_flow=True,
         expected_status=200,
         review_only_handling='Changes only the isolated review_main.py scenario mode.',
-        allowed_response_characteristics=('normal', 'api_failure', 'empty_results'),
-        scenario_coverage=('api_failure', 'empty_results'),
+        allowed_response_characteristics=(
+            'normal', 'api_failure', 'empty_results', 'rankings_api_failure', 'rankings_empty_results',
+        ),
+        scenario_coverage=('api_failure', 'empty_results', 'rankings_api_failure', 'rankings_empty_results'),
         validation_mode='api_contract_validated',
     ),
 )

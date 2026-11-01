@@ -11,6 +11,18 @@ F4a's Product fixture-output contract in `tests/test_seed_cypress_v3_generation.
 `apps/web`-only. Owner questions 1 and 5 are answered (section 9, “Owner answers
 (2026-10-21)”). F4b–F4e remain unimplemented and every gate below is unchanged.
 
+**Status update — 2026-11-01:** F4b is implemented on `feat/finder-f4b` behind
+the default-off `VITE_FINDER_F4_ENABLED` flag. Only the protected Product E2E
+bundle (`cypress-parity.yml`, **Build Svelte static bundle** step) and the
+disposable Review Lab bundle opt in to `1`. The web image's validated build
+argument defaults to `0`; governed production and release builds remain off.
+F4c–F4e remain separate increments. Every gate before enabling F4 in a governed
+production or release build is unchanged: the prerequisite migration/build/
+validation and step 9′ product-publication sequence, slice 1c's
+representative-scale timing proof, F4c/F4e and the separate application-release
+gate. This status records implementation, not browser acceptance, visual
+approval or production-promotion authority.
+
 F4a and F4b are code-only increments validated against disposable fixtures.
 They remain hidden behind a default-off build feature gate until the governed
 production sequence has applied the pending migrations (rewritten `011` and
@@ -2012,6 +2024,15 @@ drift.
 
 Exact files:
 
+- modify `apps/web/src/lib/features/explore/archetypes.ts` and
+  `archetypes.test.ts` (inventory amendment from part 1a: the fit-label helper
+  implements section 9 Question 1's 2026-10-31 best-rival amendment)
+- create `apps/web/src/lib/features/explore/navigation.ts` and
+  `navigation.test.ts` (inventory amendment from part 1b: the shared
+  anchor-state-preserving navigation and state-carrying Inspect href helpers)
+- modify `apps/web/src/lib/components/SystemDetail.svelte` and
+  `SystemDetail.test.ts` (inventory amendment from part 1b: handle absent
+  coordinates after `getSystem` applies the origin guard)
 - create `apps/web/src/lib/features/explore/ArchetypePicker.svelte`
 - create `apps/web/src/lib/features/explore/ArchetypePicker.test.ts`
 - create `apps/web/src/lib/features/explore/FinderResultRanking.svelte`
@@ -2113,7 +2134,9 @@ Exact files:
   navigation helper, without adding the selection, so the natural return action
   does not discard the archetype, page or anchored search; with no `from` it
   falls back to `/explore` as today)
-- create `apps/web/src/routes/inspect/+page.test.ts` (default-off unchanged link;
+- create `apps/web/src/routes/inspect/InspectPage.test.ts` (inventory amendment
+  from part 1b, replacing `+page.test.ts` because SvelteKit reserves
+  `+`-prefixed route files; default-off unchanged link;
   enabled replay deletes prior/duplicate `selected` and `system`, sets each once
   to the inspected id, preserves outbound `page.state`/anchor on return, covers
   the bare-link fallback, and a Back to Explore round trip that restores the

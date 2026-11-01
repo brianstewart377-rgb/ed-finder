@@ -661,8 +661,8 @@
       rankingUrlReady &&
       urlSelection !== null &&
       !selectedOnPage &&
-      (!knownSelectedSystem ||
-        !mapExploreSelectedSystemPoint(knownSelectedSystem)) &&
+      (retainedSelectedSystem?.id64 !== urlSelection ||
+        !mapExploreSelectedSystemPoint(retainedSelectedSystem)) &&
       !results.isPending,
   );
   const selectedDetail = createQuery(() => {
@@ -718,11 +718,11 @@
   );
   $effect(() => {
     if (!FINDER_F4_ENABLED) return;
-    // Keep the last known point before replacing the result contribution. The
-    // renderer helper deduplicates it against the current page and rejects an
-    // unknown origin. Resolution is keyed by id, so late responses cannot move it.
-    const selected =
-      selectedOnPage ?? selectedInCatalogue ?? reconstructedSelection;
+    // Retain a selected result or exact-system resolution across page changes.
+    // A fresh catalogue sample may present the point, but must not suppress the
+    // clean-session exact-system hydration required by the shared URL contract.
+    // Resolution is keyed by id, so late responses cannot move the selection.
+    const selected = selectedOnPage ?? reconstructedSelection;
     if (
       selected &&
       (mapExploreSelectedSystemPoint(selected) ||

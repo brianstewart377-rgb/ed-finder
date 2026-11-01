@@ -15,11 +15,15 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from edfinder_api.config import limiter, log, settings
+from edfinder_api.deps import get_pool
+from edfinder_api.local_search import _current_derived_generation
+from edfinder_api.ranking.profile import ARCHETYPE_KEYS, RANKING_VERSION
 from edfinder_api.review_provenance_cockpit import router as review_provenance_cockpit_router
 from edfinder_api.review_runtime_guard import validate_review_runtime_env
 from edfinder_api.review_support_routes import router as review_support_router
 from edfinder_api.review_warehouse_planner_evidence import router as review_warehouse_planner_evidence_router
 from edfinder_api.routers.colony_planner import router as colony_planner_router
+from edfinder_api.routers.archetypes import _ranking_identity, _V3_ARCHETYPE_LABELS
 from edfinder_api.routers.map import router as map_router
 from edfinder_api.routers.meta import router as meta_router
 from edfinder_api.routers.search import router as search_router
@@ -133,8 +137,44 @@ async def review_scenario_middleware(request: Request, call_next: Any) -> Respon
     The normal application router remains untouched. These modes exist only in
     review_main.py, which is guarded to the disposable Review Lab runtime.
     """
+    mode = getattr(request.app.state, 'review_scenario', 'normal')
+    if request.method == 'GET' and request.url.path == '/api/archetypes/rankings':
+        if mode == 'rankings_api_failure':
+            return JSONResponse(
+                status_code=503,
+                media_type='application/problem+json',
+                headers={'x-edfinder-review-failure': 'rankings-api-failure'},
+                content={
+                    'type': 'https://ed-finder.invalid/problem/review-lab-rankings-failure',
+                    'title': 'Synthetic Review Lab rankings failure',
+                    'status': 503,
+                },
+            )
+        if mode == 'rankings_empty_results':
+            archetype = request.query_params.get('archetype')
+            if archetype not in ARCHETYPE_KEYS:
+                return JSONResponse(status_code=422, content={'detail': 'Unsupported archetype'})
+            # The empty page is synthetic; its identity still comes from the
+            # isolated published fixture, using the ordinary product gates.
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                async with conn.transaction(isolation='repeatable_read', readonly=True):
+                    generation = await _current_derived_generation(conn)
+            return JSONResponse(
+                status_code=200,
+                content={
+                    'archetype': archetype,
+                    'archetype_label': _V3_ARCHETYPE_LABELS[archetype],
+                    'results': [],
+                    'total': 0,
+                    'count': 0,
+                    'is_truncated': False,
+                    'source': f'v3:{RANKING_VERSION}',
+                    'query_ms': 0,
+                    'ranking': _ranking_identity(generation),
+                },
+            )
     if request.method == 'POST' and request.url.path == '/api/local/search':
-        mode = getattr(request.app.state, 'review_scenario', 'normal')
         if mode == 'api_failure':
             return JSONResponse(
                 status_code=503,

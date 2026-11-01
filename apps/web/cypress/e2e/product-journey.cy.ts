@@ -5,10 +5,10 @@ type ProductWindow = Window & { __productRuntimeFailures?: string[] };
 const readySelector = '[role="status"][data-renderer-state="ready"]';
 const canvasSelector = 'canvas[data-spatial-canvas]';
 
-const visitExplore = () => {
+const visitExplore = (path = '/explore') => {
   cy.intercept('GET', '/api/local/autocomplete*').as('autocomplete');
   cy.intercept('POST', '/api/local/search').as('search');
-  cy.visit('/explore', {
+  cy.visit(path, {
     onBeforeLoad(window) {
       const productWindow = window as ProductWindow;
       productWindow.__productRuntimeFailures = [];
@@ -40,9 +40,473 @@ const keyboardChooseAnchor = (query: string) => {
   cy.wait('@search').its('response.statusCode').should('eq', 200);
 };
 
+// PostgreSQL fixture-output authority: tests/test_seed_cypress_v3_generation.py,
+// EXPECTED_FLEXIBLE_B_ROWS / EXPECTED_SUMMARY / EXPECTED_WIDE_ARCHETYPES and
+// EXPECTED_B_FLOOR_ORDER. All eight scores are pinned there already. The best
+// other non-Flexible scores are Research Hub 82, Stronghold 74 and Stronghold
+// 57; each Flexible score clears its rival by >= 3 (section 9, 2026-10-31).
+const FLEXIBLE_B_FIXTURE_ROWS = [
+  {
+    id64: '9007199254740993',
+    name: 'V3 Lossless Reach',
+    score: 100,
+    tier: 'S',
+    overall: 100,
+    confidence: 0.8665,
+    completeness: 0.6481,
+    secondary: 'Research Hub',
+    rival: 'research_hub',
+    rivalScore: 82,
+    fitLabel: 'Clear fit',
+    evidence: 'Fit confidence 87%; evidence 65% complete',
+  },
+  {
+    id64: '10477373803000',
+    name: 'Achenar',
+    score: 100,
+    tier: 'S',
+    overall: 100,
+    confidence: 0.8486,
+    completeness: 0.6356,
+    secondary: 'Stronghold',
+    rival: 'stronghold',
+    rivalScore: 74,
+    fitLabel: 'Clear fit',
+    evidence: 'Fit confidence 85%; evidence 64% complete',
+  },
+  {
+    id64: '158872029',
+    name: 'HD 38179',
+    score: 75,
+    tier: 'B',
+    overall: 75,
+    confidence: 0.803,
+    completeness: 0.631,
+    secondary: 'Stronghold',
+    rival: 'stronghold',
+    rivalScore: 57,
+    fitLabel: 'Clear fit',
+    evidence: 'Fit confidence 80%; evidence 63% complete',
+  },
+] as const;
+
+const assertFinderUrl = (
+  archetype: 'any' | 'flexible',
+  offset: number,
+  selected: string | null,
+  minimumTier: 'B' | 'A' = 'B',
+  overlay = false,
+) => {
+  cy.location('pathname').should('eq', '/explore');
+  cy.location('search').should((search) => {
+    const params = new URLSearchParams(search);
+    expect(params.get('archetype')).to.equal(
+      archetype === 'any' ? null : archetype,
+    );
+    expect(params.get('min-tier')).to.equal(
+      archetype === 'any' || minimumTier === 'B' ? null : minimumTier,
+    );
+    expect(params.get('page_size')).to.equal('1');
+    expect(params.get('offset')).to.equal(offset === 0 ? null : String(offset));
+    expect(params.getAll('selected')).to.deep.equal(selected ? [selected] : []);
+    expect(params.getAll('system')).to.deep.equal(
+      overlay && selected ? [selected] : [],
+    );
+  });
+  cy.get(`input[type="radio"][value="${archetype}"]`).should('be.checked');
+  if (archetype === 'any') cy.get('.minimum-tier').should('not.exist');
+  else cy.get('.minimum-tier select').should('have.value', minimumTier);
+  cy.get('.page-size input').should('have.value', '1');
+};
+
+const assertRankingsRequest = (
+  offset: number,
+  minimumTier: 'B' | 'A' = 'B',
+) => {
+  const expected = FLEXIBLE_B_FIXTURE_ROWS[offset];
+  cy.wait('@rankings').then(({ request, response }) => {
+    const params = new URL(request.url).searchParams;
+    expect(Object.fromEntries(params)).to.deep.equal({
+      archetype: 'flexible',
+      min_score: minimumTier === 'B' ? '60' : '76',
+      limit: '1',
+      offset: String(offset),
+    });
+    expect(response?.statusCode).to.equal(200);
+    expect(response?.body).to.include({
+      archetype: 'flexible',
+      count: 1,
+      total: minimumTier === 'B' ? 3 : 2,
+      is_truncated: false,
+    });
+    expect(response?.body.results).to.have.length(1);
+    // Cypress's JSON decoder cannot preserve the unsafe integer ID64. Its
+    // exact identity is checked on the DOM and URL, never rounded here.
+    expect(response?.body.results[0]).to.include({
+      name: expected.name,
+      score: expected.score,
+      tier: expected.tier,
+      selected_archetype: 'flexible',
+      primary_archetype: 'flexible',
+      secondary_archetype: expected.rival,
+      confidence: expected.confidence,
+      completeness: expected.completeness,
+      overall_development_potential: expected.overall,
+      rival_archetype: expected.rival,
+      rival_score: expected.rivalScore,
+    });
+  });
+};
+
+const assertFlexiblePage = (
+  offset: number,
+  total = 3,
+  selected: string | null = null,
+) => {
+  const expected = FLEXIBLE_B_FIXTURE_ROWS[offset];
+  cy.get('.results-panel').should('have.attr', 'aria-busy', 'false');
+  cy.get('[data-system-result]').should('have.length', 1);
+  cy.get(`[data-system-result="${expected.id64}"]`).within(() => {
+    cy.get('.result-title').should('contain.text', expected.name);
+    cy.get('.selected-fit')
+      .should(
+        'contain.text',
+        `Flexible Multi-Role Colony fit: ${expected.score}`,
+      )
+      .find('[data-tier]')
+      .should('have.attr', 'data-tier', expected.tier)
+      .and('have.text', `Tier ${expected.tier}`);
+    cy.get('.overall-potential')
+      .should('contain.text', `Best Colony Potential: ${expected.overall}`)
+      .find('[data-tier]')
+      .should('not.exist'); // Slice 1b has not supplied best_tier.
+    cy.get('.classification-types')
+      .should('contain.text', 'Primary: Flexible Multi-Role Colony;')
+      .and('contain.text', `Secondary: ${expected.secondary}`);
+    cy.get('.fit-label').should('have.text', expected.fitLabel);
+    cy.get('.evidence-badge').should('have.text', 'Fit confidence: moderate');
+    cy.get('.evidence-description').should('have.text', expected.evidence);
+    cy.get('[data-result-select]').should(
+      'have.attr',
+      'aria-pressed',
+      String(selected === expected.id64),
+    );
+  });
+  cy.get('.ranking-summary').should(
+    'contain.text',
+    `Showing 1 of ${total} (results ${offset + 1}–${offset + 1})`,
+  );
+  assertSpatialResultsReady();
+  cy.get('.spatial-canvas').should(
+    'have.attr',
+    'data-system-target-count',
+    selected && selected !== expected.id64 ? '2' : '1',
+  );
+};
+
+const assertAnyPage = (selected: string | null) => {
+  cy.wait('@search').then(({ request, response }) => {
+    expect(request.body).to.deep.equal({
+      galaxy_wide: true,
+      sort_by: 'development',
+      size: 1,
+      from: 0,
+    });
+    expect(request.body).not.to.have.property('min_development_score');
+    expect(response?.statusCode).to.equal(200);
+    expect(response?.body).to.include({ total: 3, count: 1 });
+    expect(response?.body.results[0].name).to.equal('V3 Lossless Reach');
+  });
+  assertFinderUrl('any', 0, selected);
+  cy.contains('label', 'Minimum tier').should('not.exist');
+  cy.get('.results-panel').should('have.attr', 'aria-busy', 'false');
+  cy.get('[data-system-result]').should('have.length', 1);
+  cy.get('[data-system-result="9007199254740993"]').within(() => {
+    cy.get('.selected-fit, .fit-label').should('not.exist');
+    cy.get('.evidence-badge').should(
+      'have.text',
+      'Evidence confidence: moderate',
+    );
+    cy.get('.evidence-description').should(
+      'have.text',
+      'Evidence confidence 82%; evidence 65% complete',
+    );
+    cy.get('[data-result-select]').should(
+      'have.attr',
+      'aria-pressed',
+      String(selected === '9007199254740993'),
+    );
+  });
+  cy.get('.ranking-summary').should(
+    'contain.text',
+    'Showing 1 of 3 (results 1–1)',
+  );
+  assertSpatialResultsReady();
+  cy.get('.spatial-canvas').should(
+    'have.attr',
+    'data-system-target-count',
+    '1',
+  );
+};
+
+const assertRetainedSelection = () => {
+  const selected = FLEXIBLE_B_FIXTURE_ROWS[0];
+  cy.get('[data-testid="selected-system-context"]').should(
+    'contain.text',
+    selected.id64,
+  );
+  cy.get(`[data-selected-system-card="${selected.id64}"]`)
+    .should('have.length', 1)
+    .and('contain.text', selected.name);
+  cy.get(`[data-map-label-key="system:${selected.id64}"]`, { timeout: 20_000 })
+    .should('have.length', 1)
+    .and('be.visible')
+    .and('have.attr', 'data-map-label-selected', 'true')
+    .and('contain.text', selected.name);
+};
+
+const captureFinder = (state: 'any' | 'flexible') => {
+  cy.get('[data-region-resource-state="ready"]', { timeout: 20_000 }).should(
+    'contain.text',
+    '42/42 regions',
+  );
+  cy.get('[data-nebula-resource-state="ready"]', { timeout: 20_000 }).should(
+    'contain.text',
+    '5,842 EDAstro nebula landmarks',
+  );
+  cy.document().then((document) => {
+    const style = document.createElement('style');
+    style.textContent =
+      '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}';
+    document.head.append(style);
+  });
+  for (const [width, height] of [
+    [1280, 800],
+    [390, 844],
+  ]) {
+    cy.viewport(width, height);
+    cy.get('.results-panel').scrollIntoView();
+    cy.get('.spatial-canvas', { timeout: 20_000 }).should(
+      'have.attr',
+      'data-camera-transition-active',
+      'false',
+    );
+    cy.screenshot(
+      `product/finder-${state}-${Cypress.browser.name}-${width}x${height}`,
+      {
+        capture: 'viewport',
+        overwrite: true,
+        disableTimersAndAnimations: true,
+      },
+    );
+  }
+  cy.viewport(1280, 800);
+};
+
 describe('V3 Explore to Inspect product checkpoint', () => {
+  it('ranks the pinned Flexible B corpus, retains URL selection and restores Finder history', () => {
+    const selectedId = FLEXIBLE_B_FIXTURE_ROWS[0].id64;
+    let copiedExploreUrl = '';
+    let copiedExploreQuery = '';
+    cy.viewport(1280, 800);
+    // Observe real API traffic only: the Product lane never supplies a response.
+    cy.intercept('GET', '/api/archetypes/rankings*').as('rankings');
+    visitExplore('/explore?page_size=1');
+
+    // Section 7 steps 1–3: Any is floor-free; keyboard selection commits the
+    // default B floor and the bounded one-row ranking request.
+    assertAnyPage(null);
+    captureFinder('any');
+    cy.get('input[type="radio"][value="flexible"]')
+      .focus()
+      .should('be.focused');
+    cy.press(Cypress.Keyboard.Keys.SPACE);
+    cy.get('input[type="radio"][value="flexible"]').should('be.checked');
+    assertRankingsRequest(0);
+    assertFinderUrl('flexible', 0, null);
+    cy.location('search').should('eq', '?archetype=flexible&page_size=1');
+    assertFlexiblePage(0);
+
+    // Steps 4–5: the current page owns the results, while selected= owns the
+    // retained point independently. All three pages come from PostgreSQL.
+    cy.get(`[data-system-result="${selectedId}"] [data-result-select]`).click();
+    assertFinderUrl('flexible', 0, selectedId);
+    assertRetainedSelection();
+    cy.get('[data-testid="system-detail-modal"]').should('not.exist');
+    for (const offset of [1, 2]) {
+      cy.contains('[aria-label="Result pages"] button', 'Next').click();
+      assertRankingsRequest(offset);
+      assertFinderUrl('flexible', offset, selectedId);
+      assertFlexiblePage(offset, 3, selectedId);
+      cy.get(`[data-system-result="${selectedId}"]`).should('not.exist');
+      assertRetainedSelection();
+      cy.get('[data-testid="system-detail-modal"]').should('not.exist');
+    }
+    cy.contains('[aria-label="Result pages"] button', 'Next').should(
+      'be.disabled',
+    );
+    cy.location().then(({ pathname, search }) => {
+      copiedExploreUrl = `${pathname}${search}`;
+      copiedExploreQuery = search.slice(1);
+      const inspect = `/inspect?${new URLSearchParams({
+        system: selectedId,
+        from: copiedExploreQuery,
+      })}`;
+      cy.get('[data-testid="selected-system-context"] a')
+        .first()
+        .should('have.attr', 'href', inspect);
+      cy.get(`[data-selected-system-card="${selectedId}"] a`)
+        .first()
+        .should('have.attr', 'href', inspect);
+    });
+
+    // A full document load drops in-memory result/camera/query state as well
+    // as both persistence stores. With the selected row absent, the real
+    // system read must reconstruct its validated point exactly once.
+    cy.intercept('GET', `/api/system/${selectedId}`).as('selectedPoint');
+    cy.clearLocalStorage();
+    cy.window().then((window) => window.sessionStorage.clear());
+    cy.then(() => {
+      cy.visit(copiedExploreUrl, {
+        onBeforeLoad(window) {
+          window.localStorage.clear();
+          window.sessionStorage.clear();
+        },
+      });
+    });
+    assertRankingsRequest(2);
+    cy.wait('@selectedPoint').its('response.statusCode').should('eq', 200);
+    assertFinderUrl('flexible', 2, selectedId);
+    assertFlexiblePage(2, 3, selectedId);
+    cy.get(`[data-system-result="${selectedId}"]`).should('not.exist');
+    assertRetainedSelection();
+    cy.get('[data-testid="system-detail-modal"]').should('not.exist');
+    cy.then(() => {
+      const inspect = `/inspect?${new URLSearchParams({
+        system: selectedId,
+        from: copiedExploreQuery,
+      })}`;
+      cy.get('[data-testid="selected-system-context"] a')
+        .first()
+        .should('have.attr', 'href', inspect)
+        .click();
+    });
+    cy.location('pathname').should('eq', '/inspect');
+    cy.location('search').should((search) => {
+      const params = new URLSearchParams(search);
+      expect(params.get('system')).to.equal(selectedId);
+      expect(params.get('from')).to.equal(copiedExploreQuery);
+    });
+    cy.get(`[data-system-id64="${selectedId}"]`, { timeout: 20_000 }).should(
+      'contain.text',
+      'V3 Lossless Reach',
+    );
+    cy.contains('a', 'Open in Explore').click();
+    assertRankingsRequest(2);
+    assertFinderUrl('flexible', 2, selectedId, 'B', true);
+    assertFlexiblePage(2, 3, selectedId);
+    assertRetainedSelection();
+    cy.get('[data-testid="system-detail-modal"]').should('be.visible');
+    cy.get('[aria-label="Close system detail"]').click();
+    assertFinderUrl('flexible', 2, selectedId);
+    cy.get('[data-testid="system-detail-modal"]').should('not.exist');
+    assertRetainedSelection();
+    cy.injectAxe();
+    cy.checkA11y();
+
+    // Step 6: picker, a non-default tier, and pagination each create history.
+    // Back/Forward must refetch the request encoded by every restored URL;
+    // selection survives Any, reranking and pages that omit the selected row.
+    cy.get('input[type="radio"][value="any"]').check();
+    assertAnyPage(selectedId);
+    assertRetainedSelection();
+    cy.get('input[type="radio"][value="flexible"]').check();
+    assertRankingsRequest(0);
+    assertFinderUrl('flexible', 0, selectedId);
+    assertFlexiblePage(0, 3, selectedId);
+    cy.get('.minimum-tier select').select('A');
+    assertRankingsRequest(0, 'A');
+    assertFinderUrl('flexible', 0, selectedId, 'A');
+    assertFlexiblePage(0, 2, selectedId);
+    cy.contains('[aria-label="Result pages"] button', 'Next').click();
+    assertRankingsRequest(1, 'A');
+    assertFinderUrl('flexible', 1, selectedId, 'A');
+    assertFlexiblePage(1, 2, selectedId);
+    assertRetainedSelection();
+
+    const restoredStates = [
+      {
+        direction: 'back',
+        archetype: 'flexible',
+        offset: 0,
+        tier: 'A',
+        total: 2,
+      },
+      {
+        direction: 'back',
+        archetype: 'flexible',
+        offset: 0,
+        tier: 'B',
+        total: 3,
+      },
+      { direction: 'back', archetype: 'any', offset: 0, tier: 'B', total: 3 },
+      {
+        direction: 'back',
+        archetype: 'flexible',
+        offset: 2,
+        tier: 'B',
+        total: 3,
+      },
+      {
+        direction: 'forward',
+        archetype: 'any',
+        offset: 0,
+        tier: 'B',
+        total: 3,
+      },
+      {
+        direction: 'forward',
+        archetype: 'flexible',
+        offset: 0,
+        tier: 'B',
+        total: 3,
+      },
+      {
+        direction: 'forward',
+        archetype: 'flexible',
+        offset: 0,
+        tier: 'A',
+        total: 2,
+      },
+      {
+        direction: 'forward',
+        archetype: 'flexible',
+        offset: 1,
+        tier: 'A',
+        total: 2,
+      },
+    ] as const;
+    for (const state of restoredStates) {
+      cy.go(state.direction);
+      if (state.archetype === 'any') assertAnyPage(selectedId);
+      else {
+        assertRankingsRequest(state.offset, state.tier);
+        assertFinderUrl(state.archetype, state.offset, selectedId, state.tier);
+        assertFlexiblePage(state.offset, state.total, selectedId);
+      }
+      assertRetainedSelection();
+      cy.get('[data-testid="system-detail-modal"]').should('not.exist');
+    }
+
+    // Step 7: desktop/phone evidence for the selected card and retained point.
+    cy.injectAxe();
+    cy.checkA11y();
+    captureFinder('flexible');
+  });
+
   it('discovers, selects, spatially picks, inspects, resizes and remounts real systems', () => {
     let initialCanvas!: HTMLCanvasElement;
+    let originatingExploreQuery = '';
     cy.viewport(1280, 800);
     visitExplore();
     cy.wait('@search').its('response.statusCode').should('eq', 200);
@@ -198,12 +662,16 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       overwrite: true,
     });
 
+    cy.location('search').then((search) => {
+      originatingExploreQuery = search.slice(1);
+    });
     cy.get('[data-system-result="10477373803000"] .inspect-link').click();
     cy.location('pathname', { timeout: 30_000 }).should('eq', '/inspect');
-    cy.location('search', { timeout: 30_000 }).should(
-      'eq',
-      '?system=10477373803000',
-    );
+    cy.location('search', { timeout: 30_000 }).should((search) => {
+      const params = new URLSearchParams(search);
+      expect(params.get('system')).to.equal('10477373803000');
+      expect(params.get('from')).to.equal(originatingExploreQuery);
+    });
     cy.get('[data-system-id64="10477373803000"]', { timeout: 20_000 })
       .should('contain.text', 'Achenar')
       .and('contain.text', '10477373803000');
@@ -312,6 +780,7 @@ describe('V3 Explore to Inspect product checkpoint', () => {
 
   it('preserves an unsafe-sized id64 through API, selection, route, detail and reload', () => {
     const unsafeId = '9007199254740993';
+    let originatingExploreQuery = '';
     visitExplore();
     cy.wait('@search').its('response.statusCode').should('eq', 200);
     keyboardChooseAnchor('V3 Lossless');
@@ -320,14 +789,18 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       'contain.text',
       unsafeId,
     );
+    cy.location('search').then((search) => {
+      originatingExploreQuery = search.slice(1);
+    });
     cy.get(`[data-system-result="${unsafeId}"] .inspect-link`).click();
     cy.get(`[data-system-id64="${unsafeId}"]`, { timeout: 20_000 })
       .should('contain.text', 'V3 Lossless Reach')
       .and('contain.text', unsafeId);
-    cy.location('search', { timeout: 10_000 }).should(
-      'eq',
-      `?system=${unsafeId}`,
-    );
+    cy.location('search', { timeout: 10_000 }).should((search) => {
+      const params = new URLSearchParams(search);
+      expect(params.get('system')).to.equal(unsafeId);
+      expect(params.get('from')).to.equal(originatingExploreQuery);
+    });
     cy.reload();
     cy.get(`[data-system-id64="${unsafeId}"]`, { timeout: 10_000 })
       .should('contain.text', 'V3 Lossless Reach')
