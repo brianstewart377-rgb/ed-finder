@@ -319,17 +319,22 @@ async def test_export_replay_limited_batch_matches_receipt(client, pool, researc
     The raw-row limit must be persisted in the receipt manifest
     (manifest.limit) at export time and read back by the GET rebuild, so a
     truncated export's rebuilt SHA matches its receipt. Fixture: 9 events,
-    6 exportable; LIMIT 5 raw rows (SQL order: 3 FSDJump travel-excluded
-    first, then FSSBodySignals + FSSDiscoveryScan) -> 2 sanitized
-    observations — the truncation lands inside the excluded-event prefix,
-    proving the limit applies to raw rows BEFORE sanitization.
+    6 exportable; LIMIT 5 raw rows ordered by event_timestamp DESC, event_key,
+    source_record_hash selects SellOrganicData (12:00), FSDJump (11:00),
+    Scan (10:06), FSDJump (10:05), and FSSDiscoveryScan (10:03:30).
+    The two travel-excluded FSDJump rows leave 3 sanitized observations,
+    proving the limit applies to raw rows BEFORE sanitization. Limiting
+    after sanitization would return 5 observations; ignoring the limit on
+    replay would return all 6 and change the payload hash.
     """
     _, token = await _create_account(pool, f"replay-lim-{uuid.uuid4().hex[:8]}")
     assert (await _import(client, token)).status_code == 200
     assert (await _put_consent(client, token, "GRANT")).status_code == 200
 
-    receipt = (await _export(client, token, limit=5)).json()
-    assert receipt["observation_count"] == 2
+    resp = await _export(client, token, limit=5)
+    assert resp.status_code == 200, resp.text
+    receipt = resp.json()
+    assert receipt["observation_count"] == 3
 
     resp = await client.get(
         f"/api/v1/journal/research-exports/{receipt['export_batch_id']}",
@@ -338,6 +343,15 @@ async def test_export_replay_limited_batch_matches_receipt(client, pool, researc
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["receipt"]["payload_sha256"] == receipt["payload_sha256"]
+    # The selected rows are serialized in canonical observation order.
+    assert [
+        (observation["observation_type"], observation["source_event_sha256"])
+        for observation in body["payload"]["observations"]
+    ] == [
+        ("FSSDiscoveryScan", "05" * 32),
+        ("Scan", "07" * 32),
+        ("SellOrganicData", "09" * 32),
+    ]
     rebuilt = json.dumps(body["payload"], sort_keys=True, separators=(",", ":")).encode()
     assert hashlib.sha256(rebuilt).hexdigest() == receipt["payload_sha256"]
 

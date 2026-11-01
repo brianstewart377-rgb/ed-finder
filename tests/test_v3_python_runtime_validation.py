@@ -72,6 +72,7 @@ def _assert_v3_job(filename: str, job_name: str) -> None:
 def test_all_v3_application_validation_jobs_fail_closed_on_cpython314_and_frozen_uv():
     for filename, job_name in (
         ("ci.yml", "backend"),
+        ("ci.yml", "journal-flows"),
         ("ci.yml", "integration"),
         ("ci.yml", "openapi-types"),
         ("coverage.yml", "backend-coverage"),
