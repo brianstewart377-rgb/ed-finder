@@ -97,8 +97,10 @@ PIN = (
 )
 
 
-def test_picked_page_has_all_four_bounded_stages_and_three_orders():
-    sql, params = _picked_page(limit=50, offset=75)
+@pytest.mark.parametrize("key", ARCHETYPE_KEYS)
+@pytest.mark.parametrize("floor", (60, 76, 88))
+def test_picked_page_adds_rival_scores_only_to_the_unchanged_final_fetch(key, floor):
+    sql, params = _picked_page(key=key, floor=floor, limit=50, offset=75)
     window, remainder = sql.split("), ranked_page_keys AS (\n", 1)
     keys, remainder = remainder.split("), ranked_page AS (\n", 1)
     details, fetch = remainder.split(")\nSELECT page.*,\n", 1)
@@ -109,9 +111,19 @@ def test_picked_page_has_all_four_bounded_stages_and_three_orders():
     assert f"WHERE ar.derived_generation_id = {PIN}" in window
     assert f"WHERE member.derived_generation_id = {PIN}" in keys
     assert f"WHERE s.derived_generation_id = {PIN}" in details
+    assert window == (
+        "WITH archetype_window AS (\n"
+        f"    SELECT ar.system_id64, ar.{key}_weighted_e4 "
+        "AS selected_archetype_weighted_e4\n"
+        "    FROM v3_app.system_archetype ar\n"
+        f"    WHERE ar.derived_generation_id = {PIN}\n"
+        f"      AND ar.{key}_score >= {floor}\n"
+        f"    ORDER BY ar.{key}_weighted_e4 DESC, ar.system_id64 ASC\n"
+        "    LIMIT 10000\n"
+    )
     assert "LIMIT 10000" in window
     assert sql.count("ORDER BY") == 3
-    assert "ORDER BY ar.paradise_weighted_e4 DESC" in window
+    assert f"ORDER BY ar.{key}_weighted_e4 DESC" in window
     assert sql.count("selected_archetype_weighted_e4 DESC") == 1
     assert sql.count("JOIN v3_app.system_search") == 2
     # Search membership is checked before paging, but only window keys are
@@ -125,7 +137,11 @@ def test_picked_page_has_all_four_bounded_stages_and_three_orders():
         "JOIN v3_app.system_search member "
         "ON member.system_id64 = aw.system_id64" in keys
     )
-    assert keys.endswith(
+    assert keys == (
+        "    SELECT aw.system_id64, aw.selected_archetype_weighted_e4\n"
+        "    FROM archetype_window aw\n"
+        "    JOIN v3_app.system_search member ON member.system_id64 = aw.system_id64\n"
+        f"    WHERE member.derived_generation_id = {PIN}\n"
         "    ORDER BY selected_archetype_weighted_e4 DESC, system_id64 ASC\n"
         "    LIMIT $1 OFFSET $2\n"
     )
@@ -143,13 +159,21 @@ def test_picked_page_has_all_four_bounded_stages_and_three_orders():
     # The final fetch reads the physical row of the page's own generation
     # (every page row already passed both fenced views) under the alias the
     # plan probe requires, and sorts the page rows by the fetched key. Its
-    # projection, join and order are unchanged from the original page query.
+    # existing projection, join and order remain byte-for-byte unchanged.
+    # The eight new, non-clashing aliases appear only in this final SELECT;
+    # page.* already carries the search projection's own score columns.
+    select_list, _ = fetch.split("FROM ranked_page page\n", 1)
+    for score_key in ARCHETYPE_KEYS:
+        expression = f"       picked.{score_key}_score AS picked_{score_key}_score,\n"
+        assert sql.count(expression) == 1
+        assert select_list.count(expression) == 1
+        fetch = fetch.replace(expression, "")
     assert fetch == (
-        "       picked.paradise_score AS primary_score,\n"
-        "       picked.paradise_tier AS selected_archetype_tier,\n"
-        "       (picked.paradise_confidence_ppm / 1000000.0)::double precision "
+        f"       picked.{key}_score AS primary_score,\n"
+        f"       picked.{key}_tier AS selected_archetype_tier,\n"
+        f"       (picked.{key}_confidence_ppm / 1000000.0)::double precision "
         "AS ranking_confidence,\n"
-        "       ((picked.paradise_confidence_ppm / 1000000.0)::double precision "
+        f"       ((picked.{key}_confidence_ppm / 1000000.0)::double precision "
         "* page.completeness) AS uncertainty_factor,\n"
         "       picked.primary_archetype AS summary_primary_archetype,\n"
         "       picked.secondary_archetype AS summary_secondary_archetype,\n"
@@ -161,19 +185,20 @@ def test_picked_page_has_all_four_bounded_stages_and_three_orders():
         "JOIN v3_derived.system_archetype picked\n"
         "  ON picked.derived_generation_id = page.derived_generation_id\n"
         " AND picked.system_id64 = page.system_id64\n"
-        "ORDER BY picked.paradise_weighted_e4 DESC, page.system_id64 ASC"
+        f"ORDER BY picked.{key}_weighted_e4 DESC, page.system_id64 ASC"
     )
-    assert sql.endswith("ORDER BY picked.paradise_weighted_e4 DESC, page.system_id64 ASC")
+    assert sql.endswith(f"ORDER BY picked.{key}_weighted_e4 DESC, page.system_id64 ASC")
     assert params == [50, 75]
     _assert_no_legacy(sql)
 
 
-def test_picked_page_sql_preserves_the_pinned_ranking_identity():
+def test_picked_page_rival_display_fields_preserve_the_pinned_ranking_identity():
     # These are the deployed pins in test_ranking_profile_identity.py. The
-    # page staging changes access cost, with no change to hashed semantics.
+    # rival display fields do not change the hashed ranking semantics.
     for key in ARCHETYPE_KEYS:
         for floor in (60, 76, 88):
-            _picked_page(key=key, floor=floor, limit=50, offset=9950)
+            sql, _ = _picked_page(key=key, floor=floor, limit=50, offset=9950)
+            assert f"picked.{key}_score AS picked_{key}_score" in sql
     assert RANKING_VERSION == "v3-colony-potential-2"
     assert ranking_sha256() == (
         "ec3533063f422f5859a26baf422974f9d330466f2ad675505fac2743bbca89e4"

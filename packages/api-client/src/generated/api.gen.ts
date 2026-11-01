@@ -2618,6 +2618,16 @@ export interface components {
             tier: "S" | "A" | "B" | "C" | "D";
             /** Selected Archetype */
             selected_archetype?: string | null;
+            /**
+             * Rival Archetype
+             * @description Highest-scoring archetype other than the selected archetype and Flexible; ties use ARCHETYPE_KEYS order.
+             */
+            rival_archetype?: string | null;
+            /**
+             * Rival Score
+             * @description Rival archetype integer score (0–100) from the same stored system row.
+             */
+            rival_score?: number | null;
             /** Primary Archetype */
             primary_archetype?: string | null;
             /** Secondary Archetype */
