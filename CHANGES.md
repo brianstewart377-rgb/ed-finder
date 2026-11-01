@@ -11,6 +11,19 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — CI runs the V3 journal flow tests; the stale export-limit test is fixed
+
+`tests/integration/test_v3_journal_research_flow.py` and
+`test_v3_journal_import_flow.py` never ran in CI: the integration job's
+database has only the V2 schema, so both modules skipped. One test had been
+failing unnoticed: `test_export_replay_limited_batch_matches_receipt` still
+expected the old oldest-first export order. The export reads the newest rows
+first, so a 5-row limit now gives 3 observations. The test now names them and
+still proves that the limit applies before sanitization and that the replay
+matches the receipt. A new CI job, "V3 journal flows (PG18+Redis)", applies
+V3 migrations 001, 002, 005, 008 and 009 to an empty PostgreSQL 18 database,
+runs both modules, and fails on any skip. Workflow contract tests pin the job.
+
 ## 2026-11-01 — Journal research export paused (owner decision D4)
 
 `RESEARCH_EXPORT_PAUSED` in `apps/api/src/routers/v3_journal_research.py`
