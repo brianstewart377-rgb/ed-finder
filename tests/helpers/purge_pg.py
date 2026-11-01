@@ -3,7 +3,7 @@
 Observers use the validation service's base database, never the database under
 test: an administrator there cannot itself trip the purge's fail-closed guard.
 """
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import os
 from time import monotonic, sleep
 
@@ -16,7 +16,13 @@ from tests.ratings_v4_pg_fixture import canonical_database as _canonical_databas
 
 
 ACTIVITY_SQL = """
-    SELECT pid, backend_type, state, backend_xid::text, xact_start, left(query,200) AS query
+    SELECT pid, usename, backend_start, backend_type, state, backend_xid::text,
+           xact_start, state_change, wait_event_type, wait_event,
+           CASE WHEN backend_type='autovacuum worker' THEN left(query,200)
+                WHEN query='<insufficient privilege>' THEN query
+                WHEN query IN ('SELECT pg_current_xact_id()',
+                    'SELECT pg_current_xact_id() /* intentionally opaque administrator writer */') THEN query
+                ELSE '<client query omitted>' END AS query
     FROM pg_stat_activity
 """
 COMPETING_WRITERS_SQL = ACTIVITY_SQL + """
@@ -24,6 +30,13 @@ COMPETING_WRITERS_SQL = ACTIVITY_SQL + """
       AND (backend_xid IS NOT NULL OR (backend_type='client backend' AND state IS NULL))
     ORDER BY pid
 """
+DATABASE_ACTIVITY_SQL = ACTIVITY_SQL + ' WHERE datname=%s AND pid<>%s ORDER BY pid'
+AUTOMATIC_MAINTENANCE_SQL = ACTIVITY_SQL + """
+    WHERE datname=%s AND backend_type='autovacuum worker' ORDER BY pid
+"""
+POST_REFUSAL_SAMPLES = 20
+POST_REFUSAL_INTERVAL = 0.01
+POST_REFUSAL_SECONDS = 0.2
 _guard_owners = {}
 
 
@@ -53,49 +66,105 @@ def _observer():
                            options='-c statement_timeout=10000')
 
 
+def _activity(cursor, statement, parameters):
+    cursor.execute('SELECT pg_stat_clear_snapshot()')
+    cursor.execute(statement, parameters)
+    return cursor.fetchall()
+
+
 @contextmanager
-def diagnose_competing_writers(connection, *, backend_pid=None, any_error=False):
+def diagnose_competing_writers(connection, *, backend_pid=None, any_error=False, capture_before=True):
     """Annotate at the failing call, before rollback/cleanup; never retry it.
 
     any_error also covers the real psql adapter, which hides the server message.
-    A separate observer works even while the tested transaction is aborted.
+    Keep the administrator observer open across the call: reconnecting after
+    refusal loses short-lived workers. Capture all other database backends,
+    including workers without an XID yet. Only two fixed, credential-free test
+    probes retain client SQL; other SQL can contain passwords/DSNs and is omitted.
+    Automatic maintenance names its table.
+    Snapshot failures never prevent the original call or replace its exception.
     """
+    stack = ExitStack()
+    cursor = None
+    before = None
+    before_error = None
+    database = connection.info.dbname
+    parameters = (database, backend_pid or connection.info.backend_pid)
+
+    def open_cursor():
+        observer = stack.enter_context(_observer())
+        opened = stack.enter_context(observer.cursor(row_factory=dict_row))
+        opened.execute('SET statement_timeout=200')
+        return opened
+
+    if capture_before:
+        try:
+            cursor = open_cursor()
+            before = _activity(cursor, DATABASE_ACTIVITY_SQL, parameters)
+        except Exception as diagnostic_error:
+            before_error = type(diagnostic_error).__name__
+    failure = None
     try:
         yield
     except Exception as error:
+        failure = error
         if any_error or (isinstance(error, psycopg.errors.RaiseException)
                          and 'competing writing transaction' in str(error)):
+            if before_error:
+                error.add_note(f'purge activity diagnostic unavailable before guarded call: {before_error}')
+            elif capture_before:
+                error.add_note(f'administrator pg_stat_activity just before guarded call: {before!r}')
             try:
-                database = connection.info.dbname
-                owner = _guard_owners.get(database, connection.info.user)
-                with _observer() as observer, observer.cursor(row_factory=dict_row) as cursor:
-                    cursor.execute(sql.SQL('SET ROLE {}').format(sql.Identifier(owner)))
-                    cursor.execute(COMPETING_WRITERS_SQL,
-                                   (database, backend_pid or connection.info.backend_pid))
-                    rows = cursor.fetchall()
-                    error.add_note(f'pg_stat_activity matching purge guard immediately after refusal: {rows!r}')
-                    cursor.execute('RESET ROLE')
-                    if rows:
-                        # Other logins can match via their visible backend_xid
-                        # while PG18 masks state, backend_type and query. Retain
-                        # the guard snapshot and also reveal their actual queries.
-                        cursor.execute(ACTIVITY_SQL + ' WHERE datname=%s AND pid=ANY(%s) ORDER BY pid',
-                                       (database, [row['pid'] for row in rows]))
-                        details = cursor.fetchall()
-                    else:
-                        details = []
-                if details != rows:
-                    error.add_note(f'administrator-visible details for matching backends: {details!r}')
+                cursor = cursor if cursor is not None else open_cursor()
+                deadline = monotonic() + POST_REFUSAL_SECONDS
+                # Sample as administrator first, without a new connection or
+                # SET ROLE round trip delaying the first post-refusal snapshot.
+                for sample in range(POST_REFUSAL_SAMPLES):
+                    if sample and monotonic() >= deadline:
+                        break
+                    rows = _activity(cursor, DATABASE_ACTIVITY_SQL, parameters)
+                    error.add_note(f'administrator pg_stat_activity after refusal sample {sample + 1}: {rows!r}')
+                    if sample == 0:
+                        owner = _guard_owners.get(database, connection.info.user)
+                        cursor.execute(sql.SQL('SET ROLE {}').format(sql.Identifier(owner)))
+                        try:
+                            matching = _activity(cursor, COMPETING_WRITERS_SQL, parameters)
+                            error.add_note('pg_stat_activity matching purge guard immediately after refusal: '
+                                           f'{matching!r}')
+                        finally:
+                            cursor.execute('RESET ROLE')
+                    remaining = deadline - monotonic()
+                    if sample + 1 == POST_REFUSAL_SAMPLES or remaining <= 0:
+                        break
+                    sleep(min(POST_REFUSAL_INTERVAL, remaining))
             except Exception as diagnostic_error:
-                # Keep the original refusal, and never print a credential-bearing DSN.
+                # Never include exception messages: connection failures can
+                # contain credential-bearing DSNs. Keep earlier snapshots.
                 error.add_note(f'purge activity diagnostic unavailable: {type(diagnostic_error).__name__}')
         raise
+    finally:
+        try:
+            stack.close()
+        except Exception as diagnostic_error:
+            if failure is not None:
+                failure.add_note(f'purge observer cleanup unavailable: {type(diagnostic_error).__name__}')
+
+
+def _is_purge_call(query, connection):
+    if isinstance(query, sql.Composable):
+        query = query.as_string(connection)
+    if isinstance(query, bytes):
+        query = query.decode('utf-8', errors='replace')
+    # Also include complete_derived_payload_relation, whose name lacks purge.
+    # Conservative matching covers multi-statement operator SQL and migrations
+    # while leaving routine seed reads/writes free of extra observer connections.
+    return isinstance(query, str) and ('purge' in query.lower() or 'derived_payload' in query.lower())
 
 
 class _DiagnosticCursor:
-    def execute(self, *args, **kwargs):
-        with diagnose_competing_writers(self.connection):
-            return super().execute(*args, **kwargs)
+    def execute(self, query, *args, **kwargs):
+        with diagnose_competing_writers(self.connection, capture_before=_is_purge_call(query, self.connection)):
+            return super().execute(query, *args, **kwargs)
 
 
 class Cursor(_DiagnosticCursor, psycopg.Cursor):
@@ -104,6 +173,27 @@ class Cursor(_DiagnosticCursor, psycopg.Cursor):
 
 class ClientCursor(_DiagnosticCursor, psycopg.ClientCursor):
     pass
+
+
+def wait_for_automatic_maintenance(connection, timeout=10):
+    """Drain only this database's named automatic workers, as administrator.
+
+    Shared catalogs cannot be disabled by a database-local fixture, and their
+    workers can start during seeding even after local reloptions are set. Client
+    writers (including the deliberate VACUUM/ANALYZE workers) must remain visible
+    to the purge assertions. This never calls or retries a purge function.
+    """
+    assert connection.info.dbname.startswith('v4_test_')
+    deadline = monotonic() + timeout
+    try:
+        with _observer() as observer, observer.cursor(row_factory=dict_row) as cursor:
+            while rows := _activity(cursor, AUTOMATIC_MAINTENANCE_SQL, (connection.info.dbname,)):
+                if monotonic() >= deadline:
+                    pytest.fail(f'disposable purge fixture still has automatic maintenance after {timeout} seconds: '
+                                f'{rows!r}')
+                sleep(0.05)
+    except Exception as error:
+        raise AssertionError(f'purge fixture maintenance observation unavailable: {type(error).__name__}') from None
 
 
 def wait_for_backend_exit(connection, pid, timeout=10):
