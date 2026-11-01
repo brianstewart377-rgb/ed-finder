@@ -87,6 +87,7 @@ def test_desired_entries_are_the_committed_lineage_with_verified_hashes():
         "020_v3_purge_swap_lock_order.sql",
         "021_v3_purge_long_phase_bounds.sql",
         "022_v3_purge_keyset_start.sql",
+        "023_v3_system_search_name_prefix_index.sql",
     ]
     for entry in entries:
         source = (ROOT / entry["path"]).read_bytes()
@@ -99,29 +100,22 @@ def test_registered_transition_covers_the_installed_prefix_and_every_pending_ste
     deployer = _load_path(DEPLOYER, "registered_transition_deployer")
     authority = json.loads(AUTHORITY.read_text(encoding="utf-8"))
     desired = module.desired_entries(ROOT)
-    # The Finder transition (through-012 -> through-016) was applied on
-    # 2026-10-18 (apply run 39113822236), the copy-and-drop capability 019 on
-    # 2026-10-26 (apply run 40338736148), its swap lock order 020 on 2026-10-27
-    # (apply run 40551173291) and its long-phase bounds 021 on 2026-10-28 (apply
-    # run 40654201809). The registered transition is now the copy keyset start:
-    # installed through-021, pending [022].
+    # 022 was applied on 2026-10-31 (apply run 41180459540). The new
+    # additive name-index transition starts at that installed prefix: [023].
     installed_count = next(
         index + 1 for index, entry in enumerate(desired)
-        if entry["ledger_name"] == "021_v3_purge_long_phase_bounds.sql"
+        if entry["ledger_name"] == "022_v3_purge_keyset_start.sql"
     )
-    assert [entry["ledger_name"][:3] for entry in desired[installed_count:]] == ["022"]
+    assert [entry["ledger_name"][:3] for entry in desired[installed_count:]] == ["023"]
     reachable = module.prefix_identities(identity, desired)[installed_count - 1:]
     transition = authority["schema_transition"]
     assert transition["from_migration_set_identity"] == reachable[0]
     assert transition["to_migration_set_identity"] == reachable[-1]
-    # 022 was applied on 2026-10-31 (apply run 41180459540). The accepted
-    # release is now the seventh F2d release (293bc72b, 2026-11-01), attested
-    # only for the installed through-022 target, so replaying the completed
-    # transition fails closed until a new reviewed transition is committed.
+    # The accepted application and rollback images retain their existing
+    # schema contract: 023 adds an index without changing any relation shape.
     compatible = authority["accepted_release_schema_compatibility"]["compatible_migration_sets"]
     assert len(reachable) == 2
-    assert reachable[-1] in compatible
-    assert not set(reachable[:-1]) & set(compatible)
+    assert set(reachable) <= set(compatible)
     assert deployer.validate_authority(authority) == []
 
 
@@ -153,6 +147,7 @@ def test_plan_reports_pending_only_when_the_live_ledger_is_an_exact_prefix():
         "020_v3_purge_swap_lock_order.sql",
         "021_v3_purge_long_phase_bounds.sql",
         "022_v3_purge_keyset_start.sql",
+        "023_v3_system_search_name_prefix_index.sql",
     ]
 
     # Nothing pending is a legitimate state, not an error.
@@ -247,6 +242,48 @@ def test_ledger_row_and_migration_commit_atomically():
     assert module.POSTGRES_SOCKET in calls[0]["argv"]
     assert combined.index("INSERT INTO v3_meta.schema_migration") < combined.rindex("COMMIT;")
     assert entry["ledger_name"] in combined and entry["sha256"] in combined
+    assert "timeout_seconds" not in calls[0]
+
+
+def test_only_023_gets_the_reviewed_long_command_envelope():
+    module = _load()
+    calls = []
+    entries = module.desired_entries(ROOT)
+
+    def runner(argv, **kwargs):
+        calls.append({"argv": argv, **kwargs})
+        return SimpleNamespace(stdout="", returncode=0)
+
+    for entry in entries[-2:]:
+        module.apply_migration(_fake_deployer(module), entry, {}, runner, ROOT)
+    assert module.LONG_MIGRATION_TIMEOUTS == {
+        "023_v3_system_search_name_prefix_index.sql": 245 * 60,
+    }
+    assert "timeout_seconds" not in calls[0]
+    assert calls[1]["timeout_seconds"] == 245 * 60
+    combined = calls[1]["input_text"]
+    assert "SET LOCAL statement_timeout = '4h';" in combined
+    assert combined.index("CREATE INDEX") < combined.index("INSERT INTO v3_meta.schema_migration")
+    assert combined.rstrip().endswith("COMMIT;")
+    workflow = WORKFLOW.read_text()
+    assert "timeout-minutes: ${{ inputs.operation == 'apply' && 270 || 30 }}" in workflow
+
+
+@pytest.mark.parametrize("timeout_seconds, expected", [(None, 120), (245 * 60, 245 * 60)])
+def test_command_runner_honours_override_and_retains_default(monkeypatch, timeout_seconds, expected):
+    deployer = _load_path(DEPLOYER, "migration_timeout_deployer")
+    waits = []
+
+    class Child:
+        returncode = 0
+
+        def communicate(self, *, input, timeout):
+            waits.append(timeout)
+            return "", ""
+
+    monkeypatch.setattr(deployer.subprocess, "Popen", lambda *_args, **_kwargs: Child())
+    deployer.run_command(["test-child"], timeout_seconds=timeout_seconds)
+    assert waits == [expected]
 
 
 def test_ledger_row_splices_before_the_actual_terminal_commit():
@@ -358,7 +395,7 @@ def test_transition_binds_live_prefix_target_identity_and_every_rollback_prefix(
         )
 
 
-@pytest.mark.parametrize("omitted_migration", ["021", "022"])
+@pytest.mark.parametrize("omitted_migration", ["022", "023"])
 def test_committed_transition_refuses_each_unattested_pending_prefix(tmp_path, omitted_migration):
     module = _load()
     deployer = _load_path(DEPLOYER, "committed_prefix_deployer")
@@ -371,7 +408,7 @@ def test_committed_transition_refuses_each_unattested_pending_prefix(tmp_path, o
                  if entry["ledger_name"].startswith(omitted_migration + "_"))
     omitted_identity = identity.migration_set_identity(desired[:count])
     installed_count = next(index + 1 for index, entry in enumerate(desired)
-                           if entry["ledger_name"] == "021_v3_purge_long_phase_bounds.sql")
+                           if entry["ledger_name"] == "022_v3_purge_keyset_start.sql")
     # Reconstruct the fully attested pre-apply set, then drop exactly one
     # pending prefix so the refusal names that omission alone.
     reachable = module.prefix_identities(identity, desired)[installed_count - 1:]
