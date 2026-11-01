@@ -558,9 +558,33 @@
     staleTime: 60_000,
     placeholderData: (previousData) => previousData,
   }));
-  const densityContribution = $derived(
-    densityContributionFrom(heatmap.data, heatmap.dataUpdatedAt),
-  );
+  // Reserve its overlay position before the first response. A late patch must
+  // not append density after stars and make the next selection rebuild them.
+  const emptyDensityContribution: SpatialContribution = {
+    id: 'catalogue-density-base',
+    owner: 'CATALOGUE',
+    revision: 0,
+    layers: [],
+  };
+  let densityContribution = $state.raw<SpatialContribution | null>(null);
+  let densityRevision = 0;
+  let densityRemovalRevision = $state(0);
+  $effect(() => {
+    // A placeholder is the already-applied density, not a new empty revision.
+    if (heatmap.isPlaceholderData) return;
+    void heatmap.dataUpdatedAt;
+    // Cached viewport responses can have older timestamps. The renderer's
+    // patch revision must advance even when returning to one of those views.
+    const replacement = densityContributionFrom(
+      heatmap.data,
+      ++densityRevision,
+    );
+    if (!replacement && untrack(() => densityContribution) !== null) {
+      // A null contribution is not dispatched as a patch; reload to remove it.
+      densityRemovalRevision = untrack(() => densityRemovalRevision) + 1;
+    }
+    densityContribution = replacement;
+  });
   const densityCellCount = $derived(
     heatmap.data && heatmap.data.source === 'pyramid' ? heatmap.data.count : 0,
   );
@@ -751,7 +775,7 @@
         appliedCatalogueRevision +
         commanderVisits.dataUpdatedAt +
         nebulaResourceRevision +
-        (heatmap.dataUpdatedAt ?? 0),
+        densityRemovalRevision,
       {
         finderContribution,
         finderRevision,
@@ -761,7 +785,7 @@
         spatialContributions: collectGalaxySpatialContributions({
           regions: regionContribution,
           nebulae: nebulaContribution,
-          density: densityContribution,
+          density: densityContribution ?? emptyDensityContribution,
           catalogueStars: catalogueStarsContribution,
           commanderHistory: commanderHistoryContribution,
         }),
@@ -962,7 +986,11 @@
     camera?: CameraState | SystemCameraState | null,
   ): void {
     spatialCameraTransitionActive = active;
-    if (!active && camera && 'focusLy' in camera) {
+    // SET_CAMERA already knows its destination. Retain it when the flight
+    // starts so the viewport debounce cannot load the pre-flight close view
+    // and then switch back to the overview on settle. FLY_TO supplies its camera
+    // only on completion; its in-flight samples are still ignored.
+    if (camera && 'focusLy' in camera) {
       retainCamera(camera);
     }
   }
@@ -1587,6 +1615,8 @@
         {cameraRequestRevision}
         {focusTarget}
         {focusRevision}
+        contributionPatch={densityContribution}
+        contributionPatchRevision={densityContribution?.revision ?? 0}
         onRuntimeEvent={handleRuntimeEvent}
         onTransitionChange={handleCameraTransitionChange}
       />

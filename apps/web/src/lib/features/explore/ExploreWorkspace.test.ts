@@ -8,6 +8,8 @@ import {
 } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import axe from 'axe-core';
+import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
+import { tick } from 'svelte';
 import * as api from '$lib/api/client';
 import { queryClient, queryKeys } from '$lib/api/query';
 import { auth } from '$lib/auth/auth';
@@ -20,6 +22,9 @@ import type {
   GalaxySceneContract,
 } from '$lib/spatial/contracts';
 import type { ExploreAnchor } from './navigation';
+import * as galaxyRegions from '$lib/spatial/galaxy-regions';
+import * as galaxyNebulae from '$lib/spatial/galaxy-nebulae';
+import { createManagedSpatialRuntime } from '$lib/spatial/lifecycle';
 import ExploreWorkspaceTestHost from './ExploreWorkspaceTestHost.svelte';
 
 const { mockedPage, mockedGoto, featureGate } = vi.hoisted(() => ({
@@ -58,7 +63,7 @@ vi.mock('$lib/spatial/babylon/adapter', () => ({
   createBabylonSpatialRuntime: runtimeAdapter.create,
 }));
 
-const pyramidFixture: api.MapHeatmapResponse = {
+const pyramidFixture: api.MapHeatmapPyramidResponse = {
   source: 'pyramid',
   generation_id: 'gen-1',
   spatial_generation_id: 'gen-1',
@@ -99,6 +104,12 @@ const pyramidFixture: api.MapHeatmapResponse = {
   count: 2,
   max_cells: 40_000,
   truncated: false,
+};
+
+const coarsePyramidFixture: api.MapHeatmapPyramidResponse = {
+  ...pyramidFixture,
+  cells: [{ ...pyramidFixture.cells[0], system_count: 200 }],
+  count: 1,
 };
 
 const legacyFixture: api.MapHeatmapResponse = { source: 'legacy-fallback' };
@@ -206,6 +217,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -242,6 +254,97 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     await screen.findByText(/exact stars/);
     expect(screen.queryByText(/density cells/)).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('patches an older cached density viewport without reloading the scene', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    vi.mocked(api.getMapHeatmap).mockImplementation(async (request) =>
+      request.voxel_size === 590 ? pyramidFixture : coarsePyramidFixture,
+    );
+    render(ExploreWorkspaceTestHost);
+    await vi.waitFor(
+      () => {
+        expect(screen.getByText(/2 density cells/)).toBeInTheDocument();
+        expect(
+          runtimeCommands().some((command) => command.type === 'LOAD_SCENE'),
+        ).toBe(true);
+      },
+      { interval: 1 },
+    );
+    const initialLoads = runtimeCommands().filter(
+      (command) => command.type === 'LOAD_SCENE',
+    ).length;
+    const densityPatches = () =>
+      runtimeCommands().filter(
+        (command) => command.type === 'PATCH_CONTRIBUTION',
+      );
+    emitRuntime({
+      type: 'CAMERA_CHANGED',
+      camera: { ...currentScene().camera, distanceLy: 180_000, revision: 1 },
+    });
+    await vi.advanceTimersByTimeAsync(180);
+    await vi.waitFor(
+      () => expect(screen.getByText(/1 density cells/)).toBeInTheDocument(),
+      { interval: 1 },
+    );
+    const newerRevision = densityPatches().at(-1)!.contribution.revision;
+    const cachedUpdatedAt = queryClient.getQueryState([
+      'map-heatmap',
+      590,
+    ])!.dataUpdatedAt;
+    expect(cachedUpdatedAt).toBeLessThan(
+      queryClient.getQueryState(['map-heatmap', 900])!.dataUpdatedAt,
+    );
+    const fetchesBeforeReturn = vi.mocked(api.getMapHeatmap).mock.calls.length;
+
+    emitRuntime({
+      type: 'CAMERA_CHANGED',
+      camera: { ...currentScene().camera, distanceLy: 118_000, revision: 2 },
+    });
+    await vi.advanceTimersByTimeAsync(180);
+    await vi.waitFor(
+      () => expect(screen.getByText(/2 density cells/)).toBeInTheDocument(),
+      { interval: 1 },
+    );
+    expect(api.getMapHeatmap).toHaveBeenCalledTimes(fetchesBeforeReturn);
+    expect(queryClient.getQueryState(['map-heatmap', 590])!.dataUpdatedAt).toBe(
+      cachedUpdatedAt,
+    );
+    expect(densityPatches().at(-1)!.contribution.revision).toBeGreaterThan(
+      newerRevision,
+    );
+    expect(densityPatches().at(-1)!.contribution.layers[0].targetCount).toBe(2);
+    expect(
+      runtimeCommands().filter((command) => command.type === 'LOAD_SCENE'),
+    ).toHaveLength(initialLoads);
+  });
+
+  it('removes a density contribution once when a refreshed response is unavailable', async () => {
+    vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
+    render(ExploreWorkspaceTestHost);
+    await screen.findByText(/2 density cells/);
+    await waitFor(() => expect(currentScene()).toBeDefined());
+    const initialLoads = runtimeCommands().filter(
+      (command) => command.type === 'LOAD_SCENE',
+    ).length;
+    vi.mocked(api.getMapHeatmap).mockResolvedValue(legacyFixture);
+    await queryClient.invalidateQueries({ queryKey: ['map-heatmap'] });
+    await waitFor(() =>
+      expect(
+        runtimeCommands().filter((command) => command.type === 'LOAD_SCENE'),
+      ).toHaveLength(initialLoads + 1),
+    );
+    expect(
+      currentScene()
+        .contributions.flatMap((contribution) => contribution.layers)
+        .some((layer) => layer.id === 'catalogue-density'),
+    ).toBe(false);
+    expect(screen.queryByText(/density cells/)).not.toBeInTheDocument();
+    await queryClient.invalidateQueries({ queryKey: ['map-heatmap'] });
+    await tick();
+    expect(
+      runtimeCommands().filter((command) => command.type === 'LOAD_SCENE'),
+    ).toHaveLength(initialLoads + 1);
   });
 });
 
@@ -442,6 +545,15 @@ function renderEnabled(query = 'page_size=1', state: App.PageState = {}) {
   };
 }
 
+function runtimeCommands(): RuntimeCommand[] {
+  const runtime = runtimeAdapter.create.mock.results.at(-1)?.value;
+  return (
+    runtime?.dispatch.mock.calls.map(
+      ([command]: [RuntimeCommand]) => command,
+    ) ?? []
+  );
+}
+
 function currentScene(): GalaxySceneContract {
   const runtime = runtimeAdapter.create.mock.results.at(-1)?.value;
   const loads = runtime.dispatch.mock.calls.filter(
@@ -517,6 +629,7 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
   afterEach(() => {
     cleanup();
     featureGate.enabled = false;
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -1253,6 +1366,198 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
     );
     expect(mockedPage.state.anchor).toEqual(anchorA);
   });
+
+  it.each(['during', 'after', 'first after'] as const)(
+    'bounds initial overview work when density arrives %s its flight',
+    async (densityTiming) => {
+      const { createBabylonSession } = await vi.importActual<
+        typeof import('$lib/spatial/babylon/adapter')
+      >('$lib/spatial/babylon/adapter');
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+      // Preserve the real overview extent and validated region contribution,
+      // with simple bands so constructor counts do not require production-sized
+      // boundary geometry. The adapter and camera state machine remain real.
+      const regions = galaxyRegions.buildGalaxyRegionsPayload(
+        {
+          version: 1,
+          origin: { x: -49_985, z: -24_105 },
+          pixel_scale: 49.34939759036145,
+          regions: ['', ...galaxyRegions.GALAXY_REGION_NAMES],
+          regionmap: Array.from({ length: 2_048 }, (_, row) => [
+            [2_048, row === 0 ? 0 : Math.min(42, Math.floor(row / 49) + 1)],
+          ]),
+        },
+        galaxyRegions.GALAXY_REGION_SOURCE_SHA256,
+      );
+      let finishRegions!: (value: galaxyRegions.GalaxyRegionsPayload) => void;
+      vi.spyOn(
+        galaxyRegions,
+        'fetchAuthoritativeGalaxyRegions',
+      ).mockImplementation(
+        () => new Promise((resolve) => (finishRegions = resolve)),
+      );
+      vi.spyOn(galaxyNebulae, 'fetchGalaxyNebulae').mockRejectedValue(
+        new Error('No nebulae in this fixture'),
+      );
+      let finishDensity!: (value: api.MapHeatmapResponse) => void;
+      const nextDensity = new Promise<api.MapHeatmapResponse>(
+        (resolve) => (finishDensity = resolve),
+      );
+      vi.mocked(api.getMapHeatmap).mockImplementation((request) =>
+        densityTiming === 'first after'
+          ? nextDensity
+          : request.voxel_size === 590
+            ? Promise.resolve(pyramidFixture)
+            : densityTiming === 'during'
+              ? Promise.resolve(coarsePyramidFixture)
+              : nextDensity,
+      );
+      vi.stubGlobal('matchMedia', () => ({ matches: false }));
+
+      const engine = new NullEngine();
+      let animationTime = 0;
+      const session = createBabylonSession(
+        engine,
+        'WEBGL2',
+        () => animationTime,
+      );
+      const events = vi.fn<(event: RuntimeEvent) => void>();
+      const sceneCreated = vi.fn();
+      engine.onNewSceneAddedObservable.add((scene) => {
+        sceneCreated();
+        // NullEngine cannot provide GPU readiness; count actual scene creation
+        // without shader warmup or drawing, and advance real camera frames below.
+        vi.spyOn(scene, 'render').mockImplementation(() => undefined);
+        vi.spyOn(scene, 'isReady').mockReturnValue(true);
+      });
+      const frames = new Map<number, () => void>();
+      let nextFrame = 0;
+      runtimeAdapter.create.mockImplementation(
+        (_canvas, onStatus: (status: SpatialRuntimeStatus) => void) => {
+          const runtime = createManagedSpatialRuntime(
+            {
+              createWebGpu: async () => null,
+              createWebGl2: () => session,
+            },
+            onStatus,
+            {
+              request(callback) {
+                frames.set(++nextFrame, callback);
+                return nextFrame;
+              },
+              cancel(handle) {
+                frames.delete(handle);
+              },
+            },
+          );
+          runtime.subscribe(events);
+          vi.spyOn(runtime, 'dispatch');
+          return runtime;
+        },
+      );
+      const work = () => {
+        const runtime = runtimeAdapter.create.mock.results.at(-1)!.value;
+        const commands = runtime.dispatch.mock.calls.map(
+          ([command]: [RuntimeCommand]) => command,
+        ) as RuntimeCommand[];
+        return {
+          loads: commands.filter((command) => command.type === 'LOAD_SCENE')
+            .length,
+          scenes: sceneCreated.mock.calls.length,
+          transitions: commands.filter(
+            (command) =>
+              command.type === 'FLY_TO' ||
+              (command.type === 'SET_CAMERA' && command.transition),
+          ).length,
+        };
+      };
+      const finishFrames = async () => {
+        for (let index = 0; frames.size && index < 150; index += 1) {
+          animationTime += 1_000;
+          const callbacks = [...frames.values()];
+          frames.clear();
+          callbacks.forEach((callback) => callback());
+          await tick();
+        }
+        expect(frames.size).toBe(0);
+      };
+
+      const navigation = renderEnabled();
+      await vi.waitFor(
+        () => {
+          expect(screen.getByText('Ranked 1')).toBeInTheDocument();
+          if (densityTiming !== 'first after')
+            expect(screen.getByText(/2 density cells/)).toBeInTheDocument();
+          expect(scenePointIds()).toEqual([rankedRows[0].id64]);
+        },
+        { interval: 1 },
+      );
+      await finishFrames();
+      expect(work()).toEqual({ loads: 1, scenes: 1, transitions: 0 });
+      finishRegions(regions);
+      await vi.waitFor(() => expect(work().transitions).toBe(1), {
+        interval: 1,
+      });
+      expect(work()).toEqual({ loads: 2, scenes: 2, transitions: 1 });
+
+      vi.mocked(api.searchExploreSystems).mockResolvedValueOnce({
+        ...finderPage(0),
+        results: [rankedRows[1]],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: [...queryKeys.all, 'explore', 'results'],
+      });
+      await vi.waitFor(
+        () => expect(screen.getByText('Ranked 2')).toBeInTheDocument(),
+        { interval: 1 },
+      );
+      expect(work()).toEqual({ loads: 2, scenes: 2, transitions: 1 });
+      // The 180 ms viewport debounce fires during the 650 ms overview flight.
+      // Both a prompt density reply and one arriving after settle must stay
+      // within the pre-part-3 scene/command budget.
+      await vi.advanceTimersByTimeAsync(180);
+      await finishFrames();
+      if (densityTiming !== 'during') finishDensity(coarsePyramidFixture);
+      await vi.advanceTimersByTimeAsync(180);
+      await finishFrames();
+      expect(scenePointIds()).toEqual([rankedRows[1].id64]);
+      expect(work()).toEqual({ loads: 3, scenes: 3, transitions: 1 });
+      expect(
+        events.mock.calls.filter(
+          ([event]) => event.type === 'TRANSITION_FINISHED',
+        ),
+      ).toHaveLength(1);
+      expect(currentScene().camera.distanceLy).toBeGreaterThan(100_000);
+      expect(
+        engine.scenes.at(-1)?.getMeshByName('catalogue-density-cells')?.metadata
+          .spatialLayer.renderedCellCount,
+      ).toBe(1);
+      expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(1);
+      expect(api.getCatalogueViewportSystems).toHaveBeenCalledWith(
+        expect.objectContaining({ limit: 8_000 }),
+        expect.anything(),
+      );
+      // Even a first density response after settle must keep the same overlay
+      // order as the parent's next scene. Selection can then update its marker
+      // in place instead of rebuilding every mesh after a late density patch.
+      const settledCamera = currentScene().camera;
+      navigation.restore(`page_size=1&selected=${rankedRows[1].id64}`);
+      await vi.waitFor(
+        () =>
+          expect(currentScene().selection).toContainEqual({
+            kind: 'system',
+            systemId64: rankedRows[1].id64,
+          }),
+        { interval: 1 },
+      );
+      await finishFrames();
+      expect(work()).toEqual({ loads: 4, scenes: 3, transitions: 1 });
+      expect(currentScene().camera).toEqual(settledCamera);
+      expect(
+        engine.scenes.at(-1)?.getMeshByName('selected-system-marker'),
+      ).toBeTruthy();
+    },
+  );
 
   it('keeps F4 results and the settled selection camera when a refetch arrives during fly-to', async () => {
     vi.stubGlobal('matchMedia', () => ({ matches: false }));
