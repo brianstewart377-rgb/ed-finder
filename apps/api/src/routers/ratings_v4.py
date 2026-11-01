@@ -11,9 +11,10 @@ import json
 from typing import Any, Mapping
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from pydantic import BaseModel
 
+from edfinder_api.config import limiter
 from edfinder_api.deps import get_readonly_pool
 from edfinder_api.domain.ratings_v4 import BodyFact, ECONOMIES, SystemFacts, opportunities_from_facts, rate_all
 
@@ -294,7 +295,9 @@ async def system_scores(
 
 
 @router.get('/systems/{system_id64}/explanation')
+@limiter.shared_limit('30/minute', scope='system_explanation')
 async def system_explanation(
+    request: Request,
     system_id64: int = Path(ge=0, le=9223372036854775807), pool: asyncpg.Pool = Depends(get_readonly_pool),
 ) -> SystemExplanationResponse:
     result = await _read_system(pool, system_id64, explanation=True)

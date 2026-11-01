@@ -43,11 +43,12 @@ import math
 from pathlib import Path as FilePath
 import re
 import time
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Optional
 import uuid
 
 import asyncpg
 from fastapi import APIRouter, HTTPException, Path, Query, Request
+from pydantic import AfterValidator
 
 from shared_contracts import v3_system_archetype_model as archetype_model
 from shared_contracts.v3_system_archetype_model import (
@@ -471,6 +472,13 @@ def _build_v3_ranking_row(row: asyncpg.Record, archetype: str) -> dict:
     }
 
 
+def _indexed_score_floor(value: int) -> int:
+    """Restrict the score floor after parsing the query string as an integer."""
+    if value not in ACCEPTED_ARCHETYPE_SCORE_FLOORS:
+        raise ValueError('Input should be 60, 76 or 88')
+    return value
+
+
 @router.get(
     '/rankings',
     response_model=ArchetypeRankingsResponse,
@@ -485,7 +493,11 @@ def _build_v3_ranking_row(row: asyncpg.Record, archetype: str) -> dict:
 async def get_archetype_rankings(
     request: Request,
     archetype:       str            = Query(..., description='Colony archetype key'),
-    min_score:       Literal[60, 76, 88] = Query(ARCHETYPE_SCORE_FLOOR_DEFAULT),
+    min_score: Annotated[
+        int,
+        AfterValidator(_indexed_score_floor),
+        Query(json_schema_extra={'enum': list(ACCEPTED_ARCHETYPE_SCORE_FLOORS)}),
+    ] = ARCHETYPE_SCORE_FLOOR_DEFAULT,
     galaxy_region:   Optional[int]  = Query(None, ge=0, le=2_147_483_647),
     max_distance_ly: Optional[float]= Query(None, ge=0),
     has_elw:         Optional[bool] = Query(None),

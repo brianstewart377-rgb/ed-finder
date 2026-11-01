@@ -11,6 +11,33 @@ F4a's Product fixture-output contract in `tests/test_seed_cypress_v3_generation.
 `apps/web`-only. Owner questions 1 and 5 are answered (section 9, “Owner answers
 (2026-10-21)”). F4b–F4e remain unimplemented and every gate below is unchanged.
 
+**Status update — 2026-10-31: slice 1c's representative-scale proof has landed.**
+`tests/test_archetype_rankings_scale_postgres.py` (opt-in, `EDF_RANKINGS_SCALE_PROOF=1`)
+seeds 1,000,000 systems with every window saturated and measures all 8 archetypes at
+the B/A/S floors (72 measurements) on a disposable PostgreSQL 18.4 server. Each run
+measures the route's SQL as a prepared statement with `EXPLAIN (ANALYZE, BUFFERS,
+FORMAT JSON) EXECUTE` under `force_generic_plan`, and `pg_prepared_statements` must
+show a generic plan for it. Its first run failed the near-ceiling page for all 24 pairs
+(705–1,098 ms warm against 600 ms): `ranked_page` joined all 10,000 window rows to
+`system_search` for `s.*` before paging, and the planner chose a sequential scan of
+the whole table. As section 8 requires for a behavioural gap, that was reported to
+the owner, who approved a scoped query delta (#948): page the window by key after
+the same membership join as the count, then read search details for the page rows
+only. Results, order, the response shape and the ranking identity
+(`v3-colony-potential-2`) are unchanged. Codex review then found that those first
+runs passed the page's `LIMIT`/`OFFSET` to `EXPLAIN` as bound values, which
+PostgreSQL plans as constants, so they measured custom plans despite the setting;
+the harness was corrected to the method above before this receipt. With #948, the
+proof passed all 72 measurements against the unchanged section 7 budgets, every one
+of the 432 timed runs a generic plan (buffer-cold; receipt
+`docs/operations/evidence/2026-10-31-v3-finder-slice1c-rankings-scale-proof-receipt.json`):
+first page 3.5–6.9 ms warm and 9.2–22.4 ms cold, near-ceiling page 39.5–72.4 and
+70.7–169.0 ms, count 37.0–65.6 and 62.8–138.1 ms. So the slice-1c gate on F4b is met;
+the #948 query reaches production only with the next governed application release.
+F4b's other open input, the Clear fit / Close fit rule, is owner answer 1 in
+section 9. F4c and F4e remain hard prerequisites before the flag is enabled in any
+governed production or release build.
+
 F4a and F4b are code-only increments validated against disposable fixtures.
 They remain hidden behind a default-off build feature gate until the governed
 production sequence has applied the pending migrations (rewritten `011` and
