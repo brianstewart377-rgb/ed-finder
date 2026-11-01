@@ -1,6 +1,8 @@
 describe('ED-Finder V3 foundation', () => {
   for (const [width, height] of [
     [1280, 800],
+    [1024, 768],
+    [768, 1024],
     [390, 844],
   ] as const) {
     it(`keeps home and guest account usable at ${width}x${height}`, () => {
@@ -9,7 +11,40 @@ describe('ED-Finder V3 foundation', () => {
       cy.visit('/');
       cy.wait('@accountSession').its('response.statusCode').should('eq', 200);
       cy.contains('button', 'Sign in with Frontier').should('be.visible');
-      cy.get('.workspace-header nav a').should('have.length', 2);
+      cy.get('.workspace-header nav a').should(($links) => {
+        expect(
+          $links.toArray().map((link) => ({
+            href: link.getAttribute('href'),
+            label: link.textContent?.trim(),
+          })),
+        ).to.deep.equal([
+          { href: '/explore', label: 'Explore' },
+          { href: '/inspect', label: 'Inspect' },
+          { href: '/plan', label: 'Plan' },
+        ]);
+      });
+      cy.get('.tool-grid .tool-card').should('have.length', 3);
+      cy.contains('.tool-card', 'Plan').should('have.attr', 'href', '/plan');
+      cy.get('.upcoming-tools p')
+        .should('have.length', 1)
+        .and('contain.text', 'Review & export');
+      cy.get('.upcoming-tools p > span').should('have.text', 'Coming later');
+      cy.get('.tool-card').should(($cards) => {
+        const cards = $cards.toArray();
+        const bounds = cards.map((card) => card.getBoundingClientRect());
+        cards.forEach((card, index) => {
+          expect(card.scrollWidth).to.be.at.most(card.clientWidth);
+          expect(bounds[index].left).to.be.at.least(0);
+          expect(bounds[index].right).to.be.at.most(width);
+          if (index === 0) return;
+          if (width > 1100) {
+            expect(bounds[index].top).to.equal(bounds[0].top);
+            expect(bounds[index].left).to.be.at.least(bounds[index - 1].right);
+          } else {
+            expect(bounds[index].top).to.be.at.least(bounds[index - 1].bottom);
+          }
+        });
+      });
       cy.injectAxe();
       cy.checkA11y();
       cy.document().should((document) => {
@@ -19,6 +54,14 @@ describe('ED-Finder V3 foundation', () => {
         capture: 'fullPage',
         overwrite: true,
       });
+
+      cy.contains('.tool-card', 'Plan').click();
+      cy.location('pathname').should('eq', '/plan');
+      cy.contains('h1', 'Colony planner').should('be.visible');
+      cy.get('.workspace-header nav a[aria-current="page"]')
+        .should('have.length', 1)
+        .and('have.attr', 'href', '/plan')
+        .and('have.text', 'Plan');
 
       cy.visit('/account');
       cy.wait('@accountSession').its('response.statusCode').should('eq', 200);

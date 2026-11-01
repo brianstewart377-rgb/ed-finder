@@ -656,8 +656,24 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     let initialCanvas!: HTMLCanvasElement;
     let originatingExploreQuery = '';
     cy.viewport(1280, 800);
+    cy.intercept('GET', '/api/archetypes/rankings*').as('idleRankings');
     visitExplore();
-    cy.wait('@search').its('response.statusCode').should('eq', 200);
+    cy.get('.results-panel').should('have.attr', 'aria-busy', 'false');
+    cy.get('#results-title').should('contain.text', 'Systems');
+    cy.contains(
+      '.results-panel',
+      'Search for a system above to see what is near it.',
+    ).should('be.visible');
+    cy.get('[data-system-result]').should('not.exist');
+    cy.get('@search.all').should('have.length', 0);
+    cy.get('@idleRankings.all').should('have.length', 0);
+    keyboardChooseAnchor('Achenar');
+    cy.get('#results-title').should('contain.text', 'Near Achenar');
+    cy.get('[data-system-result="10477373803000"] [data-result-select]', {
+      timeout: 15_000,
+    })
+      .should('be.focused')
+      .and('have.attr', 'aria-pressed', 'true');
     cy.get('h1')
       .should('contain.text', 'Chart a promising system')
       .and('be.visible');
@@ -717,12 +733,6 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       expect(restoredCanvas).to.equal(initialCanvas);
     });
 
-    keyboardChooseAnchor('Achenar');
-    cy.get('[data-system-result="10477373803000"] [data-result-select]', {
-      timeout: 15_000,
-    })
-      .should('be.focused')
-      .and('have.attr', 'aria-pressed', 'true');
     cy.get('[data-testid="selected-system-context"]')
       .should('contain.text', '10477373803000')
       .and('be.visible');
@@ -940,7 +950,6 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     const unsafeId = '9007199254740993';
     let originatingExploreQuery = '';
     visitExplore();
-    cy.wait('@search').its('response.statusCode').should('eq', 200);
     keyboardChooseAnchor('V3 Lossless');
 
     cy.get('[data-testid="selected-system-context"]').should(

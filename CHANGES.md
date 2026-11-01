@@ -34,6 +34,14 @@ fixture explanation, compares stored scores and tiers, and checks accessibility.
 Browser and visual acceptance, the owner's enablement decision (F4 design
 question 3), and the governed release still remain before the flag may be enabled.
 
+## 2026-11-01 — Explore waits for a requested search
+
+Fresh Explore visits now show “Systems” and an invitation to choose a system,
+without requesting results or adding result markers. Choosing an anchor loads
+nearby systems; clearing it removes the previous list. Galaxy layers and saved
+systems remain available. Restored anchors and explicit Finder links still load
+results, as do archetype rankings behind the existing default-off F4 flag.
+
 ## 2026-11-01 — Colony Planner S3b: surface slot predictions
 
 The planner bodies route now returns surface slot predictions from the canonical
@@ -68,6 +76,27 @@ CPython 3.14.7 library lookup; repetitive dependency deprecation warnings were
 suppressed. All 16 planner PostgreSQL tests collect, but need execution by the
 reviewer/CI on disposable PostgreSQL 18. Browser visual acceptance remains
 required before promotion.
+
+## 2026-11-01 — Surface the live Colony Planner on the home page and header
+
+The home page now links to `/plan` with a Plan tool card describing colony
+layouts, construction points, economies and Raven Colonial import. Only
+Review & export remains labelled Coming later. The tool grid uses three
+columns on desktop and stacks on tablet and phone widths. The product header
+now shows Explore, Inspect and Plan, including the active-page state on `/plan`.
+Component and browser coverage check the links, remaining upcoming item and
+responsive layout.
+
+## 2026-11-01 — Colony Planner: floating, tabbed facility picker
+
+The facility picker opens beside the body's add button, or as a centred sheet
+on narrow screens, with keyboard focus, Escape, Close and outside-click
+dismissal. Both, Orbital and Surface tabs replace six-row pages with one
+scrolling list grouped by facility type, with starports first and search scoped
+to the selected tab. Rows show compact server-evaluated CP costs and rewards;
+only visible choices request previews, with at most six pending requests and
+cancellation when the plan, location or filters change. Primary Port, location
+fit and the 300-site limit remain enforced.
 
 ## 2026-11-01 — Sixth F2d release `181f6fed` accepted in production
 
