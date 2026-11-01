@@ -279,9 +279,57 @@ with `--pull never`. There is no database rollback in this path.
    run ID and the same literal target confirmation. Review the passed receipt.
 6. Separately approve and dispatch `promote` with the identical run ID and
    `upgrade` mode, then verify public health and the served build SHA.
+7. After each accepted governed promotion, run the public Ratings V4 smoke
+   below and commit its receipt in the release record PR.
 
 If any fact differs, stop. Do not recreate the edge or adapt a legacy/root
 Compose command from this runbook.
+
+### Post-promotion public Ratings V4 smoke receipt
+
+After the governed workflow has accepted the release, the owner runs
+[`ratings_v4_public_smoke.py`](../../scripts/checks/ratings_v4_public_smoke.py)
+from a local checkout with exact CPython 3.14. This is a manual, read-only
+public-site check; it needs no production host access or credentials. Replace
+`<date>` with the UTC run date (`YYYY-MM-DD`) and `<build>` with the promoted
+build's full Git SHA before running:
+
+```bash
+python3.14 scripts/checks/ratings_v4_public_smoke.py \
+  --base-url https://ed-finder.app \
+  --receipt 'docs/operations/evidence/<date>-v3-ratings-v4-public-smoke-<build>.json'
+```
+
+The default base URL is `https://ed-finder.app`. The script makes eight HTTPS
+GETs: `/api/health`, `/api/ratings/v4/generation`, and the ratings and explanation
+routes for Sol (`10477373803`), Achenar (`164098653`) and Alioth
+(`1109989017963`). Their retained cohort and published-generation lineage are
+documented in the script. Each request has a bounded timeout (10 seconds by
+default; `--timeout-seconds` accepts at most 30 seconds) and a bounded response
+body. It sends no credentials, ignores proxy configuration and refuses
+redirects. It validates the response models' required fields, seven economies,
+potentials within 0–100, confidence within 0–1 and matching generation identity.
+
+The JSON receipt records `schema_version`, `base_url`, `started_at`, the observed
+`build_sha` and database status, generation and scorer identity, and every
+request's HTTP status, latency and validation result, plus the overall `status`.
+Require exit code zero and receipt `status: passed`, then compare the observed
+full `build_sha` with the exact SHA in the accepted promotion receipt. A passing
+smoke for another build does not prove this release. Commit the actual receipt
+under `docs/operations/evidence/<date>-v3-ratings-v4-public-smoke-<build>.json`
+in the release record PR alongside the governed promotion evidence.
+
+Any failed request or validation produces a failed receipt and non-zero exit.
+Retain failures in the release record PR with an explicit disposition; preserve
+each failed attempt under a distinct filename before rerunning after a remedy.
+A build mismatch also needs a recorded disposition and a fresh run against the
+intended release. Never substitute a fixture or hand-authored receipt for public
+evidence. This check supplements the release record; the governed deployer's
+acceptance, rollback and production authorization gates remain unchanged.
+
+Do not run this public-site command from implementation tasks, tests or CI.
+Unit tests use only a local loopback HTTP stub; that fixture transport is the
+script's only HTTP exception. No public receipt is produced by those tests.
 
 ## F3 Finder cutover — product-publish promotion gate
 
