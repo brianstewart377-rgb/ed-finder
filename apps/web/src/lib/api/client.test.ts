@@ -461,6 +461,38 @@ describe('selected-archetype rankings facade', () => {
     expect(page.results[0]).not.toHaveProperty('best_tier');
   });
 
+  it.each([79, 0])(
+    'carries the rival archetype and score %i when present',
+    (score) => {
+      const rows = [
+        {
+          ...rankingRow('1', 95, 'S'),
+          rival_archetype: 'megacomplex',
+          rival_score: score,
+        },
+      ];
+      const page = normalizeRankingsResponse(
+        rankingsEnvelope(rows),
+        flexibleRequest,
+      );
+
+      expect(page.results[0]).toMatchObject({
+        rival_archetype: 'megacomplex',
+        rival_score: score,
+      });
+    },
+  );
+
+  it('leaves rival fields absent when the server omits them', () => {
+    const page = normalizeRankingsResponse(
+      rankingsEnvelope([rankingRow('1', 95, 'S')]),
+      flexibleRequest,
+    );
+
+    expect(page.results[0]).not.toHaveProperty('rival_archetype');
+    expect(page.results[0]).not.toHaveProperty('rival_score');
+  });
+
   it('clamps the wire limit at the 10,000 window and rejects offsets beyond it', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify(rankingsEnvelope([])), {

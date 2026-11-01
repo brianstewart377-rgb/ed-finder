@@ -61,6 +61,18 @@ export type ArchetypeRankingRow = {
      */
     selected_archetype?: string | null;
     /**
+     * Rival Archetype
+     *
+     * Highest-scoring archetype other than the selected archetype and Flexible; ties use ARCHETYPE_KEYS order.
+     */
+    rival_archetype?: string | null;
+    /**
+     * Rival Score
+     *
+     * Rival archetype integer score (0–100) from the same stored system row.
+     */
+    rival_score?: number | null;
+    /**
      * Primary Archetype
      */
     primary_archetype?: string | null;

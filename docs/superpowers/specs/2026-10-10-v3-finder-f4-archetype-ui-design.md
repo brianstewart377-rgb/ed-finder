@@ -11,6 +11,33 @@ F4a's Product fixture-output contract in `tests/test_seed_cypress_v3_generation.
 `apps/web`-only. Owner questions 1 and 5 are answered (section 9, “Owner answers
 (2026-10-21)”). F4b–F4e remain unimplemented and every gate below is unchanged.
 
+**Status update — 2026-10-31: slice 1c's representative-scale proof has landed.**
+`tests/test_archetype_rankings_scale_postgres.py` (opt-in, `EDF_RANKINGS_SCALE_PROOF=1`)
+seeds 1,000,000 systems with every window saturated and measures all 8 archetypes at
+the B/A/S floors (72 measurements) on a disposable PostgreSQL 18.4 server. Each run
+measures the route's SQL as a prepared statement with `EXPLAIN (ANALYZE, BUFFERS,
+FORMAT JSON) EXECUTE` under `force_generic_plan`, and `pg_prepared_statements` must
+show a generic plan for it. Its first run failed the near-ceiling page for all 24 pairs
+(705–1,098 ms warm against 600 ms): `ranked_page` joined all 10,000 window rows to
+`system_search` for `s.*` before paging, and the planner chose a sequential scan of
+the whole table. As section 8 requires for a behavioural gap, that was reported to
+the owner, who approved a scoped query delta (#948): page the window by key after
+the same membership join as the count, then read search details for the page rows
+only. Results, order, the response shape and the ranking identity
+(`v3-colony-potential-2`) are unchanged. Codex review then found that those first
+runs passed the page's `LIMIT`/`OFFSET` to `EXPLAIN` as bound values, which
+PostgreSQL plans as constants, so they measured custom plans despite the setting;
+the harness was corrected to the method above before this receipt. With #948, the
+proof passed all 72 measurements against the unchanged section 7 budgets, every one
+of the 432 timed runs a generic plan (buffer-cold; receipt
+`docs/operations/evidence/2026-10-31-v3-finder-slice1c-rankings-scale-proof-receipt.json`):
+first page 3.5–6.9 ms warm and 9.2–22.4 ms cold, near-ceiling page 39.5–72.4 and
+70.7–169.0 ms, count 37.0–65.6 and 62.8–138.1 ms. So the slice-1c gate on F4b is met;
+the #948 query reaches production only with the next governed application release.
+F4b's other open input, the Clear fit / Close fit rule, is owner answer 1 in
+section 9. F4c and F4e remain hard prerequisites before the flag is enabled in any
+governed production or release build.
+
 F4a and F4b are code-only increments validated against disposable fixtures.
 They remain hidden behind a default-off build feature gate until the governed
 production sequence has applied the pending migrations (rewritten `011` and
@@ -2476,6 +2503,24 @@ are kept verbatim; these answers govern where they differ from earlier text.
   fit” is rendered in visible or accessible text; section 5's mode-neutral
   classification rule (**Clear primary classification**) is unchanged by this
   answer.
+- **Question 1 — amended 2026-10-31 (owner).** Published data showed that the
+  primary/secondary separation cannot carry this label in selected mode: in the
+  top 1,000 rows of every archetype's live `/api/archetypes/rankings` list, all
+  1,000 systems have Flexible as their primary type, so `archetype_confidence`
+  mostly measures Flexible against its runner-up. The label is therefore driven
+  by the picked archetype's own score against its **best rival**: the highest
+  score among the other archetypes, not counting Flexible (for Flexible itself,
+  among the other seven), with ties going to the earliest key in `ARCHETYPE_KEYS`
+  order. **Clear fit** when the picked score is at least **3 points** above the
+  rival's; otherwise **Close fit**, and a Close fit row names the rival and its
+  score (for example “Close fit · Megacomplex 79”). Evidence, from the top 100
+  systems for each non-Flexible archetype (700 rows, live
+  `/api/archetypes/system/{id64}`, 2026-10-31): the rival ties or beats the picked
+  type in 62% of rows; the middle gap is 0 points; a 3-point cut-off marks 24% of
+  those rows (26% of first-page rows) Clear fit. The ranking rows carry
+  `rival_archetype` and `rival_score` for this. The label stays selected-mode only,
+  Any mode is unchanged, and the Product fixture's labels follow from its pinned
+  scores.
 - **Question 5 — Yes.** The proposed slice 1c latency budgets are accepted
   unchanged as the pass/fail line: warm ≤ 300 ms first page and ≤ 600 ms for the
   near-ceiling page and the within-window count; cold ≤ 1,500 / 2,500 / 2,500 ms
