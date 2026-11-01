@@ -11,6 +11,16 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — Cross-platform shared-package lint command
+
+`pnpm shared:lint` now uses a Node launcher and ESLint's API, removing the POSIX
+binary-shim path that failed on Windows. The existing shared config and both
+source directories are unchanged; the repository root remains the flat-config
+base. The command reports its linted file count (89 on this revision), and CI
+keeps its existing invocation. Regression tests compare the exact file set with
+the former CLI command and verify a temporary planner lint error fails the
+launcher, including when started from an unrelated directory.
+
 ## 2026-11-01 — Seventh F2d release `293bc72b` accepted in production: Finder archetype UI on
 
 Owner-approved. Release run 41342325477 (source `293bc72b`) passed preflight
