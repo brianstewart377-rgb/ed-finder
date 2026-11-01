@@ -74,13 +74,13 @@ def test_watchlist_registration_has_through_012_014_010_011_013_015_016_tail():
     assert transition['to_migration_set_identity'] == document['migration_set_identity']
     assert authority['external_authority']['schema_identity_sha256'] == hashlib.sha256(target_payload).hexdigest()
     compatible = authority['accepted_release_schema_compatibility']['compatible_migration_sets']
-    # The accepted fourth F2d release (1e748c9d) attests the installed through-021
-    # identity and the registered through-022 target; never the superseded
-    # through-012 or through-020 sources.
+    # 022 is applied (2026-10-31). The accepted fifth F2d release (3fd8e719)
+    # attests the installed through-022 identity only; never the superseded
+    # through-012, through-020 or through-021 sources.
     through_012 = identity.migration_set_identity(entries[:stop])
     through_020 = identity.migration_set_identity(entries[:stop + 8])
     assert through_012 not in compatible and through_020 not in compatible
-    assert before_document['migration_set_identity'] in compatible
+    assert before_document['migration_set_identity'] not in compatible
     assert document['migration_set_identity'] in compatible
 
 
