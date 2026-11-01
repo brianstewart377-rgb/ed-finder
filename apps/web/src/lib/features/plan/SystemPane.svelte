@@ -64,6 +64,9 @@
   let pickerPanel = $state<HTMLDivElement>();
   let pickerLeft = $state(8);
   let pickerTop = $state(8);
+  // The visible height can be smaller than the layout viewport while a
+  // mobile keyboard is open; the panel must fit what the commander can see.
+  let pickerMaxHeight = $state<number | null>(null);
   const tree = $derived(flattenBodyTree(buildBodyTree(bodies)));
   const pickerLocation = $derived(
     tree.find((location) => location.body_ref === picker),
@@ -143,6 +146,8 @@
     const height = Math.min(viewport?.height ?? layoutHeight, layoutHeight);
     const left = viewport?.offsetLeft ?? 0;
     const top = viewport?.offsetTop ?? 0;
+    // A changed limit resizes the panel; its ResizeObserver repositions it.
+    pickerMaxHeight = Math.max(0, Math.floor(height - margin * 2));
     const maxLeft = Math.max(
       left + margin,
       left + width - panel.width - margin,
@@ -452,6 +457,9 @@
       tabindex="-1"
       style:left={`${pickerLeft}px`}
       style:top={`${pickerTop}px`}
+      style:max-height={pickerMaxHeight === null
+        ? undefined
+        : `min(38rem, ${pickerMaxHeight}px)`}
     >
       {#key pickerLocation.body_ref}
         <FacilityPicker

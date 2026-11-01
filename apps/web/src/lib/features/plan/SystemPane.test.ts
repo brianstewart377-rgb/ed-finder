@@ -470,6 +470,46 @@ describe('System pane facility popup', () => {
     );
   });
 
+  it('limits the popup to the visible viewport while a mobile keyboard shrinks it', async () => {
+    const listeners = new Map<string, EventListener>();
+    const visualViewport = {
+      width: 390,
+      height: 300,
+      offsetLeft: 0,
+      offsetTop: 0,
+      addEventListener: (type: string, listener: EventListener) =>
+        listeners.set(type, listener),
+      removeEventListener: (type: string) => listeners.delete(type),
+    };
+    const original = Object.getOwnPropertyDescriptor(window, 'visualViewport');
+    Object.defineProperty(window, 'visualViewport', {
+      configurable: true,
+      value: visualViewport,
+    });
+    try {
+      const fixture = compactPlanFixture(2, 0);
+      renderSystem(fixture);
+      await fireEvent.click(
+        screen.getByRole('button', {
+          name: `Add a build on ${fixture.bodies.bodies[1].name}`,
+        }),
+      );
+      const dialog = screen.getByRole('dialog');
+      await waitFor(() =>
+        expect(dialog.style.maxHeight).toBe('min(38rem, 284px)'),
+      );
+      // The keyboard closes: the visible height grows and the limit follows.
+      visualViewport.height = 700;
+      listeners.get('resize')?.(new Event('resize'));
+      await waitFor(() =>
+        expect(dialog.style.maxHeight).toBe('min(38rem, 684px)'),
+      );
+    } finally {
+      if (original) Object.defineProperty(window, 'visualViewport', original);
+      else delete (window as { visualViewport?: unknown }).visualViewport;
+    }
+  });
+
   it.each(['Escape', 'Close', 'outside'] as const)(
     'closes with %s and returns focus to the add button',
     async (method) => {
