@@ -36,6 +36,7 @@ describe('planner evaluation transport failures', () => {
       now: { t2: 0, t3: 0 },
       after_plan: { t2: 0, t3: 0 },
       next_port_cost: { t2: 3, t3: 0 },
+      economies: { now: [], after_plan: [], notes: [] },
       steps: [],
       plan_checks: [],
       summary: { OK: 0, BLOCKED: 0, NEEDS_INFO: 0, COUNTED: 0, IGNORED: 0 },

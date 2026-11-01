@@ -101,6 +101,7 @@ function evaluated(t2: number, blocked = 0): PlanEvaluationV1 {
     now: { t2, t3: 0 },
     after_plan: { t2, t3: 0 },
     next_port_cost: { t2: 3, t3: 6 },
+    economies: { now: [], after_plan: [], notes: [] },
     steps: [],
     plan_checks: [],
     summary: { OK: 0, BLOCKED: blocked, NEEDS_INFO: 0, COUNTED: 0, IGNORED: 0 },
