@@ -212,13 +212,18 @@ describe('isolated V3 Review Lab', () => {
       cy.get(selectedMarkerSelector, { timeout: 20_000 }).should('be.visible');
     };
 
+    let selectionSearchCount = 0;
     const establishSelectedSystem = () => {
+      // Earlier intercepts also observe later flows, so each call needs a fresh alias.
+      const selectionSearchAlias = `selectionSearch${++selectionSearchCount}`;
       setReviewMode('normal');
-      cy.intercept('POST', '/api/local/search').as('selectionSearch');
+      cy.intercept('POST', '/api/local/search').as(selectionSearchAlias);
       cy.visit(`/explore?selected=${REVIEW_SYSTEM.id64}`, {
         onBeforeLoad: instrumentWindow,
       });
-      cy.wait('@selectionSearch').its('response.statusCode').should('eq', 200);
+      cy.wait(`@${selectionSearchAlias}`)
+        .its('response.statusCode')
+        .should('eq', 200);
       cy.get(readySelector, { timeout: 20_000 }).should('be.visible');
       assertSelectionPreserved();
     };

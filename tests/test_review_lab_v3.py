@@ -176,6 +176,25 @@ def test_review_collector_preserves_url_selection_and_checks_both_failure_tags()
     assert "getAll('selected')).to.deep.equal([" in collector
 
 
+def test_review_collector_uses_a_fresh_selection_search_alias_per_call():
+    collector = read('apps/web/cypress/e2e/review-lab.cy.ts')
+    before_helper, declaration, remainder = collector.partition('const establishSelectedSystem = () => {')
+    assert declaration
+    helper, closing, _ = remainder.partition('\n    };')
+    assert closing
+    # The counter must survive both flows, while each helper call captures a
+    # different alias before registering its route and queuing its wait.
+    assert 'let selectionSearchCount = 0;' in before_helper
+    assert collector.count('selectionSearchCount = 0') == 1
+    alias = 'const selectionSearchAlias = `selectionSearch${++selectionSearchCount}`;'
+    intercept = "cy.intercept('POST', '/api/local/search').as(selectionSearchAlias);"
+    wait = 'cy.wait(`@${selectionSearchAlias}`)'
+    assert alias in helper
+    assert intercept in helper
+    assert wait in helper
+    assert helper.index(alias) < helper.index(intercept) < helper.index(wait)
+
+
 @pytest.mark.parametrize('flow,check', [
     ('rankingsApiFailure', 'selectedMarkerPreserved'),
     ('rankingsEmptyResults', 'anySearchRestored'),
