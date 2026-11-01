@@ -957,6 +957,12 @@ newer dated source wins).
   The 8′ → 9′ focus recorded here is complete (superseded by the 2026-10-23
   go-live entry at the top of this section); F4a/F4b fixture-based
   implementation continues. The Colony Planner statement above is unchanged.
+  **Owner enablement decision 2026-11-01 (F4 question 3):** every listed gate
+  is met (publication 2026-10-23, slice 1c proof 2026-10-31, F4c #969, F4e
+  #973), and the owner decided to turn the Finder archetype UI on. The governed
+  release workflow's web image now builds with `VITE_FINDER_F4_ENABLED=1`; all
+  other builds keep the default `0`. It reaches production only with the next
+  owner-approved governed application release.
 - **Owner decision 2026-10-21: publish the Finder on the frozen Ratings V4.0 /
   `v3-archetype-4` rules as attested.** The Mega Guide audit found Finder-rule
   conflicts — notably native+modifier inheritance scored 85 vs 75 (guide p8/p50:

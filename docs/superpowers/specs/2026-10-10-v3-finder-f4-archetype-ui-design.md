@@ -62,6 +62,19 @@ and the governed release still remain before the flag may be enabled.
 enablement decision (question 3), and the governed release still remain before
 the flag may be enabled.
 
+**Status update — 2026-11-01: owner enablement decision (question 3).** With
+both Finder products published (step 9′, 2026-10-23), slice 1c's scale proof
+passed (2026-10-31), F4c (#969) and F4e (#973) merged, the owner decided on
+2026-11-01 to turn the Finder archetype UI on. Only the governed release
+workflow's web image (`.github/workflows/v3-application-release.yml`, **Build and
+push web**) now passes `VITE_FINDER_F4_ENABLED=1`; the Dockerfile default stays
+`0`, so every other build is unchanged. Browser acceptance is the protected
+Product E2E lane (Chrome and Firefox, flag on, with visual baselines), green on
+the merged F4e head; the owner's visual approval is the live check after the
+governed release, with the previous release as the recorded rollback artifact.
+This decision does not itself deploy anything: the flag reaches production only
+through the next owner-approved governed application release.
+
 F4a and F4b are code-only increments validated against disposable fixtures.
 They remain hidden behind a default-off build feature gate until the governed
 production sequence has applied the pending migrations (rewritten `011` and

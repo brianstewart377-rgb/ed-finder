@@ -215,8 +215,12 @@ jobs:
           file: apps/web/Dockerfile
           platforms: linux/amd64
           push: true
+          # Owner enablement decision 2026-11-01 (F4 design question 3): governed
+          # release web images carry the Finder archetype UI. The Dockerfile default
+          # stays 0 for every other build.
           build-args: |
             BUILD_SHA=${{ needs.validate-source.outputs.git_sha }}
+            VITE_FINDER_F4_ENABLED=1
           tags: ${{ needs.validate-source.outputs.web_repository }}:git-${{ needs.validate-source.outputs.git_sha }}
           labels: |
             org.opencontainers.image.revision=${{ needs.validate-source.outputs.git_sha }}

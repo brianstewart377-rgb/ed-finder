@@ -11,6 +11,16 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — Finder F4 archetype UI enabled for governed release builds
+
+Owner enablement decision (F4 design question 3). Every gate in the F4 design is
+met: both Finder products published (2026-10-23), slice 1c's representative-scale
+proof (2026-10-31), F4c (#969) and F4e (#973). The governed release workflow's web
+image now passes `VITE_FINDER_F4_ENABLED=1`; the Dockerfile default stays `0`, so
+CI, Review Lab and local builds are unchanged. A contract test pins that only the
+release web image opts in. Nothing is deployed by this change; the Finder UI
+reaches production with the next owner-approved governed application release.
+
 ## 2026-11-01 — Finder F4e: per-archetype explanations
 
 Behind the default-off `VITE_FINDER_F4_ENABLED` flag, Explore result cards lazily
