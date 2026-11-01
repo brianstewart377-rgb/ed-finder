@@ -103,10 +103,11 @@ def test_psql_failure_can_include_activity_without_replacing_adapter_error(conne
     assert 'autovacuum worker' in ''.join(traceback.format_exception(error))
 
 
-def test_hidden_session_keeps_guard_snapshot_and_adds_administrator_details(connection, observer):
-    hidden = {'pid': 456, 'backend_type': 'client backend', 'state': None,
-              'backend_xid': None, 'xact_start': None, 'query': '<insufficient privilege>'}
-    visible = {**hidden, 'state': 'idle', 'query': 'SELECT last_completed_admin_query()'}
+def test_hidden_writer_keeps_guard_snapshot_and_adds_administrator_details(connection, observer):
+    hidden = {'pid': 456, 'backend_type': None, 'state': None,
+              'backend_xid': '789', 'xact_start': None, 'query': '<insufficient privilege>'}
+    visible = {**hidden, 'backend_type': 'client backend', 'state': 'idle in transaction',
+               'xact_start': '2026-11-01 00:00:00+00:00', 'query': 'SELECT pg_current_xact_id()'}
     cursor = observer.cursor.return_value.__enter__.return_value
     role = None
     observed_roles = []

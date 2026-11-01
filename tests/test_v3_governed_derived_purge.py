@@ -1545,7 +1545,7 @@ def test_competing_transaction_with_an_assigned_xid_blocks_the_next_batch(databa
         assert _batch(connection, purge_id, 'system_search', size=3) == 3
 
 
-def test_non_superuser_refusal_reports_hidden_administrator_activity():
+def test_non_superuser_refusal_reports_hidden_administrator_writer():
     with canonical_database() as data:
         with installed_purge(data[0], creator='non_superuser', apply_chain=True) as connection:
             purge_id = _authorize((connection, *data[1:]))[TARGETS[0][1]]
@@ -1556,16 +1556,27 @@ def test_non_superuser_refusal_reports_hidden_administrator_activity():
                 admin_dsn = make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'],
                                          dbname=connection.info.dbname)
                 with connect(admin_dsn, autocommit=True) as opaque:
-                    opaque.execute('SELECT 42 /* intentionally opaque administrator */')
-                    with pytest.raises(psycopg.errors.RaiseException, match='competing writing transaction') as refused:
-                        with connection.transaction():
-                            _start_batch(connection, purge_id, 'system_search')
-                    guard, details = refused.value.__notes__
-                    assert f"'pid': {opaque.info.backend_pid}" in guard
-                    assert "'state': None" in guard
-                    assert f"'pid': {opaque.info.backend_pid}" in details
-                    assert "'state': 'idle'" in details
-                    assert 'SELECT 42 /* intentionally opaque administrator */' in details
+                    # Neither installed_purge nor 016 grants pg_read_all_stats.
+                    # PG18 hides both state and backend_type from the app owner,
+                    # so an idle administrator cannot match the NULL-state arm.
+                    # backend_xid stays visible and makes this a real competitor.
+                    with opaque.transaction():
+                        query = 'SELECT pg_current_xact_id() /* intentionally opaque administrator writer */'
+                        xid = opaque.execute(query).fetchone()[0]
+                        with pytest.raises(psycopg.errors.RaiseException, match='competing writing transaction') as refused:
+                            with connection.transaction():
+                                _start_batch(connection, purge_id, 'system_search')
+                        guard, details = refused.value.__notes__
+                        assert f"'pid': {opaque.info.backend_pid}" in guard
+                        assert "'backend_type': None" in guard
+                        assert "'state': None" in guard
+                        assert f"'backend_xid': '{xid}'" in guard
+                        assert "'query': '<insufficient privilege>'" in guard
+                        assert f"'pid': {opaque.info.backend_pid}" in details
+                        assert "'backend_type': 'client backend'" in details
+                        assert "'state': 'idle in transaction'" in details
+                        assert f"'backend_xid': '{xid}'" in details
+                        assert query in details
                 assert _count(connection, 'v3_derived.system_search', TARGETS[0][1]) == 12
                 assert _batch(connection, purge_id, 'system_search', size=3) == 3
 

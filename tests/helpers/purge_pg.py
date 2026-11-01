@@ -76,8 +76,9 @@ def diagnose_competing_writers(connection, *, backend_pid=None, any_error=False)
                     error.add_note(f'pg_stat_activity matching purge guard immediately after refusal: {rows!r}')
                     cursor.execute('RESET ROLE')
                     if rows:
-                        # The app-owned guard sees other logins as state=NULL.
-                        # Retain that snapshot and also reveal their actual queries.
+                        # Other logins can match via their visible backend_xid
+                        # while PG18 masks state, backend_type and query. Retain
+                        # the guard snapshot and also reveal their actual queries.
                         cursor.execute(ACTIVITY_SQL + ' WHERE datname=%s AND pid=ANY(%s) ORDER BY pid',
                                        (database, [row['pid'] for row in rows]))
                         details = cursor.fetchall()
