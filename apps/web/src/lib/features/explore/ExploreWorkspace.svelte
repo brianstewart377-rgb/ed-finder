@@ -4,7 +4,7 @@
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { ArrowRight, LocateFixed, Search, Sparkles } from '@lucide/svelte';
   import {
     ApiError,
@@ -12,12 +12,14 @@
     getCatalogueViewportSystems,
     getCommanderTravelHeatmap,
     getMapHeatmap,
+    getArchetypeRankings,
+    getSystem,
     searchExploreSystems,
     type AutocompleteSystem,
     type CatalogueViewportResponse,
     type DistanceAnchor,
-    type ExploreSearchRequest,
     type ExploreSystem,
+    type FinderPageEnvelope,
   } from '$lib/api/client';
   import { queryKeys } from '$lib/api/query';
   import { auth } from '$lib/auth/auth';
@@ -25,8 +27,22 @@
   import { parseId64, type Id64 } from '$lib/domain/id64';
   import {
     hasRankingSearchParams,
+    lastPageCorrection,
+    normalizeRankingState,
+    parseRankingSearchParams,
+    selectFinderRequest,
+    serializeRankingSearchParams,
     stripRankingSearchParams,
+    type FinderRankingState,
   } from './ranking-state';
+  import { archetypeLabel } from './archetypes';
+  import {
+    inspectHref,
+    navigateWithAnchor,
+    readExploreAnchor,
+  } from './navigation';
+  import ArchetypePicker from './ArchetypePicker.svelte';
+  import FinderResultRanking from './FinderResultRanking.svelte';
   import { usePersistenceContext } from '$lib/persistence/context';
   import SpatialCanvas from '$lib/spatial/SpatialCanvas.svelte';
   import type {
@@ -39,6 +55,8 @@
   import {
     buildExploreGalaxyScene,
     createExploreFinderContribution,
+    createExploreSelectionContribution,
+    mapExploreSelectedSystemPoint,
   } from '$lib/spatial/explore-scene';
   import { collectGalaxySpatialContributions } from '$lib/spatial/galaxy-overlays';
   import {
@@ -84,7 +102,16 @@
   let query = $state('');
   let activeSuggestion = $state(-1);
   let autocompleteOpen = $state(false);
-  let anchor = $state<AutocompleteSystem | null>(null);
+  let legacyAnchor = $state<AutocompleteSystem | null>(null);
+  const anchor = $derived(
+    FINDER_F4_ENABLED ? readExploreAnchor(page.state) : legacyAnchor,
+  );
+  let anchorSelectionRevision = $state(0);
+  let focusedAnchorRevision = 0;
+  let hydratedAnchorIdentity: string | undefined;
+  let hydratedExploreUrl: string | undefined;
+  let searchInput = $state<HTMLInputElement>();
+  let rankingNotice = $state('');
   let selectionRevision = $state(0);
   let focusRevision = $state(0);
   let focusTarget = $state<SpatialTarget | null>(null);
@@ -137,41 +164,255 @@
   }));
   const suggestionRows = $derived(suggestions.data?.results ?? []);
 
-  const searchRequest = $derived.by((): ExploreSearchRequest => {
-    if (
-      anchor &&
-      typeof anchor.x === 'number' &&
-      typeof anchor.y === 'number' &&
-      typeof anchor.z === 'number'
-    ) {
-      return {
-        reference_coords: { x: anchor.x, y: anchor.y, z: anchor.z },
-        filters: { distance: { min: 0, max: 500 }, economy: 'any' },
-        sort_by: 'distance',
-        size: 24,
-        from: 0,
-      };
+  const parsedRanking = $derived(
+    FINDER_F4_ENABLED ? parseRankingSearchParams(page.url.searchParams) : null,
+  );
+  const rankingState = $derived(
+    parsedRanking?.state ?? normalizeRankingState(null),
+  );
+  const urlSelection = $derived.by((): Id64 | null => {
+    if (!FINDER_F4_ENABLED) return null;
+    const values = page.url.searchParams.getAll('selected');
+    if (values.length !== 1) return null;
+    try {
+      return parseId64(values[0]);
+    } catch {
+      return null;
     }
-    return { galaxy_wide: true, sort_by: 'development', size: 24, from: 0 };
   });
-  // The committed anchor's identity is a facade normalization input (every
-  // row's distance reference) and therefore part of the query key: two anchors
-  // at one position with different identities never share cached rows.
+  const canonicalSearch = $derived.by(() => {
+    if (!FINDER_F4_ENABLED) return page.url.search;
+    const params = new URLSearchParams(page.url.searchParams);
+    params.delete('selected');
+    if (urlSelection) params.set('selected', urlSelection);
+    const serialized = serializeRankingSearchParams(
+      rankingState,
+      params,
+    ).toString();
+    return serialized ? `?${serialized}` : '';
+  });
+  const invalidAnchorState = $derived(
+    FINDER_F4_ENABLED && page.state?.anchor != null && anchor === null,
+  );
+  const rankingUrlReady = $derived(
+    !FINDER_F4_ENABLED ||
+      (page.url.search === canonicalSearch && !invalidAnchorState),
+  );
+  const finderRequest = $derived(
+    selectFinderRequest(
+      rankingState,
+      anchor ? { x: anchor.x, y: anchor.y, z: anchor.z } : null,
+      { enabled: FINDER_F4_ENABLED },
+    ),
+  );
   const anchorReference = $derived<DistanceAnchor | null>(
     anchor ? { id64: anchor.id64, name: anchor.name } : null,
   );
-  const results = createQuery(() => ({
-    queryKey: queryKeys.explore(searchRequest, anchorReference),
-    queryFn: ({ signal }) =>
-      searchExploreSystems(searchRequest, signal, anchorReference),
-    retry: 0,
-  }));
+  const finderQueryKey = $derived(
+    finderRequest.kind === 'rankings'
+      ? queryKeys.rankings(finderRequest.request)
+      : queryKeys.explore(
+          finderRequest.request,
+          anchorReference,
+          FINDER_F4_ENABLED ? finderRequest.pageSize : null,
+        ),
+  );
+  const finderIdentity = $derived(JSON.stringify(finderQueryKey));
+  type FinderResponse = {
+    results: readonly ExploreSystem[];
+    page: FinderPageEnvelope;
+    finderState: FinderRankingState;
+    finderIdentity: string;
+  };
+  const results = createQuery<FinderResponse>(() => {
+    // Capture the complete request identity with its envelope. Placeholder rows
+    // keep their old mode, floor and offset until the replacement arrives.
+    const request = finderRequest;
+    const reference = anchorReference;
+    const state = rankingState;
+    const identity = finderIdentity;
+    return {
+      queryKey: finderQueryKey,
+      queryFn: async ({ signal }: { signal: AbortSignal }) => ({
+        ...(request.kind === 'rankings'
+          ? await getArchetypeRankings(request.request, signal)
+          : await searchExploreSystems(
+              request.request,
+              signal,
+              reference,
+              FINDER_F4_ENABLED ? request.pageSize : undefined,
+            )),
+        finderState: state,
+        finderIdentity: identity,
+      }),
+      enabled: rankingUrlReady,
+      ...(FINDER_F4_ENABLED ? { staleTime: 0 } : {}),
+      placeholderData: FINDER_F4_ENABLED
+        ? (previous: FinderResponse | undefined) => previous
+        : undefined,
+      retry: 0,
+    };
+  });
+  let retainedResults = $state<FinderResponse>();
+  let retainedResultsRevision = $state(0);
+  $effect(() => {
+    if (FINDER_F4_ENABLED && results.data && !results.isPlaceholderData) {
+      retainedResults = results.data;
+      retainedResultsRevision = results.dataUpdatedAt;
+    }
+  });
+  const displayedResults = $derived(
+    results.data ?? (FINDER_F4_ENABLED ? retainedResults : undefined),
+  );
+  const currentResponse = $derived(
+    rankingUrlReady &&
+      !results.isPlaceholderData &&
+      results.data?.finderIdentity === finderIdentity &&
+      results.data.page.page_size === rankingState.pageSize &&
+      results.data.page.offset === rankingState.offset,
+  );
+  const pageCorrection = $derived(
+    FINDER_F4_ENABLED && currentResponse && !results.isFetching && results.data
+      ? lastPageCorrection(results.data.page)
+      : null,
+  );
+  const updatingResults = $derived(
+    FINDER_F4_ENABLED &&
+      !results.isError &&
+      (results.isFetching || !currentResponse || pageCorrection !== null),
+  );
+  const activeArchetypeLabel = $derived(archetypeLabel(rankingState.archetype));
+  const rankingDataNotReady = $derived.by(() => {
+    const error = results.error;
+    if (!(error instanceof ApiError) || error.status !== 503) return false;
+    const body = error.body;
+    const problem =
+      body &&
+      typeof body === 'object' &&
+      'detail' in body &&
+      body.detail &&
+      typeof body.detail === 'object'
+        ? body.detail
+        : body;
+    return (
+      !!problem &&
+      typeof problem === 'object' &&
+      'reason' in problem &&
+      problem.reason === 'finder_products_not_ready'
+    );
+  });
+
+  $effect(() => {
+    if (!FINDER_F4_ENABLED) return;
+    const current = page.url;
+    const restoredAnchor = anchor;
+    const identity = restoredAnchor ? JSON.stringify(restoredAnchor) : '';
+    if (
+      identity !== hydratedAnchorIdentity ||
+      current.href !== hydratedExploreUrl
+    ) {
+      hydratedAnchorIdentity = identity;
+      hydratedExploreUrl = current.href;
+      query = restoredAnchor?.name ?? '';
+    }
+    if ($selectedSystem.value !== urlSelection) {
+      selectedSystem.set(urlSelection);
+      untrack(() => {
+        selectionRevision += 1;
+      });
+    }
+    if (!rankingUrlReady) {
+      if (parsedRanking?.issues.length)
+        rankingNotice = 'Unsupported link option removed.';
+      void navigateWithAnchor(
+        `${current.pathname}${canonicalSearch}${current.hash}`,
+        {
+          replaceState: true,
+          ...(invalidAnchorState ? { state: { anchor: null } } : {}),
+        },
+      );
+    }
+  });
+
+  $effect(() => {
+    if (pageCorrection === null) return;
+    rankingNotice = 'Page reset to the last available results.';
+    const params = serializeRankingSearchParams(
+      { ...rankingState, offset: pageCorrection },
+      page.url.searchParams,
+    );
+    void navigateWithAnchor(exploreDestination(params), { replaceState: true });
+  });
+
+  function exploreDestination(params: URLSearchParams): string {
+    const search = params.toString();
+    return `${page.url.pathname}${search ? `?${search}` : ''}${page.url.hash}`;
+  }
+
+  function commitRanking(
+    patch: Partial<FinderRankingState>,
+    resetOffset = true,
+  ): void {
+    rankingNotice = '';
+    // A later picker/page action supersedes an unfinished anchor autofocus.
+    focusedAnchorRevision = anchorSelectionRevision;
+    const state = normalizeRankingState({
+      ...rankingState,
+      ...patch,
+      ...(resetOffset ? { offset: 0 } : {}),
+    });
+    void navigateWithAnchor(
+      exploreDestination(
+        serializeRankingSearchParams(state, page.url.searchParams),
+      ),
+    );
+  }
+
+  function commitSelection(id64: Id64): void {
+    if (FINDER_F4_ENABLED) {
+      const params = new URLSearchParams(page.url.searchParams);
+      params.set('selected', id64);
+      void navigateWithAnchor(
+        exploreDestination(serializeRankingSearchParams(rankingState, params)),
+      );
+    } else {
+      selectedSystem.set(id64);
+      selectionRevision += 1;
+    }
+  }
+
+  async function clearAnchor(): Promise<void> {
+    autocompleteOpen = false;
+    query = '';
+    const params = serializeRankingSearchParams(
+      { ...rankingState, offset: 0 },
+      page.url.searchParams,
+    );
+    await navigateWithAnchor(exploreDestination(params), {
+      state: { anchor: null },
+    });
+    rankingNotice = 'Anchor cleared; searching galaxy-wide.';
+    searchInput?.focus();
+  }
+
+  function followInspect(event: MouseEvent, id64: Id64): void {
+    if (
+      !FINDER_F4_ENABLED ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    )
+      return;
+    event.preventDefault();
+    void navigateWithAnchor(inspectHref(id64, page.url));
+  }
 
   // Finder F4 gate (default off). In a disabled build the F4 URL parameters
   // are never hydrated: they are replace-stripped so a hand-authored archetype
   // or page URL cannot activate ranking state or the rankings request, while
-  // `selected`, `system` and unrelated parameters are left intact. The
-  // enabled-build hydration/history contract is a later increment (F4b).
+  // `selected`, `system` and unrelated parameters are left intact.
   $effect(() => {
     if (FINDER_F4_ENABLED) return;
     const current = page.url;
@@ -359,10 +600,12 @@
     })),
   );
   const systems = $derived(
-    results.data ? results.data.results : viewportSystems,
+    displayedResults?.results ?? (FINDER_F4_ENABLED ? [] : viewportSystems),
   );
   const finderRevision = $derived(
-    results.dataUpdatedAt || appliedCatalogueRevision,
+    results.dataUpdatedAt ||
+      retainedResultsRevision ||
+      appliedCatalogueRevision,
   );
   const finderContribution = $derived(
     createExploreFinderContribution(systems, finderRevision),
@@ -396,38 +639,98 @@
       ? createGalaxyNebulaeContribution(nebulae, nebulaResourceRevision)
       : null,
   );
-  const selectedMapSystem = $derived.by(() => {
-    const finder = systems.find(
-      (system) => system.id64 === $selectedSystem.value,
-    );
-    if (finder)
-      return {
-        id64: finder.id64,
-        name: finder.name,
-        main_star_type: finder.main_star_type,
-        main_star_subtype: finder.main_star_subtype,
-        distance: finder.distance,
-        population: finder.population,
-        primaryEconomy: finder.primaryEconomy,
-        allegiance: finder.allegiance,
-        security: finder.security,
-      };
-    const catalogue = catalogueStars.data?.systems.find(
-      (system) => system.id64 === $selectedSystem.value,
-    );
-    return catalogue
+  let retainedSelectedSystem = $state<ExploreSystem | null>(null);
+  const selectedId = $derived(
+    FINDER_F4_ENABLED ? urlSelection : $selectedSystem.value,
+  );
+  const selectedOnPage = $derived(
+    systems.find((system) => system.id64 === selectedId),
+  );
+  const selectedInCatalogue = $derived(
+    viewportSystems.find((system) => system.id64 === selectedId),
+  );
+  const knownSelectedSystem = $derived(
+    selectedOnPage ??
+      selectedInCatalogue ??
+      (retainedSelectedSystem?.id64 === selectedId
+        ? retainedSelectedSystem
+        : null),
+  );
+  const needsSelectionResolution = $derived(
+    FINDER_F4_ENABLED &&
+      rankingUrlReady &&
+      urlSelection !== null &&
+      !selectedOnPage &&
+      (!knownSelectedSystem ||
+        !mapExploreSelectedSystemPoint(knownSelectedSystem)) &&
+      !results.isPending,
+  );
+  const selectedDetail = createQuery(() => {
+    const id64 = urlSelection;
+    return {
+      queryKey: [...queryKeys.all, 'explore', 'selected-point', id64],
+      queryFn: ({ signal }: { signal: AbortSignal }) => {
+        if (!id64) throw new Error('No selected system');
+        return getSystem(id64, signal);
+      },
+      enabled: needsSelectionResolution,
+      retry: 0,
+    };
+  });
+  const selectedDetailData = $derived(selectedDetail.data);
+  const reconstructedSelection = $derived<ExploreSystem | null>(
+    FINDER_F4_ENABLED &&
+      selectedDetailData?.id64 === urlSelection &&
+      selectedDetailData
       ? {
-          id64: catalogue.id64,
-          name: catalogue.name,
-          main_star_type: catalogue.mainStarClass,
-          main_star_subtype: null,
-          distance: null,
-          population: null,
-          primaryEconomy: null,
-          allegiance: null,
-          security: null,
+          id64: selectedDetailData.id64,
+          name: selectedDetailData.name,
+          coords: {
+            x: selectedDetailData.x,
+            y: selectedDetailData.y,
+            z: selectedDetailData.z,
+          },
         }
-      : null;
+      : null,
+  );
+  const selectedMapSystem = $derived<ExploreSystem | null>(
+    knownSelectedSystem ??
+      reconstructedSelection ??
+      (FINDER_F4_ENABLED && urlSelection ? { id64: urlSelection } : null),
+  );
+  const selectedPoint = $derived(
+    FINDER_F4_ENABLED && selectedMapSystem
+      ? (mapExploreSelectedSystemPoint(selectedMapSystem) ??
+          (retainedSelectedSystem?.id64 === urlSelection
+            ? mapExploreSelectedSystemPoint(retainedSelectedSystem)
+            : null) ??
+          (reconstructedSelection
+            ? mapExploreSelectedSystemPoint(reconstructedSelection)
+            : null))
+      : null,
+  );
+  const selectionContribution = $derived(
+    createExploreSelectionContribution(
+      selectedPoint,
+      systems,
+      finderRevision + selectedDetail.dataUpdatedAt,
+    ),
+  );
+  $effect(() => {
+    if (!FINDER_F4_ENABLED) return;
+    // Keep the last known point before replacing the result contribution. The
+    // renderer helper deduplicates it against the current page and rejects an
+    // unknown origin. Resolution is keyed by id, so late responses cannot move it.
+    const selected =
+      selectedOnPage ?? selectedInCatalogue ?? reconstructedSelection;
+    if (
+      selected &&
+      (mapExploreSelectedSystemPoint(selected) ||
+        retainedSelectedSystem?.id64 !== selected.id64)
+    )
+      retainedSelectedSystem = selected;
+    else if (retainedSelectedSystem?.id64 !== urlSelection)
+      retainedSelectedSystem = null;
   });
   const selectedStarPresentation = $derived(
     stellarPresentation({
@@ -438,9 +741,10 @@
   const scene = $derived(
     buildExploreGalaxyScene(
       systems,
-      $selectedSystem.value,
+      selectedId,
       finderRevision +
         selectionRevision +
+        selectedDetail.dataUpdatedAt +
         regionResourceRevision +
         streamRevision +
         layerToggleRevision +
@@ -451,6 +755,8 @@
       {
         finderContribution,
         finderRevision,
+        selectedPoint,
+        selectionContribution,
         camera: retainedCamera?.camera ?? null,
         spatialContributions: collectGalaxySpatialContributions({
           regions: regionContribution,
@@ -466,9 +772,20 @@
 
   $effect(() => {
     if (!anchor || !results.data || results.isFetching) return;
-    const resultSet = `${anchor.id64}:${results.dataUpdatedAt}`;
-    if (resultSet === focusedResultSet) return;
-    focusedResultSet = resultSet;
+    if (FINDER_F4_ENABLED) {
+      if (
+        rankingState.archetype !== 'any' ||
+        !currentResponse ||
+        anchorSelectionRevision === 0 ||
+        anchorSelectionRevision === focusedAnchorRevision
+      )
+        return;
+      focusedAnchorRevision = anchorSelectionRevision;
+    } else {
+      const resultSet = `${anchor.id64}:${results.dataUpdatedAt}`;
+      if (resultSet === focusedResultSet) return;
+      focusedResultSet = resultSet;
+    }
     void tick().then(() =>
       resultList
         ?.querySelector<HTMLButtonElement>('[data-result-select]')
@@ -482,11 +799,27 @@
       viewportCameraTimeout = null;
     }
     pendingViewportCamera = null;
-    anchor = hit;
     query = hit.name;
     autocompleteOpen = false;
-    selectedSystem.set(hit.id64);
-    selectionRevision += 1;
+    if (FINDER_F4_ENABLED) {
+      rankingNotice = '';
+      const params = new URLSearchParams(page.url.searchParams);
+      params.set('selected', hit.id64);
+      const committedAnchor = readExploreAnchor({ anchor: hit });
+      if (committedAnchor && rankingState.archetype === 'any')
+        anchorSelectionRevision += 1;
+      void navigateWithAnchor(
+        exploreDestination(
+          serializeRankingSearchParams({ ...rankingState, offset: 0 }, params),
+        ),
+        { state: { anchor: committedAnchor } },
+      );
+      if (!committedAnchor) return;
+    } else {
+      legacyAnchor = hit;
+      selectedSystem.set(hit.id64);
+      selectionRevision += 1;
+    }
     streamRevision += 1;
     streamCamera = {
       focusLy: {
@@ -505,7 +838,7 @@
   }
 
   function handleQueryInput(event: Event): void {
-    anchor = null;
+    if (!FINDER_F4_ENABLED) legacyAnchor = null;
     autocompleteOpen =
       (event.currentTarget as HTMLInputElement).value.trim().length >= 2;
     activeSuggestion = -1;
@@ -544,8 +877,8 @@
   }
 
   function selectResult(system: ExploreSystem): void {
-    selectedSystem.set(system.id64);
-    selectionRevision += 1;
+    if (FINDER_F4_ENABLED) retainedSelectedSystem = system;
+    commitSelection(system.id64);
     focusTarget = { kind: 'system', systemId64: system.id64 };
     focusRevision += 1;
   }
@@ -586,9 +919,8 @@
       } else if (event.target?.kind === 'system') {
         try {
           const picked = parseId64(event.target.systemId64);
-          selectedSystem.set(picked);
+          commitSelection(picked);
           lastPickedId64 = picked;
-          selectionRevision += 1;
         } catch {
           // Renderer events fail closed if an adapter emits a non-Id64 target.
         }
@@ -774,6 +1106,7 @@
           suggestionRows[activeSuggestion]
             ? `suggestion-${activeSuggestion}`
             : undefined}
+          bind:this={searchInput}
           bind:value={query}
           oninput={handleQueryInput}
           onfocus={() => (autocompleteOpen = normalizedQuery.length >= 2)}
@@ -818,28 +1151,143 @@
     </div>
   </section>
 
+  {#if FINDER_F4_ENABLED}
+    {#if anchor}
+      <p class="committed-anchor">
+        Search anchor: {anchor.name}
+        <button
+          type="button"
+          aria-label={`Clear anchor ${anchor.name}`}
+          onclick={clearAnchor}>Clear</button
+        >
+      </p>
+      {#if rankingState.archetype !== 'any'}
+        <p>
+          Archetype ranking is galaxy-wide today; choose Any to search around {anchor.name}.
+        </p>
+      {/if}
+    {/if}
+    <ArchetypePicker
+      archetype={rankingState.archetype}
+      minimumTier={rankingState.minimumTier}
+      onArchetypeChange={(archetype) =>
+        commitRanking({ archetype, minimumTier: null })}
+      onMinimumTierChange={(minimumTier) => commitRanking({ minimumTier })}
+    />
+    <label class="page-size"
+      >Results per page
+      <input
+        type="number"
+        min="1"
+        max="50"
+        step="1"
+        value={rankingState.pageSize}
+        onchange={(event) =>
+          commitRanking({ pageSize: event.currentTarget.valueAsNumber })}
+      />
+    </label>
+  {/if}
+
   <div class="explore-grid">
     <section
       class="results-panel"
       aria-labelledby="results-title"
-      aria-busy={results.isFetching || catalogueStars.isFetching}
+      aria-busy={FINDER_F4_ENABLED
+        ? updatingResults
+        : results.isFetching || catalogueStars.isFetching}
     >
       <div class="panel-heading">
         <div>
           <p class="eyebrow">Catalogue results</p>
           <h2 id="results-title">
-            {anchor ? `Near ${anchor.name}` : 'Near Sol'}
+            {FINDER_F4_ENABLED && rankingState.archetype !== 'any'
+              ? `Galaxy-wide ${activeArchetypeLabel} ranking`
+              : anchor
+                ? `Near ${anchor.name}`
+                : FINDER_F4_ENABLED
+                  ? 'Galaxy-wide opportunities'
+                  : 'Near Sol'}
           </h2>
         </div>
-        <span>{systems.length} shown</span>
+        {#if FINDER_F4_ENABLED && displayedResults}
+          <FinderResultRanking
+            variant="summary"
+            page={displayedResults.page}
+            archetype={displayedResults.finderState.archetype}
+          />
+        {:else}<span>{systems.length} shown</span>{/if}
       </div>
 
-      {#if results.isPending && catalogueStars.isPending}
+      {#if FINDER_F4_ENABLED}
+        <div role="status" aria-live="polite" class="ranking-status">
+          {#if rankingNotice}<p>{rankingNotice}</p>{/if}
+          {#if updatingResults}
+            <p>
+              {displayedResults ? 'Updating… ' : ''}{rankingState.archetype ===
+              'any'
+                ? 'Searching systems…'
+                : `Ranking systems for ${activeArchetypeLabel}…`}
+            </p>
+          {:else if currentResponse && displayedResults && !results.isError}
+            <span>{displayedResults.page.count} results on this page.</span>
+          {/if}
+        </div>
+        {#if results.isError}
+          <div class="state-card error" role="alert">
+            <h3>
+              {rankingDataNotReady
+                ? 'Ranking data not ready'
+                : 'Ranking temporarily unavailable'}
+            </h3>
+            <p>
+              {rankingDataNotReady
+                ? 'Archetype rankings are unavailable until Finder ranking data is published.'
+                : rankingState.archetype !== 'any'
+                  ? 'Archetype rankings are temporarily unavailable. Try again shortly.'
+                  : 'Discovery results could not be loaded. Try again shortly.'}
+            </p>
+            <button type="button" onclick={() => results.refetch()}
+              >Retry</button
+            >
+            {#if rankingState.archetype !== 'any'}
+              <button
+                type="button"
+                onclick={() => commitRanking({ archetype: 'any' })}
+                >Choose Any</button
+              >
+            {/if}
+          </div>
+        {:else if currentResponse && !results.isFetching && results.data?.page.total === 0}
+          <div class="state-card">
+            <p>
+              {rankingState.archetype === 'any'
+                ? 'No systems match this discovery area. Choose another anchor.'
+                : `No systems meet minimum tier ${rankingState.minimumTier} for ${activeArchetypeLabel}.`}
+            </p>
+            {#if rankingState.archetype !== 'any'}
+              {#if rankingState.minimumTier !== 'B'}
+                <button
+                  type="button"
+                  onclick={() => commitRanking({ minimumTier: 'B' })}
+                  >Reset to tier B</button
+                >
+              {/if}
+              <button
+                type="button"
+                onclick={() => commitRanking({ archetype: 'any' })}
+                >Choose Any</button
+              >
+            {/if}
+          </div>
+        {/if}
+      {/if}
+
+      {#if !FINDER_F4_ENABLED && results.isPending && catalogueStars.isPending}
         <div class="state-card" role="status">
           <Sparkles aria-hidden="true" />
           <p>Building a real-system shortlist…</p>
         </div>
-      {:else if results.isError && (reviewLabRun || systems.length === 0)}
+      {:else if !FINDER_F4_ENABLED && results.isError && (reviewLabRun || systems.length === 0)}
         <div class="state-card error" role="alert">
           <p>Discovery results could not be loaded.</p>
           <button
@@ -848,11 +1296,11 @@
             onclick={() => results.refetch()}>Retry search</button
           >
         </div>
-      {:else if reviewLabRun && results.data?.results.length === 0}
+      {:else if !FINDER_F4_ENABLED && reviewLabRun && results.data?.results.length === 0}
         <div class="state-card" role="status">
           <p>No systems match this discovery area.</p>
         </div>
-      {:else if systems.length === 0}
+      {:else if !FINDER_F4_ENABLED && systems.length === 0}
         <div class="state-card">
           <p>No systems match this discovery area. Choose another anchor.</p>
         </div>
@@ -879,9 +1327,18 @@
                   ><strong>{system.name ?? `System ${system.id64}`}</strong
                   ><code>{system.id64}</code></span
                 >
+                {#if FINDER_F4_ENABLED && displayedResults && !(rankingState.archetype === 'any' && displayedResults.finderState.archetype !== 'any')}
+                  <FinderResultRanking
+                    variant="row"
+                    {system}
+                    archetype={displayedResults.finderState.archetype}
+                  />
+                {/if}
                 <span class="result-facts">
                   {#if system.distance != null}<span
-                      >{system.distance.toFixed(1)} ly</span
+                      >{FINDER_F4_ENABLED
+                        ? `${system.distance.toFixed(2)} LY`
+                        : `${system.distance.toFixed(1)} ly`}</span
                     >{/if}
                   {#if system.primaryEconomy}<span>{system.primaryEconomy}</span
                     >{/if}
@@ -893,17 +1350,59 @@
                     >{/if}
                 </span>
               </button>
+              <!-- eslint-disable svelte/no-navigation-without-resolve -- inspectHref resolves the Inspect route -->
               <a
                 class="inspect-link"
-                href={resolve(`/inspect?system=${system.id64}`)}
+                href={FINDER_F4_ENABLED
+                  ? inspectHref(system.id64, page.url)
+                  : resolve(`/inspect?system=${system.id64}`)}
+                onclick={(event) => followInspect(event, system.id64)}
                 aria-label={`Inspect ${system.name ?? system.id64}`}
               >
                 Inspect <ArrowRight aria-hidden="true" size={16} />
               </a>
+              <!-- eslint-enable svelte/no-navigation-without-resolve -->
               <div class="finder-actions"><SystemActions {system} /></div>
             </li>
           {/each}
         </ul>
+      {/if}
+      {#if FINDER_F4_ENABLED && displayedResults}
+        <nav class="result-paging" aria-label="Result pages">
+          <button
+            type="button"
+            disabled={!currentResponse ||
+              updatingResults ||
+              displayedResults.page.offset === 0}
+            onclick={() =>
+              commitRanking(
+                {
+                  offset: Math.max(
+                    0,
+                    displayedResults!.page.offset -
+                      displayedResults!.page.page_size,
+                  ),
+                },
+                false,
+              )}>Previous</button
+          >
+          <button
+            type="button"
+            disabled={!currentResponse ||
+              updatingResults ||
+              displayedResults.page.offset + displayedResults.page.page_size >=
+                displayedResults.page.navigable_total}
+            onclick={() =>
+              commitRanking(
+                {
+                  offset:
+                    displayedResults!.page.offset +
+                    displayedResults!.page.page_size,
+                },
+                false,
+              )}>Next</button
+          >
+        </nav>
       {/if}
     </section>
 
@@ -1148,9 +1647,15 @@
             class="map-system-card__actions"
             aria-label="Selected system actions"
           >
-            <a href={resolve(`/inspect?system=${selectedMapSystem.id64}`)}
+            <!-- eslint-disable svelte/no-navigation-without-resolve -- inspectHref resolves the Inspect route -->
+            <a
+              href={FINDER_F4_ENABLED
+                ? inspectHref(selectedMapSystem.id64, page.url)
+                : resolve(`/inspect?system=${selectedMapSystem.id64}`)}
+              onclick={(event) => followInspect(event, selectedMapSystem!.id64)}
               >Open System Map</a
             >
+            <!-- eslint-enable svelte/no-navigation-without-resolve -->
             <a href={resolve(`/plan?system=${selectedMapSystem.id64}`)}
               >Plan here <ArrowRight aria-hidden="true" size={15} /></a
             >
@@ -1174,6 +1679,27 @@
 </main>
 
 <style>
+  .committed-anchor,
+  .result-paging {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .page-size {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-block: 1rem;
+  }
+  .page-size input {
+    width: 5rem;
+  }
+  .ranking-status {
+    color: var(--muted);
+  }
+  .result-paging {
+    margin-top: 1rem;
+  }
   .shortlist-nav {
     display: flex;
     flex-wrap: wrap;

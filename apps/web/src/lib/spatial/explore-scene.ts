@@ -50,6 +50,57 @@ export function mapExploreSystemPoint(
   };
 }
 
+/** F4 selection reconstruction must not place unknown legacy coordinates on Sol. */
+export function mapExploreSelectedSystemPoint(
+  system: ExploreSystem,
+): GalaxySystemPoint | null {
+  const point = mapExploreSystemPoint(system);
+  return point && hasKnownSelectionPosition(point) ? point : null;
+}
+
+function hasKnownSelectionPosition(point: GalaxySystemPoint): boolean {
+  const { x, y, z } = point.positionLy;
+  return (
+    [x, y, z].every(finiteCoordinate) &&
+    (x !== 0 || y !== 0 || z !== 0 || point.systemId64 === '10477373803')
+  );
+}
+
+/** Keep an omitted selection outside the current page without duplicating a result. */
+export function createExploreSelectionContribution(
+  point: GalaxySystemPoint | null,
+  systems: readonly ExploreSystem[],
+  revision: number,
+): SpatialContribution | null {
+  if (
+    !point ||
+    !hasKnownSelectionPosition(point) ||
+    systems.some(
+      (system) =>
+        mapExploreSystemPoint(system)?.systemId64 === point.systemId64,
+    )
+  ) {
+    return null;
+  }
+  const payload: GalaxySystemsPayload = { systems: [point] };
+  return {
+    id: 'finder-selection',
+    owner: 'FINDER',
+    revision,
+    layers: [
+      {
+        // The layer kind is shared with results; the contribution owns identity.
+        id: 'finder-systems',
+        version: 1,
+        representation: 'AUTHORITATIVE',
+        payload,
+        targetCount: 1,
+        truncated: false,
+      },
+    ],
+  };
+}
+
 function sceneCamera(points: readonly GalaxySystemPoint[]): {
   focusLy: Vec3Ly;
   distanceLy: number;
@@ -87,6 +138,10 @@ export type ExploreGalaxySceneContext = Readonly<{
   camera?: CameraState | null;
   spatialContributions?: readonly SpatialContribution[];
   selectedRegionId?: string | null;
+  /** F4-only last known or exact-system-resolved selection, independent of the page. */
+  selectedPoint?: GalaxySystemPoint | null;
+  /** Stable while only camera or region selection changes, like finderContribution. */
+  selectionContribution?: SpatialContribution | null;
 }>;
 
 export function createExploreFinderContribution(
@@ -131,6 +186,16 @@ export function buildExploreGalaxyScene(
   const finderContribution =
     context.finderContribution ??
     createExploreFinderContribution(systems, finderRevision);
+  const selectionContribution =
+    context.selectedPoint?.systemId64 === selectedSystemId64
+      ? context.selectionContribution === undefined
+        ? createExploreSelectionContribution(
+            context.selectedPoint,
+            systems,
+            revision,
+          )
+        : context.selectionContribution
+      : null;
   return {
     kind: 'galaxy',
     revision,
@@ -151,6 +216,7 @@ export function buildExploreGalaxyScene(
     ],
     contributions: [
       finderContribution,
+      ...(selectionContribution ? [selectionContribution] : []),
       ...(context.spatialContributions ?? []),
     ],
   };

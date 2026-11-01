@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
 import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
+import type { ExploreSystem } from '$lib/api/client';
+import { parseId64 } from '$lib/domain/id64';
 
 import type { GalaxySceneContract, SystemSceneContract } from '../contracts';
 import { buildFixtureCatalogueDensity } from '../galaxy-density.fixture';
@@ -10,6 +12,10 @@ import {
   DENSITY_CROSSFADE_NEAR_LY,
 } from '../galaxy-density-crossfade';
 import { createCommanderHistoryContribution } from '../commander-history';
+import {
+  buildExploreGalaxyScene,
+  mapExploreSelectedSystemPoint,
+} from '../explore-scene';
 import {
   createGalaxyNebulaeContribution,
   type GalaxyNebulaePayload,
@@ -36,6 +42,56 @@ const createSession = (backend: 'WEBGPU' | 'WEBGL2') =>
   }) satisfies SpatialBackendSession;
 
 describe('Babylon spatial adapter boundary', () => {
+  it('keeps the selected marker when a replacement page omits the selected Finder system', () => {
+    const selected = {
+      id64: parseId64('9007199254740993'),
+      name: 'Selected Reach',
+      coords: { x: 12, y: -4, z: 80 },
+    } as ExploreSystem;
+    const next = {
+      id64: parseId64('42'),
+      name: 'Next page',
+      coords: { x: 20, y: 3, z: 90 },
+    } as ExploreSystem;
+    const engine = new NullEngine();
+    const session = createBabylonSession(engine, 'WEBGL2');
+    const events = vi.fn();
+    const initial = buildExploreGalaxyScene([selected], selected.id64, 1);
+    expect(
+      session.execute?.({ type: 'LOAD_SCENE', scene: initial }, events),
+    ).toEqual({ status: 'executed' });
+    const nextScene = buildExploreGalaxyScene([next], selected.id64, 2, {
+      selectedPoint: mapExploreSelectedSystemPoint(selected),
+      camera: initial.camera,
+    });
+    expect(
+      session.execute?.({ type: 'LOAD_SCENE', scene: nextScene }, events),
+    ).toEqual({ status: 'executed' });
+    const scene = engine.scenes.at(-1)!;
+    const marker = scene.getMeshByName('selected-system-marker');
+    expect(marker).not.toBeNull();
+    expect(marker?.position.asArray()).toEqual([12, -4, 80]);
+    expect(
+      scene.meshes.filter((mesh) => mesh.name === 'selected-system-marker'),
+    ).toHaveLength(1);
+    const returned = buildExploreGalaxyScene([selected], selected.id64, 3, {
+      selectedPoint: mapExploreSelectedSystemPoint(selected),
+      camera: initial.camera,
+    });
+    expect(returned.contributions).toHaveLength(1);
+    expect(
+      session.execute?.({ type: 'LOAD_SCENE', scene: returned }, events),
+    ).toEqual({ status: 'executed' });
+    expect(
+      engine.scenes
+        .at(-1)!
+        .getMeshByName('selected-system-marker')
+        ?.position.asArray(),
+    ).toEqual([12, -4, 80]);
+    session.dispose();
+    engine.dispose();
+  });
+
   it('renders an interactive three-dimensional system scene with pickable bodies and schematic orbits', () => {
     const engine = new NullEngine();
     const contract: SystemSceneContract = {

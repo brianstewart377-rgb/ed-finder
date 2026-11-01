@@ -1,13 +1,17 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
+  import { page } from '$app/state';
+  import { FINDER_F4_ENABLED } from '$lib/config';
   import type { Id64 } from '$lib/domain/id64';
   import { usePersistenceContext } from '$lib/persistence/context';
   import { buildCompareRows, compareCsv, COMPARE_MAX } from './compare-metrics';
+  import { inspectHref, navigateWithAnchor } from './navigation';
 
   let { onOpenDetail } = $props<{ onOpenDetail?: (id64: Id64) => void }>();
   const { compare } = usePersistenceContext();
   const entries = $derived($compare.value);
-  const rows = $derived(buildCompareRows(entries));
+  const metricOptions = { suppressDistance: FINDER_F4_ENABLED };
+  const rows = $derived(buildCompareRows(entries, metricOptions));
   const componentId = $props.id();
   const headingId = `${componentId}-compare-title`;
 
@@ -21,7 +25,7 @@
   }
 
   function exportCsv(): void {
-    const blob = new Blob([compareCsv(entries)], {
+    const blob = new Blob([compareCsv(entries, metricOptions)], {
       type: 'text/csv;charset=utf-8',
     });
     const url = URL.createObjectURL(blob);
@@ -32,6 +36,28 @@
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
+  }
+
+  function inspectLink(id64: Id64): string {
+    return FINDER_F4_ENABLED && page.url.pathname === resolve('/explore')
+      ? inspectHref(id64, page.url)
+      : resolve(`/inspect?system=${id64}`);
+  }
+
+  function openInspect(event: MouseEvent, id64: Id64): void {
+    if (
+      !FINDER_F4_ENABLED ||
+      page.url.pathname !== resolve('/explore') ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+    event.preventDefault();
+    void navigateWithAnchor(inspectLink(id64));
   }
 </script>
 
@@ -99,11 +125,14 @@
                     >{entry.name}</button
                   >
                 {:else}
+                  <!-- eslint-disable svelte/no-navigation-without-resolve -- inspectLink resolves both legacy and state-preserving destinations -->
                   <a
                     class="system-name"
-                    href={resolve(`/inspect?system=${entry.id64}`)}
+                    href={inspectLink(entry.id64)}
+                    onclick={(event) => openInspect(event, entry.id64)}
                     >{entry.name}</a
                   >
+                  <!-- eslint-enable svelte/no-navigation-without-resolve -->
                 {/if}
                 <button
                   type="button"
@@ -150,13 +179,18 @@
       </table>
     </div>
     <p class="compare-note">
-      Best values are labelled where at least two known values differ. Shorter
-      distances are better; higher scores and counts are better.
+      Best values are labelled where at least two known values differ.
+      {#if FINDER_F4_ENABLED}
+        Higher scores and counts are better.
+      {:else}
+        Shorter distances are better; higher scores and counts are better.
+      {/if}
     </p>
   {/if}
   <p class="compare-note">
-    Saved in this browser. Values and search reference distances reflect when
-    each system was added.
+    Saved in this browser. Values{#if !FINDER_F4_ENABLED}
+      and search reference distances{/if}
+    reflect when each system was added.
   </p>
 </section>
 

@@ -13,6 +13,7 @@
 import type {
   ArchetypeRankingsRequest,
   ExploreSearchRequest,
+  FinderPageEnvelope,
 } from '$lib/api/client';
 import {
   ANY_ARCHETYPE,
@@ -92,6 +93,30 @@ export function lastValidOffset(
   );
   if (total <= 0) return 0;
   return Math.floor((total - 1) / size) * size;
+}
+
+/**
+ * A positive result set can shrink underneath a shared or restored page URL.
+ * Return its last valid page, or null when no replacement is necessary. Zero
+ * results are a genuine empty state, even when the requested offset is nonzero.
+ *
+ * Call only for the fresh envelope belonging to the active query; retained
+ * placeholder rows must never replace the URL of a different request.
+ */
+export function lastPageCorrection(
+  page: Pick<
+    FinderPageEnvelope,
+    'total' | 'navigable_total' | 'navigation_limit' | 'page_size' | 'offset'
+  >,
+): number | null {
+  if (page.total <= 0) return null;
+  const limit = Math.min(page.navigation_limit, NAVIGATION_LIMIT);
+  const total = Math.min(page.total, page.navigable_total, limit);
+  if (total <= 0) return null;
+  const crossesWindow = total === limit && page.offset + page.page_size > limit;
+  if (page.offset < total && !crossesWindow) return null;
+  const offset = lastValidOffset(total, page.page_size);
+  return offset === page.offset ? null : offset;
 }
 
 /**
