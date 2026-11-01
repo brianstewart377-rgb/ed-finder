@@ -8,13 +8,13 @@ import {
 } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import axe from 'axe-core';
-import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
 import { tick } from 'svelte';
 import * as api from '$lib/api/client';
 import { queryClient, queryKeys } from '$lib/api/query';
 import { auth } from '$lib/auth/auth';
 import { FINDER_F4_ENABLED } from '$lib/config';
 import { parseId64 } from '$lib/domain/id64';
+import { createHeadlessEngine } from '$lib/spatial/babylon/test-support';
 import type {
   RuntimeEvent,
   RuntimeCommand,
@@ -1503,7 +1503,7 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
       );
       vi.stubGlobal('matchMedia', () => ({ matches: false }));
 
-      const engine = new NullEngine();
+      const engine = createHeadlessEngine();
       let animationTime = 0;
       const session = createBabylonSession(
         engine,

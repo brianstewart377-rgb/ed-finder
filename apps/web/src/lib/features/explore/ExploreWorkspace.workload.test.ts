@@ -5,12 +5,12 @@ import {
   screen,
   within,
 } from '@testing-library/svelte';
-import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { tick } from 'svelte';
 import * as api from '$lib/api/client';
 import { queryClient, queryKeys } from '$lib/api/query';
 import { parseId64 } from '$lib/domain/id64';
+import { createHeadlessEngine } from '$lib/spatial/babylon/test-support';
 import * as sceneBuilder from '$lib/spatial/explore-scene';
 import * as regionsSource from '$lib/spatial/galaxy-regions';
 import * as nebulaeSource from '$lib/spatial/galaxy-nebulae';
@@ -253,7 +253,7 @@ describe('Explore load and interaction work budget', () => {
       const { createBabylonSession } = await vi.importActual<
         typeof import('$lib/spatial/babylon/adapter')
       >('$lib/spatial/babylon/adapter');
-      const engine = new NullEngine();
+      const engine = createHeadlessEngine();
       let animationTime = 0;
       const session = createBabylonSession(
         engine,
