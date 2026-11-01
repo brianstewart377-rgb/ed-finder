@@ -1359,7 +1359,10 @@
                 : `Ranking systems for ${activeArchetypeLabel}…`}
             </p>
           {:else if currentResponse && displayedResults && !results.isError}
-            <span>{displayedResults.page.count} results on this page.</span>
+            <span
+              >{displayedResults.page.count}
+              {displayedResults.page.count === 1 ? 'result' : 'results'} on this page.</span
+            >
           {/if}
         </div>
         {#if results.isError}
@@ -1503,6 +1506,7 @@
         <nav class="result-paging" aria-label="Result pages">
           <button
             type="button"
+            class="quiet-button"
             disabled={!currentResponse ||
               updatingResults ||
               displayedResults.page.offset === 0}
@@ -1520,6 +1524,7 @@
           >
           <button
             type="button"
+            class="quiet-button"
             disabled={!currentResponse ||
               updatingResults ||
               displayedResults.page.offset + displayedResults.page.page_size >=
@@ -1831,11 +1836,16 @@
   .page-size input {
     width: 5rem;
   }
+  .ranking-status,
+  .result-paging {
+    padding-inline: 1.15rem;
+  }
   .ranking-status {
     color: var(--muted);
   }
   .result-paging {
     margin-top: 1rem;
+    padding-bottom: 1rem;
   }
   .shortlist-nav {
     display: flex;

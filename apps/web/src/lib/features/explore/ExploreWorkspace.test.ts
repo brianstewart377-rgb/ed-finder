@@ -636,6 +636,32 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([
+    [0, '0 results on this page.'],
+    [1, '1 result on this page.'],
+    [3, '3 results on this page.'],
+  ])('announces the correct status for %i rows', async (count, status) => {
+    mockRankedPages(count);
+    renderEnabled('page_size=3');
+
+    expect(await screen.findByText(status)).toBeInTheDocument();
+  });
+
+  it('styles both paging buttons and keeps Previous disabled on the first page', async () => {
+    renderEnabled('page_size=1');
+    await screen.findByText('1 result on this page.');
+
+    const paging = within(
+      screen.getByRole('navigation', { name: 'Result pages' }),
+    );
+    const previous = paging.getByRole('button', { name: 'Previous' });
+    const next = paging.getByRole('button', { name: 'Next' });
+    expect(previous).toHaveClass('quiet-button');
+    expect(next).toHaveClass('quiet-button');
+    expect(previous).toBeDisabled();
+    expect(next).toBeEnabled();
+  });
+
   it.each(['any', 'selected'])(
     'keeps %s one-row page requests, range, list and map together across three pages',
     async (mode) => {
