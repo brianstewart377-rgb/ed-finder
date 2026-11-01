@@ -38,6 +38,19 @@ F4b's other open input, the Clear fit / Close fit rule, is owner answer 1 in
 section 9. F4c and F4e remain hard prerequisites before the flag is enabled in any
 governed production or release build.
 
+**Status update — 2026-11-01:** F4b is implemented behind the default-off
+`VITE_FINDER_F4_ENABLED` flag. Only the protected Product E2E
+bundle (`cypress-parity.yml`, **Build Svelte static bundle** step) and the
+disposable Review Lab bundle opt in to `1`. The web image's validated build
+argument defaults to `0`; governed production and release builds remain off.
+F4c–F4e remain separate increments. The prerequisite migration/build/validation
+and step 9′ product-publication sequence completed 2026-10-23; slice 1c's
+representative-scale proof passed all 72 measurements on 2026-10-31. Before the
+flag may be enabled in any governed production or release build, F4c, F4e,
+browser acceptance, visual approval, the owner enablement decision and the
+separate governed application-release gate remain required. F4b does not enable
+the flag in such a build or authorize a deployment.
+
 F4a and F4b are code-only increments validated against disposable fixtures.
 They remain hidden behind a default-off build feature gate until the governed
 production sequence has applied the pending migrations (rewritten `011` and
@@ -2039,6 +2052,15 @@ drift.
 
 Exact files:
 
+- modify `apps/web/src/lib/features/explore/archetypes.ts` and
+  `archetypes.test.ts` (inventory amendment from part 1a: the fit-label helper
+  implements section 9 Question 1's 2026-10-31 best-rival amendment)
+- create `apps/web/src/lib/features/explore/navigation.ts` and
+  `navigation.test.ts` (inventory amendment from part 1b: the shared
+  anchor-state-preserving navigation and state-carrying Inspect href helpers)
+- modify `apps/web/src/lib/components/SystemDetail.svelte` and
+  `SystemDetail.test.ts` (inventory amendment from part 1b: handle absent
+  coordinates after `getSystem` applies the origin guard)
 - create `apps/web/src/lib/features/explore/ArchetypePicker.svelte`
 - create `apps/web/src/lib/features/explore/ArchetypePicker.test.ts`
 - create `apps/web/src/lib/features/explore/FinderResultRanking.svelte`
@@ -2140,7 +2162,9 @@ Exact files:
   navigation helper, without adding the selection, so the natural return action
   does not discard the archetype, page or anchored search; with no `from` it
   falls back to `/explore` as today)
-- create `apps/web/src/routes/inspect/+page.test.ts` (default-off unchanged link;
+- create `apps/web/src/routes/inspect/InspectPage.test.ts` (inventory amendment
+  from part 1b, replacing `+page.test.ts` because SvelteKit reserves
+  `+`-prefixed route files; default-off unchanged link;
   enabled replay deletes prior/duplicate `selected` and `system`, sets each once
   to the inspected id, preserves outbound `page.state`/anchor on return, covers
   the bare-link fallback, and a Back to Explore round trip that restores the
@@ -2503,6 +2527,24 @@ are kept verbatim; these answers govern where they differ from earlier text.
   fit” is rendered in visible or accessible text; section 5's mode-neutral
   classification rule (**Clear primary classification**) is unchanged by this
   answer.
+- **Question 1 — amended 2026-10-31 (owner).** Published data showed that the
+  primary/secondary separation cannot carry this label in selected mode: in the
+  top 1,000 rows of every archetype's live `/api/archetypes/rankings` list, all
+  1,000 systems have Flexible as their primary type, so `archetype_confidence`
+  mostly measures Flexible against its runner-up. The label is therefore driven
+  by the picked archetype's own score against its **best rival**: the highest
+  score among the other archetypes, not counting Flexible (for Flexible itself,
+  among the other seven), with ties going to the earliest key in `ARCHETYPE_KEYS`
+  order. **Clear fit** when the picked score is at least **3 points** above the
+  rival's; otherwise **Close fit**, and a Close fit row names the rival and its
+  score (for example “Close fit · Megacomplex 79”). Evidence, from the top 100
+  systems for each non-Flexible archetype (700 rows, live
+  `/api/archetypes/system/{id64}`, 2026-10-31): the rival ties or beats the picked
+  type in 62% of rows; the middle gap is 0 points; a 3-point cut-off marks 24% of
+  those rows (26% of first-page rows) Clear fit. The ranking rows carry
+  `rival_archetype` and `rival_score` for this. The label stays selected-mode only,
+  Any mode is unchanged, and the Product fixture's labels follow from its pinned
+  scores.
 - **Question 5 — Yes.** The proposed slice 1c latency budgets are accepted
   unchanged as the pass/fail line: warm ≤ 300 ms first page and ≤ 600 ms for the
   near-ceiling page and the within-window count; cold ≤ 1,500 / 2,500 / 2,500 ms

@@ -250,22 +250,40 @@ async def test_archetype_rankings_v3_adjacent_pages_follow_wide_weighted_order(d
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('min_score', (60, 76, 88))
-async def test_archetype_rankings_v3_database_accepts_each_floor(database, min_score):
+async def test_archetype_rankings_v3_each_floor_carries_rival_from_wide_row(database, min_score):
     connection, _, _, _ = database
     _build_published_generation(database)
-    archetype_key = _pick_scored_archetype_key(connection)
+    score_columns = ', '.join(f'{key}_score' for key in ARCHETYPE_KEYS)
     pool = await _asyncpg_pool(connection)
     try:
-        result = await archetypes._archetype_rankings_v3(
-            archetype=archetype_key, min_score=min_score, galaxy_region=None,
-            max_distance_ly=None, has_elw=None, min_slots=None,
-            max_contamination=None, limit=50, offset=0, pool=pool,
-        )
+        for archetype_key in ARCHETYPE_KEYS:
+            result = await archetypes._archetype_rankings_v3(
+                archetype=archetype_key, min_score=min_score, galaxy_region=None,
+                max_distance_ly=None, has_elw=None, min_slots=None,
+                max_contamination=None, limit=50, offset=0, pool=pool,
+            )
+            assert result['archetype'] == archetype_key
+            assert result['total'] <= 10_000
+            for row in result['results']:
+                # Read the published wide row independently of the page SQL
+                # and compute the expected rival without the route's helper.
+                wide_row = connection.execute(
+                    f'SELECT {score_columns} FROM v3_app.system_archetype '
+                    'WHERE system_id64 = %s',
+                    (row['id64'],),
+                ).fetchone()
+                assert wide_row is not None
+                scores = dict(zip(ARCHETYPE_KEYS, wide_row, strict=True))
+                rivals = sorted(
+                    (key for key in ARCHETYPE_KEYS if key not in (archetype_key, 'flexible')),
+                    key=lambda key: (-scores[key], ARCHETYPE_KEYS.index(key)),
+                )
+                expected_rival = rivals[0]
+                assert row['rival_archetype'] == expected_rival
+                assert row['rival_score'] == scores[expected_rival]
+                assert type(row['rival_score']) is int
     finally:
         await pool.close()
-
-    assert result['archetype'] == archetype_key
-    assert result['total'] <= 10_000
 
 
 def _plan_nodes(node):
@@ -427,9 +445,10 @@ async def test_archetype_rankings_v3_plans_are_bounded_and_use_floor_partials(da
 async def test_archetype_rankings_v3_page_matches_previous_sql(database):
     """Freeze the old detail-before-paging SQL as an independent result oracle.
 
-    Compare every column and value in order for every key/floor, including the
-    existing tiny fixture's empty near-ceiling pages. This is a result contract,
-    not a substitute for the separately governed saturated-window scale proof.
+    Compare every pre-existing column and value in order for every key/floor,
+    including the tiny fixture's empty near-ceiling pages. The only permitted
+    additions are the eight picked-score aliases used to calculate the rival.
+    This is a result contract, not the governed saturated-window scale proof.
     """
     connection, _, _, _ = database
     _build_published_generation(database)
@@ -483,15 +502,31 @@ ORDER BY picked.{key}_weighted_e4 DESC, page.system_id64 ASC'''
                         )
                         new_statement = await conn.prepare(new_sql)
                         old_statement = await conn.prepare(old_sql.format(key=key, floor=floor))
-                        # Prepared metadata also compares column names, order
-                        # and types when an offset or floor yields no rows.
-                        assert new_statement.get_attributes() == old_statement.get_attributes()
+                        # Compare pre-existing names, order and types even for
+                        # empty pages; only the eight rival inputs may be added.
+                        new_attributes = new_statement.get_attributes()
+                        old_attributes = old_statement.get_attributes()
+                        rival_inputs = {f'picked_{key}_score' for key in ARCHETYPE_KEYS}
+                        assert {
+                            column.name for column in new_attributes
+                        } - {column.name for column in old_attributes} == rival_inputs
+                        original_positions = [
+                            index for index, column in enumerate(new_attributes)
+                            if column.name not in rival_inputs
+                        ]
+                        assert tuple(new_attributes[index] for index in original_positions) == old_attributes
                         for limit, offset in (
                             (1, 0), (1, 1), (50, 0), (50, 2), (50, 9950), (1, 9999),
                         ):
                             actual = await new_statement.fetch(limit, offset)
                             expected = await old_statement.fetch(limit, offset)
-                            assert actual == expected, (key, floor, limit, offset)
+                            original_values = [
+                                tuple(row[index] for index in original_positions)
+                                for row in actual
+                            ]
+                            assert original_values == [tuple(row) for row in expected], (
+                                key, floor, limit, offset,
+                            )
                             nonempty_comparisons += bool(expected)
     finally:
         await pool.close()

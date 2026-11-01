@@ -3,7 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import SpatialCanvas from './SpatialCanvas.svelte';
 import { buildGalaxyReviewFixtureScene } from './galaxy-review-fixture';
-import type { RuntimeEventListener, SpatialSceneContract } from './contracts';
+import type {
+  CameraState,
+  RuntimeEventListener,
+  SpatialSceneContract,
+} from './contracts';
 
 const adapter = vi.hoisted(() => ({
   runtimes: [] as Array<{
@@ -12,6 +16,15 @@ const adapter = vi.hoisted(() => ({
     emit: (event: Parameters<RuntimeEventListener>[0]) => void;
   }>,
   create: vi.fn(),
+}));
+
+const feature = vi.hoisted(() => ({ finder: false }));
+
+vi.mock('$lib/config', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('$lib/config')>()),
+  get FINDER_F4_ENABLED() {
+    return feature.finder;
+  },
 }));
 
 vi.mock('./babylon/adapter', () => ({
@@ -34,6 +47,7 @@ class ResizeObserverMock {
 
 describe('SpatialCanvas', () => {
   beforeEach(() => {
+    feature.finder = false;
     adapter.runtimes.length = 0;
     adapter.create.mockReset();
     observe.mockReset();
@@ -575,5 +589,286 @@ describe('SpatialCanvas', () => {
         ),
       ).toBe(true),
     );
+  });
+
+  it.each(['overview', 'system focus'] as const)(
+    'retains the settled %s camera when Finder data changes during the transition',
+    async (movement) => {
+      feature.finder = true;
+      vi.stubGlobal('matchMedia', () => ({ matches: false }));
+      const scene = buildGalaxyReviewFixtureScene();
+      const focusTarget = {
+        kind: 'system' as const,
+        systemId64: '9007199254740994',
+      };
+      const settledCamera: CameraState = {
+        ...scene.camera,
+        focusLy: { x: 0, y: -6, z: 70 },
+        distanceLy: movement === 'overview' ? 118_000 : 60,
+        revision: 21,
+      };
+      const onTransitionChange = vi.fn();
+      const view = render(SpatialCanvas, {
+        props: {
+          scene,
+          onTransitionChange,
+          ...(movement === 'overview'
+            ? { cameraRequest: settledCamera, cameraRequestRevision: 1 }
+            : { focusTarget, focusRevision: 1 }),
+        },
+      });
+      await waitFor(() =>
+        expect(view.container.querySelector('.spatial-canvas')).toHaveAttribute(
+          'data-camera-transition-active',
+          'true',
+        ),
+      );
+      const runtime = adapter.runtimes[0]!;
+      runtime.dispatch.mockClear();
+      // A real LOAD_SCENE rebuild emits its supplied camera synchronously.
+      // Replaying the pre-flight scene camera here would undo the flight.
+      runtime.dispatch.mockImplementation((command) => {
+        if (command.type === 'LOAD_SCENE') {
+          runtime.emit({
+            type: 'CAMERA_CHANGED',
+            camera: command.scene.camera,
+          });
+        }
+        return { status: 'executed' };
+      });
+      const refreshedScene: SpatialSceneContract = {
+        ...scene,
+        revision: scene.revision + 1,
+        contributions: [
+          ...scene.contributions,
+          {
+            id: 'new-finder-result',
+            owner: 'FINDER',
+            revision: 1,
+            layers: [
+              {
+                id: 'finder-systems',
+                version: 1,
+                representation: 'AUTHORITATIVE',
+                targetCount: 1,
+                truncated: false,
+                payload: {
+                  systems: [
+                    {
+                      systemId64: '10477373803000',
+                      name: 'New Finder point',
+                      positionLy: { x: 100, y: 30, z: 100 },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      };
+      await view.rerender({ scene: refreshedScene });
+      expect(runtime.dispatch).not.toHaveBeenCalled();
+
+      runtime.emit({ type: 'CAMERA_CHANGED', camera: settledCamera });
+      runtime.emit({
+        type: 'TRANSITION_FINISHED',
+        ...(movement === 'system focus' ? { target: focusTarget } : {}),
+      });
+
+      await waitFor(() =>
+        expect(runtime.dispatch).toHaveBeenCalledWith({
+          type: 'LOAD_SCENE',
+          scene: { ...refreshedScene, camera: settledCamera },
+        }),
+      );
+      expect(onTransitionChange).toHaveBeenLastCalledWith(false, settledCamera);
+      expect(view.container.querySelector('.spatial-canvas')).toHaveAttribute(
+        'data-camera-revision',
+        '21',
+      );
+      expect(view.container.querySelector('.spatial-canvas')).toHaveAttribute(
+        'data-system-target-count',
+        '4',
+      );
+      expect(
+        view.container.querySelector(
+          '[data-map-label-key="system:9007199254740994"]',
+        ),
+      ).toHaveTextContent('Fixture Core');
+    },
+  );
+
+  it('keeps the destination camera when a queued scene enters a system', async () => {
+    feature.finder = true;
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    const scene = buildGalaxyReviewFixtureScene();
+    const focusTarget = { kind: 'system' as const, systemId64: '42' };
+    const view = render(SpatialCanvas, {
+      props: { scene, focusTarget, focusRevision: 1 },
+    });
+    await waitFor(() =>
+      expect(view.container.querySelector('.spatial-canvas')).toHaveAttribute(
+        'data-camera-transition-active',
+        'true',
+      ),
+    );
+    const runtime = adapter.runtimes[0]!;
+    runtime.dispatch.mockClear();
+    const destination: SpatialSceneContract = {
+      kind: 'system',
+      revision: 2,
+      systemId64: '42',
+      fidelity: 'S1',
+      camera: {
+        systemId64: '42',
+        focus: focusTarget,
+        semanticDistance: 38,
+        bearingRad: -0.85,
+        pitchRad: 0.58,
+        revision: 2,
+      },
+      bodies: [],
+      infrastructure: [],
+      contributions: [],
+    };
+    await view.rerender({ scene: destination });
+    expect(runtime.dispatch).not.toHaveBeenCalled();
+    runtime.emit({
+      type: 'CAMERA_CHANGED',
+      camera: { ...scene.camera, distanceLy: 60, revision: 3 },
+    });
+    runtime.emit({ type: 'TRANSITION_FINISHED', target: focusTarget });
+    await waitFor(() =>
+      expect(runtime.dispatch).toHaveBeenCalledWith({
+        type: 'LOAD_SCENE',
+        scene: destination,
+      }),
+    );
+  });
+
+  it('loads the unchanged queued camera from main when F4 is disabled', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    const scene = buildGalaxyReviewFixtureScene();
+    const focusTarget = { kind: 'system' as const, systemId64: '42' };
+    const onTransitionChange = vi.fn();
+    const view = render(SpatialCanvas, {
+      props: { scene, focusTarget, focusRevision: 1, onTransitionChange },
+    });
+    await waitFor(() =>
+      expect(view.container.querySelector('.spatial-canvas')).toHaveAttribute(
+        'data-camera-transition-active',
+        'true',
+      ),
+    );
+    const runtime = adapter.runtimes[0]!;
+    const refreshedScene = { ...scene, revision: scene.revision + 1 };
+    await view.rerender({ scene: refreshedScene });
+    const settledCamera: CameraState = {
+      ...scene.camera,
+      focusLy: { x: 12, y: -6, z: 70 },
+      distanceLy: 60,
+      revision: 21,
+    };
+    runtime.emit({ type: 'CAMERA_CHANGED', camera: settledCamera });
+    runtime.emit({ type: 'TRANSITION_FINISHED', target: focusTarget });
+
+    await waitFor(() =>
+      expect(runtime.dispatch).toHaveBeenLastCalledWith({
+        type: 'LOAD_SCENE',
+        scene: refreshedScene,
+      }),
+    );
+    expect(
+      runtime.dispatch.mock.calls.filter(
+        ([command]) => command.type === 'LOAD_SCENE',
+      ),
+    ).toHaveLength(2);
+    expect(
+      runtime.dispatch.mock.calls.filter(
+        ([command]) => command.type === 'FLY_TO',
+      ),
+    ).toHaveLength(1);
+    expect(onTransitionChange).toHaveBeenCalledTimes(2);
+    expect(onTransitionChange).toHaveBeenLastCalledWith(false, settledCamera);
+  });
+
+  it('keeps density patched during a flight in the queued and recovered F4 scene', async () => {
+    feature.finder = true;
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    const scene = buildGalaxyReviewFixtureScene();
+    const focusTarget = { kind: 'system' as const, systemId64: '42' };
+    const view = render(SpatialCanvas, {
+      props: { scene, focusTarget, focusRevision: 1 },
+    });
+    await waitFor(() =>
+      expect(view.container.querySelector('.spatial-canvas')).toHaveAttribute(
+        'data-camera-transition-active',
+        'true',
+      ),
+    );
+    const runtime = adapter.runtimes[0]!;
+    const contributionPatch = {
+      ...scene.contributions[0]!,
+      revision: scene.contributions[0]!.revision + 1,
+    };
+    // The parent snapshots its scene before the asynchronous density arrives.
+    const queuedScene = { ...scene, revision: scene.revision + 1 };
+    await view.rerender({ scene: queuedScene });
+    await view.rerender({ contributionPatch, contributionPatchRevision: 1 });
+    expect(
+      runtime.dispatch.mock.calls.filter(
+        ([command]) => command.type === 'LOAD_SCENE',
+      ),
+    ).toHaveLength(1);
+
+    const settledCamera: CameraState = {
+      ...scene.camera,
+      distanceLy: 60,
+      revision: 21,
+    };
+    runtime.emit({ type: 'CAMERA_CHANGED', camera: settledCamera });
+    runtime.emit({ type: 'TRANSITION_FINISHED', target: focusTarget });
+
+    const expectedContributions = [
+      contributionPatch,
+      ...queuedScene.contributions.slice(1),
+    ];
+    await waitFor(() =>
+      expect(runtime.dispatch).toHaveBeenCalledWith({
+        type: 'LOAD_SCENE',
+        scene: {
+          ...queuedScene,
+          camera: settledCamera,
+          contributions: expectedContributions,
+        },
+      }),
+    );
+    expect(
+      runtime.dispatch.mock.calls.filter(
+        ([command]) => command.type === 'PATCH_CONTRIBUTION',
+      ),
+    ).toHaveLength(1);
+
+    runtime.emit({ type: 'RECOVERED', detail: 'Test context restored' });
+    await waitFor(() =>
+      expect(
+        runtime.dispatch.mock.calls.filter(
+          ([command]) => command.type === 'LOAD_SCENE',
+        ),
+      ).toHaveLength(3),
+    );
+    expect(runtime.dispatch).toHaveBeenLastCalledWith({
+      type: 'LOAD_SCENE',
+      scene: {
+        ...queuedScene,
+        camera: settledCamera,
+        contributions: expectedContributions,
+      },
+    });
+    expect(
+      runtime.dispatch.mock.calls.filter(
+        ([command]) => command.type === 'PATCH_CONTRIBUTION',
+      ),
+    ).toHaveLength(1);
   });
 });

@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
+import subprocess
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -68,9 +72,45 @@ def test_web_image_builds_shared_packages_in_dependency_order_before_svelte() ->
 
     frozen_install = "RUN pnpm install --frozen-lockfile"
     shared_build_run = "RUN pnpm run shared:build"
-    svelte_build = 'RUN VITE_BUILD_SHA="$BUILD_SHA" pnpm build'
+    svelte_build = (
+        'RUN VITE_BUILD_SHA="$BUILD_SHA" '
+        'VITE_FINDER_F4_ENABLED="$VITE_FINDER_F4_ENABLED" pnpm build'
+    )
     assert dockerfile.index(frozen_install) < dockerfile.index(shared_build_run)
     assert dockerfile.index(shared_build_run) < dockerfile.index(svelte_build)
+
+
+def test_web_image_finder_flag_defaults_off_and_reaches_only_the_bundle_build() -> None:
+    dockerfile = _read(DOCKERFILE)
+    build, runtime = dockerfile.split(NGINX_IMAGE, 1)
+
+    assert build.count("ARG VITE_FINDER_F4_ENABLED=0\n") == 1
+    assert dockerfile.count("ARG VITE_FINDER_F4_ENABLED") == 1
+    assert (
+        'RUN VITE_BUILD_SHA="$BUILD_SHA" '
+        'VITE_FINDER_F4_ENABLED="$VITE_FINDER_F4_ENABLED" pnpm build'
+    ) in build
+    assert "VITE_FINDER_F4_ENABLED" not in runtime
+
+
+@pytest.mark.parametrize("value", ["0", "1", "", "2", "01", "true", "false", "1\n"])
+def test_web_image_finder_flag_accepts_only_explicit_binary_values(value: str) -> None:
+    dockerfile = _read(DOCKERFILE)
+    validation = re.search(
+        r'^RUN (case "\$VITE_FINDER_F4_ENABLED" in .*?esac)$',
+        dockerfile,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    assert validation is not None
+    assert validation.start() < dockerfile.index("RUN pnpm install --frozen-lockfile")
+
+    result = subprocess.run(
+        ["sh", "-c", validation.group(1)],
+        env={"VITE_FINDER_F4_ENABLED": value},
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == (0 if value in {"0", "1"} else 64)
 
 
 def test_web_image_retains_locked_release_and_static_delivery_contract() -> None:

@@ -2,7 +2,12 @@
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
+  import { FINDER_F4_ENABLED } from '$lib/config';
   import type { Id64 } from '$lib/domain/id64';
+  import {
+    inspectHref,
+    navigateWithAnchor,
+  } from '$lib/features/explore/navigation';
   import SystemDetail from './SystemDetail.svelte';
   let { id64 } = $props<{ id64: Id64 }>();
   let dialog: HTMLDivElement;
@@ -37,11 +42,31 @@
   function close() {
     const url = new URL(page.url);
     url.searchParams.delete('system');
+    if (FINDER_F4_ENABLED) {
+      void navigateWithAnchor(`${url.pathname}${url.search}${url.hash}`, {
+        replaceState: true,
+      }).then(restoreFocus);
+      return;
+    }
     // eslint-disable-next-line svelte/no-navigation-without-resolve -- current URL is already resolved
     void goto(`${url.pathname}${url.search}${url.hash}`, {
       replaceState: true,
       noScroll: true,
     }).then(restoreFocus);
+  }
+
+  function openInspect(event: MouseEvent) {
+    if (!FINDER_F4_ENABLED) return;
+    if (
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    )
+      return;
+    event.preventDefault();
+    void navigateWithAnchor(inspectHref(id64, page.url));
   }
 
   function containTab(event: KeyboardEvent) {
@@ -118,9 +143,16 @@
     >
     <SystemDetail {id64} />
     <div class="detail-actions">
-      <a class="primary-button" href={resolve(`/inspect?system=${id64}`)}
+      <!-- eslint-disable svelte/no-navigation-without-resolve -- inspectHref resolves the Inspect route -->
+      <a
+        class="primary-button"
+        href={FINDER_F4_ENABLED
+          ? inspectHref(id64, page.url)
+          : resolve(`/inspect?system=${id64}`)}
+        onclick={FINDER_F4_ENABLED ? openInspect : undefined}
         >Open canonical Inspect</a
       >
+      <!-- eslint-enable svelte/no-navigation-without-resolve -->
     </div>
   </div>
 </div>

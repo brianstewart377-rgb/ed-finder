@@ -61,6 +61,18 @@ export type ArchetypeRankingRow = {
      */
     selected_archetype?: string | null;
     /**
+     * Rival Archetype
+     *
+     * Highest-scoring archetype other than the selected archetype and Flexible; ties use ARCHETYPE_KEYS order.
+     */
+    rival_archetype?: string | null;
+    /**
+     * Rival Score
+     *
+     * Rival archetype integer score (0–100) from the same stored system row.
+     */
+    rival_score?: number | null;
+    /**
      * Primary Archetype
      */
     primary_archetype?: string | null;
@@ -1765,6 +1777,102 @@ export type DerivedFeatureResponse = {
      * Updated At
      */
     updated_at?: string | null;
+};
+
+/**
+ * EconomyItemV1
+ */
+export type EconomyItemV1 = {
+    /**
+     * Kind
+     */
+    kind: 'own' | 'strong_link' | 'passed_on_link' | 'planetary_port_link' | 'weak_links';
+    /**
+     * Base
+     */
+    base: number;
+    /**
+     * Modifiers
+     */
+    modifiers: Array<EconomyModifierV1>;
+    /**
+     * Floored
+     */
+    floored: boolean;
+    /**
+     * Value
+     */
+    value: number;
+    /**
+     * Source Site Ids
+     */
+    source_site_ids: Array<string>;
+    /**
+     * Via Site Id
+     */
+    via_site_id: string | null;
+    /**
+     * Rule Ids
+     */
+    rule_ids: Array<string>;
+    /**
+     * Count
+     */
+    count: number | null;
+};
+
+/**
+ * EconomyModifierV1
+ */
+export type EconomyModifierV1 = {
+    /**
+     * Condition
+     */
+    condition: string;
+    /**
+     * Delta
+     */
+    delta: number;
+};
+
+/**
+ * EconomyNoteV1
+ */
+export type EconomyNoteV1 = {
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Site Id
+     */
+    site_id: string | null;
+    /**
+     * Body Ref
+     */
+    body_ref: string | null;
+    /**
+     * Message
+     */
+    message: string;
+};
+
+/**
+ * EconomyV1
+ */
+export type EconomyV1 = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Strength
+     */
+    strength: number;
+    /**
+     * Items
+     */
+    items: Array<EconomyItemV1>;
 };
 
 /**
@@ -4380,6 +4488,72 @@ export type PlanBodiesV1 = {
      * Belts
      */
     belts: Array<PlanSystemBeltV1>;
+    /**
+     * Economy Facts Generation Id
+     */
+    economy_facts_generation_id?: string | null;
+    /**
+     * Reserve Level
+     */
+    reserve_level?: 'pristine' | 'major' | 'common' | 'low' | 'depleted' | null;
+    /**
+     * Has Black Hole
+     */
+    has_black_hole?: boolean | null;
+    /**
+     * Has White Dwarf
+     */
+    has_white_dwarf?: boolean | null;
+    /**
+     * Has Neutron Star
+     */
+    has_neutron_star?: boolean | null;
+    /**
+     * Economy Notes
+     */
+    economy_notes?: Array<string>;
+};
+
+/**
+ * PlanBodyEconomyV1
+ */
+export type PlanBodyEconomyV1 = {
+    /**
+     * Kind
+     */
+    kind?: 'black_hole' | 'neutron_star' | 'white_dwarf' | 'brown_dwarf' | 'other_star' | 'earth_like_world' | 'water_world' | 'ammonia_world' | 'gas_giant' | 'high_metal_content_world' | 'metal_rich_body' | 'rocky_ice_body' | 'rocky_body' | 'icy_body' | null;
+    /**
+     * Parent Ref
+     */
+    parent_ref?: string | null;
+    /**
+     * In Binary Pair
+     */
+    in_binary_pair?: boolean | null;
+    /**
+     * Tidally Locked
+     */
+    tidally_locked?: boolean | null;
+    /**
+     * Volcanism
+     */
+    volcanism?: boolean | null;
+    /**
+     * Terraformable
+     */
+    terraformable?: boolean | null;
+    /**
+     * Has Rings
+     */
+    has_rings?: boolean | null;
+    /**
+     * Geological Signals
+     */
+    geological_signals?: number | null;
+    /**
+     * Biological Signals
+     */
+    biological_signals?: number | null;
 };
 
 /**
@@ -4406,6 +4580,7 @@ export type PlanBodyV1 = {
      * Is Ringed
      */
     is_ringed?: boolean | null;
+    economy?: PlanBodyEconomyV1 | null;
 };
 
 /**
@@ -4441,6 +4616,24 @@ export type PlanCheckV1 = {
 };
 
 /**
+ * PlanEconomiesV1
+ */
+export type PlanEconomiesV1 = {
+    /**
+     * Now
+     */
+    now: Array<PortEconomyV1>;
+    /**
+     * After Plan
+     */
+    after_plan: Array<PortEconomyV1>;
+    /**
+     * Notes
+     */
+    notes: Array<EconomyNoteV1>;
+};
+
+/**
  * PlanEvaluationV1
  */
 export type PlanEvaluationV1 = {
@@ -4470,6 +4663,7 @@ export type PlanEvaluationV1 = {
     explanations: {
         [key: string]: PlanRuleExplanationV1;
     };
+    economies: PlanEconomiesV1;
 };
 
 /**
@@ -4582,6 +4776,7 @@ export type PlanRequestV1 = {
      * Sites
      */
     sites: Array<PlanSiteV1>;
+    system_economy?: PlanSystemEconomyV1 | null;
 };
 
 /**
@@ -4780,6 +4975,10 @@ export type PlanSystemBeltV1 = {
      * Outer Radius Km
      */
     outer_radius_km: number | null;
+    /**
+     * Lifecycle State
+     */
+    lifecycle_state: string;
 };
 
 /**
@@ -4858,6 +5057,52 @@ export type PlanSystemBodyV1 = {
      * Lifecycle State
      */
     lifecycle_state: string;
+    /**
+     * Economy Kind
+     */
+    economy_kind?: 'black_hole' | 'neutron_star' | 'white_dwarf' | 'brown_dwarf' | 'other_star' | 'earth_like_world' | 'water_world' | 'ammonia_world' | 'gas_giant' | 'high_metal_content_world' | 'metal_rich_body' | 'rocky_ice_body' | 'rocky_body' | 'icy_body' | null;
+    /**
+     * Economy Parent Id
+     */
+    economy_parent_id?: string | null;
+    /**
+     * In Binary Pair
+     */
+    in_binary_pair?: boolean | null;
+    /**
+     * Tidally Locked
+     */
+    tidally_locked?: boolean | null;
+    /**
+     * Volcanism Present
+     */
+    volcanism_present?: boolean | null;
+    /**
+     * Terraformable
+     */
+    terraformable?: boolean | null;
+};
+
+/**
+ * PlanSystemEconomyV1
+ */
+export type PlanSystemEconomyV1 = {
+    /**
+     * Reserve
+     */
+    reserve?: 'pristine' | 'major' | 'common' | 'low' | 'depleted' | null;
+    /**
+     * Has Black Hole
+     */
+    has_black_hole?: boolean;
+    /**
+     * Has White Dwarf
+     */
+    has_white_dwarf?: boolean;
+    /**
+     * Has Neutron Star
+     */
+    has_neutron_star?: boolean;
 };
 
 /**
@@ -4925,6 +5170,32 @@ export type PlannedRouteImport = {
     metadata?: {
         [key: string]: unknown;
     };
+};
+
+/**
+ * PortEconomyV1
+ */
+export type PortEconomyV1 = {
+    /**
+     * Site Id
+     */
+    site_id: string;
+    /**
+     * Body Ref
+     */
+    body_ref: string | null;
+    /**
+     * Role
+     */
+    role: 'main' | 'remaining_planetary' | 'converted' | 'unplaced';
+    /**
+     * Supports
+     */
+    supports: string | null;
+    /**
+     * Economies
+     */
+    economies: Array<EconomyV1>;
 };
 
 /**

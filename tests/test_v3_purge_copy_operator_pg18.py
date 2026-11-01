@@ -7,6 +7,7 @@ The canonical_database import also makes CI's PG18 discovery select this file.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import importlib.util
 import json
 from pathlib import Path
@@ -23,7 +24,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from tests.ratings_v4_pg_fixture import canonical_database  # noqa: E402
+from tests.helpers.purge_pg import (  # noqa: E402
+    canonical_database, connect, diagnose_competing_writers, wait_for_backend_exit,
+)
 from tests.test_v3_governed_derived_purge import installed_purge  # noqa: E402
 from tests import test_v3_purge_copy_and_drop as copy_tests  # noqa: E402
 from tests.test_v3_purge_copy_and_drop import _authorize, _owner, abandon, prepare  # noqa: E402
@@ -75,8 +78,9 @@ class _temp_file_limit_grant:
 
     def __init__(self, connection):
         import os
-        self.admin = psycopg.connect(make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'],
-                                                  dbname=connection.info.dbname), autocommit=True)
+        # This privilege is cluster-wide. Keep the administrator outside the
+        # tested database so its hidden activity cannot trip an app-owned guard.
+        self.admin = connect(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'], autocommit=True)
 
     def __enter__(self):
         self.admin.execute('GRANT SET ON PARAMETER temp_file_limit TO v3_derived_purge_executor')
@@ -114,7 +118,7 @@ def test_function_level_lock_timeout_wins_but_the_caller_statement_timeout_caps_
     c.execute('CREATE TABLE public.copy_test_locked (x int)')
     c.execute("CREATE FUNCTION public.copy_test_lock() RETURNS void LANGUAGE plpgsql SET lock_timeout='900ms' "
               "AS $$ BEGIN LOCK TABLE public.copy_test_locked IN ACCESS EXCLUSIVE MODE; END $$")
-    holder = psycopg.connect(make_conninfo(c.info.dsn, password=c.info.password))
+    holder = connect(make_conninfo(c.info.dsn, password=c.info.password))
     try:
         holder.execute('LOCK TABLE public.copy_test_locked IN ACCESS EXCLUSIVE MODE')
         started = monotonic()
@@ -323,8 +327,8 @@ def test_search_scan_counts_nothing_once_every_check_is_validated(copy_database)
     checks = _json(c, copy.PREFLIGHT_SQL, {'relation': 'system_search'})['not_valid_checks']
     _reset(c)
     assert checks, 'the fixture keeps 010 checks NOT VALID, as the rehearsal did'
-    with psycopg.connect(make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'],
-                                       dbname=c.info.dbname), autocommit=True) as admin:
+    with connect(make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'],
+                               dbname=c.info.dbname), autocommit=True) as admin:
         for name in checks:
             admin.execute(psycopg.sql.SQL('ALTER TABLE v3_derived.system_search VALIDATE CONSTRAINT {}').format(
                 psycopg.sql.Identifier(name)))
@@ -425,7 +429,7 @@ def _phase_wrapper_journey(copy_database):
 
 def test_cancel_statement_signals_only_the_authenticated_owner_phase_backend(superuser_database):
     c = _owner(superuser_database[0])
-    worker = psycopg.connect(make_conninfo(c.info.dsn, password=c.info.password), autocommit=True)
+    worker = connect(make_conninfo(c.info.dsn, password=c.info.password), autocommit=True)
     outcome = {}
     def run():
         try:
@@ -540,6 +544,37 @@ def _phase_harness(monkeypatch, connection, *, name, real_long_phase=False):
             rep.setdefault('long_phases', []).append(phase)
             return result
         monkeypatch.setattr(dispatch, '_long_phase', long_phase)
+    else:
+        real_backend = dispatch.phase_backend
+
+        @contextmanager
+        def fixture_backend(*args, **kwargs):
+            backend_pid = None
+            try:
+                with real_backend(*args, **kwargs) as backend:
+                    backend_pid = backend.identity['backend_pid']
+                    real_query = backend.query
+
+                    def diagnostic_query(*query_args, **query_kwargs):
+                        # The production psql transport strips exception text;
+                        # capture the guard's activity rows before it unwinds.
+                        with diagnose_competing_writers(connection, backend_pid=backend_pid, any_error=True):
+                            return real_query(*query_args, **query_kwargs)
+
+                    backend.query = diagnostic_query
+                    try:
+                        yield backend
+                    except Exception as error:
+                        # _long_phase translates PhaseBackendError to ValueError
+                        # with suppressed context. Keep the original observation.
+                        for note in getattr(error.__context__, '__notes__', ()):
+                            error.add_note(note)
+                        raise
+            finally:
+                if backend_pid is not None:
+                    wait_for_backend_exit(connection, backend_pid)
+
+        monkeypatch.setattr(dispatch, 'phase_backend', fixture_backend)
     # Without the local psql transport the dispatcher would use docker exec.
     dsn = connection.info.dsn
     monkeypatch.setattr(dispatch, 'psql_argv', lambda _c: [
@@ -1041,7 +1076,7 @@ def test_competing_copy_lock_or_statement_is_observed(superuser_database):
     c = superuser_database[0]
     _authorize(superuser_database)
     assert _json(c, copy.COMPETING_COPY_SQL) == {'lock_holders': 0, 'copy_statements': 0}
-    other = psycopg.connect(make_conninfo(c.info.dsn, password=c.info.password))
+    other = connect(make_conninfo(c.info.dsn, password=c.info.password))
     try:
         # 019's own lock call, held by an open transaction elsewhere.
         other.execute('SELECT pg_try_advisory_xact_lock(764019001)')
@@ -1050,7 +1085,7 @@ def test_competing_copy_lock_or_statement_is_observed(superuser_database):
         assert _json(c, copy.COMPETING_COPY_SQL) == {'lock_holders': 0, 'copy_statements': 0}
     finally:
         other.close()
-    sleeper = psycopg.connect(make_conninfo(c.info.dsn, password=c.info.password), autocommit=True)
+    sleeper = connect(make_conninfo(c.info.dsn, password=c.info.password), autocommit=True)
     thread = threading.Thread(target=lambda: sleeper.execute(
         "SELECT pg_sleep(2) /* v3_meta.purge_copy_chunk( */"))
     thread.start()

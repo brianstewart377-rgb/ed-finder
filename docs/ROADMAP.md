@@ -353,6 +353,21 @@ newer dated source wins).
   then the post-go-live work recorded in the 2026-10-21 entries. Known
   follow-ups: the dense-window development sort is slow near the galactic core,
   and the PR #877 visual polish list.
+- **Production app promoted to `3fd8e719`, the fifth F2d release (2026-11-01).**
+  Owner-approved. Release run 41293253404, preflight run 41293445849, promote
+  run 41293577222, receipt `created_at` `2026-11-01T09:33:27Z`, active slot
+  blue→green, `status: accepted`; app-only, no migration, no database writes,
+  after the post-purge Sunday full backup finished. It carries the Colony
+  Planner `/plan` page through S5a (PRs #927–#958), the 2026-10-31 audit fixes
+  A1–A4 (#956, #957, #958, #962), the Finder F4b work behind its default-off
+  flag (#948, #954, #959, #965) and the journal export pause (#960). The
+  accepted F2d operator-code identity is now `8696feb8…`; ranking identity is
+  unchanged. Public checks after promotion: `/api/health` reports build
+  `3fd8e719` with the database connected, and `/plan`, the plan catalogue and
+  bodies routes, and the Sol ratings summary and explanation answer 200. The
+  `1e748c9d` backend is the recorded rollback artifact; `f667bb4d` stays the
+  minimum schema-compatible image. Receipts under
+  `docs/operations/evidence/2026-11-01-v3-production-*`.
 - **Production app promoted to `1e748c9d`, the fourth F2d release (2026-10-29).**
   Owner-approved. Release run 40847515414, preflight run 40847736690, promote
   run 40850450821, receipt `created_at` `2026-10-29T09:33:33Z`, active slot
@@ -957,8 +972,11 @@ newer dated source wins).
   three Plan buttons stay and the `/plan` page is to say plainly that planning
   is being rebuilt (a visual change, so it needs visual validation); (D4) the
   journal research export is to be paused (switched off, with a note saying
-  why) until it can carry colonisation events the CRE can use — as of this
-  entry the export route is still mounted and has not been switched off. None
+  why) until it can carry colonisation events the CRE can use — paused on
+  **2026-11-01** by `RESEARCH_EXPORT_PAUSED` in
+  `apps/api/src/routers/v3_journal_research.py`: new exports and new grants
+  are refused with 503 `research_export_paused`; withdrawal and reads are
+  unchanged. None
   of these decisions changes the go-live sequence or any gate: steps 8′ → 9′
   and the F4 gates above stand as written. **D1 progress 2026-10-27:** the CRE
   published its first rulebook (`cre-knowledge-v0.3.0`, 27 rules with stable

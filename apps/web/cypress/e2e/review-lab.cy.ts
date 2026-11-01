@@ -32,7 +32,12 @@ type ReviewSummary = {
 const REVIEW_SYSTEM = { id64: '9100000000001', name: 'Review Wiring' };
 const readySelector = '[role="status"][data-renderer-state="ready"]';
 const selectedStorageKey = 'ed-finder:selected-system-context';
+const selectedMarkerSelector = `[data-map-label-key="system:${REVIEW_SYSTEM.id64}"][data-map-label-selected="true"]`;
 let currentFlow = '';
+
+const isExpectedReviewFailure = (status: number, tag: unknown) =>
+  status === 503 &&
+  ['api-failure', 'rankings-api-failure'].includes(String(tag ?? ''));
 
 const clean = (value: unknown) =>
   String(value ?? '')
@@ -73,7 +78,14 @@ describe('isolated V3 Review Lab', () => {
   let outputPath = '';
   let summary: ReviewSummary;
 
-  const setReviewMode = (mode: 'normal' | 'api_failure' | 'empty_results') =>
+  const setReviewMode = (
+    mode:
+      | 'normal'
+      | 'api_failure'
+      | 'empty_results'
+      | 'rankings_api_failure'
+      | 'rankings_empty_results',
+  ) =>
     cy
       .request('POST', `/api/review/scenario/${mode}`)
       .its('status')
@@ -97,6 +109,12 @@ describe('isolated V3 Review Lab', () => {
   };
 
   before(() => {
+    for (const tag of ['api-failure', 'rankings-api-failure']) {
+      expect(isExpectedReviewFailure(503, tag), tag).to.equal(true);
+      expect(isExpectedReviewFailure(500, tag), tag).to.equal(false);
+    }
+    expect(isExpectedReviewFailure(503, undefined)).to.equal(false);
+    expect(isExpectedReviewFailure(503, 'unknown-failure')).to.equal(false);
     cy.task('getReviewLabConfig').then((raw) => {
       const config = parseTrustedConfig(raw as ReviewLabConfig);
       outputPath = config.outputPath;
@@ -120,10 +138,10 @@ describe('isolated V3 Review Lab', () => {
           method: request.method,
           path: `${url.pathname}${url.search}`,
           status: response.statusCode,
-          expectedFailure:
-            response.statusCode === 503 &&
-            String(response.headers['x-edfinder-review-failure'] ?? '') ===
-              'api-failure',
+          expectedFailure: isExpectedReviewFailure(
+            response.statusCode,
+            response.headers['x-edfinder-review-failure'],
+          ),
         });
       });
     });
@@ -181,6 +199,35 @@ describe('isolated V3 Review Lab', () => {
 
     const flows = summary.browserFlowKeys;
 
+    const assertSelectionPreserved = () => {
+      cy.location('search').should((search) => {
+        expect(new URLSearchParams(search).getAll('selected')).to.deep.equal([
+          REVIEW_SYSTEM.id64,
+        ]);
+      });
+      cy.window()
+        .its('localStorage')
+        .invoke('getItem', selectedStorageKey)
+        .should('eq', REVIEW_SYSTEM.id64);
+      cy.get(selectedMarkerSelector, { timeout: 20_000 }).should('be.visible');
+    };
+
+    let selectionSearchCount = 0;
+    const establishSelectedSystem = () => {
+      // Earlier intercepts also observe later flows, so each call needs a fresh alias.
+      const selectionSearchAlias = `selectionSearch${++selectionSearchCount}`;
+      setReviewMode('normal');
+      cy.intercept('POST', '/api/local/search').as(selectionSearchAlias);
+      cy.visit(`/explore?selected=${REVIEW_SYSTEM.id64}`, {
+        onBeforeLoad: instrumentWindow,
+      });
+      cy.wait(`@${selectionSearchAlias}`)
+        .its('response.statusCode')
+        .should('eq', 200);
+      cy.get(readySelector, { timeout: 20_000 }).should('be.visible');
+      assertSelectionPreserved();
+    };
+
     if (flows.includes('syntheticWiring')) {
       cy.then(() => {
         currentFlow = 'syntheticWiring';
@@ -208,29 +255,120 @@ describe('isolated V3 Review Lab', () => {
       cy.then(() => {
         currentFlow = 'apiFailure';
       });
+      establishSelectedSystem();
       setReviewMode('api_failure');
       cy.intercept('POST', '/api/local/search').as('failedSearch');
-      cy.visit('/explore', {
-        onBeforeLoad(window) {
-          instrumentWindow(window);
-          window.localStorage.setItem(selectedStorageKey, REVIEW_SYSTEM.id64);
-        },
+      // A changed query triggers a real search while retaining the selected
+      // point already established in this mounted Explore workspace.
+      cy.contains('label', 'Results per page')
+        .find('input')
+        .clear()
+        .type('1')
+        .blur();
+      cy.wait('@failedSearch').then(({ response }) => {
+        expect(response?.statusCode).to.equal(503);
+        expect(response?.headers['x-edfinder-review-failure']).to.equal(
+          'api-failure',
+        );
       });
-      cy.wait('@failedSearch').its('response.statusCode').should('eq', 503);
       cy.contains('[role="alert"]', 'Discovery results could not be loaded.', {
         timeout: 20_000,
       }).should('be.visible');
-      cy.window()
-        .its('localStorage')
-        .invoke('getItem', selectedStorageKey)
-        .should('eq', REVIEW_SYSTEM.id64)
-        .then(() =>
-          markPassed('apiFailure', {
-            failureModeActivated: true,
-            errorRendered: true,
-            selectionContextPreserved: true,
-          }),
+      assertSelectionPreserved();
+      cy.then(() =>
+        markPassed('apiFailure', {
+          failureModeActivated: true,
+          errorRendered: true,
+          selectionContextPreserved: true,
+          selectedMarkerPreserved: true,
+        }),
+      );
+      cy.window().then(collectExternalResourceOrigins);
+      setReviewMode('normal');
+    }
+
+    if (flows.includes('rankingsApiFailure')) {
+      cy.then(() => {
+        currentFlow = 'rankingsApiFailure';
+      });
+      establishSelectedSystem();
+      setReviewMode('rankings_api_failure');
+      cy.intercept('GET', '/api/archetypes/rankings*').as('failedRankings');
+      cy.get('input[type="radio"][value="flexible"]').check();
+      cy.location('search').should((search) => {
+        expect(new URLSearchParams(search).get('archetype')).to.equal(
+          'flexible',
         );
+      });
+      cy.wait('@failedRankings').then(({ response }) => {
+        expect(response?.statusCode).to.equal(503);
+        expect(response?.headers['x-edfinder-review-failure']).to.equal(
+          'rankings-api-failure',
+        );
+      });
+      cy.contains(
+        '.results-panel [role="alert"]',
+        'Ranking temporarily unavailable',
+        { timeout: 20_000 },
+      ).should('be.visible');
+      assertSelectionPreserved();
+      cy.then(() =>
+        markPassed('rankingsApiFailure', {
+          failureModeActivated: true,
+          errorRendered: true,
+          selectionContextPreserved: true,
+          selectedMarkerPreserved: true,
+        }),
+      );
+      cy.window().then(collectExternalResourceOrigins);
+      setReviewMode('normal');
+    }
+
+    if (flows.includes('rankingsEmptyResults')) {
+      cy.then(() => {
+        currentFlow = 'rankingsEmptyResults';
+      });
+      setReviewMode('rankings_empty_results');
+      cy.intercept('GET', '/api/archetypes/rankings*').as('emptyRankings');
+      cy.visit('/explore?archetype=flexible', {
+        onBeforeLoad: instrumentWindow,
+      });
+      cy.wait('@emptyRankings').then(({ response }) => {
+        expect(response?.statusCode).to.equal(200);
+        expect(response?.body.results).to.deep.equal([]);
+        expect(response?.body.total).to.equal(0);
+        expect(response?.body.is_truncated).to.equal(false);
+      });
+      cy.contains(
+        '.results-panel',
+        'No systems meet minimum tier B for Flexible Multi-Role Colony.',
+      ).should('be.visible');
+      cy.get(readySelector, { timeout: 20_000 }).should('be.visible');
+      cy.get('.spatial-canvas').should(
+        'have.attr',
+        'data-scene-target-count',
+        '0',
+      );
+      cy.intercept('POST', '/api/local/search').as('restoredAnySearch');
+      cy.contains('button', 'Choose Any').click();
+      cy.wait('@restoredAnySearch').then(({ response }) => {
+        expect(response?.statusCode).to.equal(200);
+        expect(response?.body.source).to.match(/^v3:/);
+        expect(response?.body.results.length).to.be.greaterThan(0);
+      });
+      cy.get(`[data-system-result="${REVIEW_SYSTEM.id64}"]`).should(
+        'contain.text',
+        REVIEW_SYSTEM.name,
+      );
+      cy.then(() =>
+        markPassed('rankingsEmptyResults', {
+          emptyModeActivated: true,
+          emptyRendered: true,
+          zeroTargetScene: true,
+          babylonReady: true,
+          anySearchRestored: true,
+        }),
+      );
       cy.window().then(collectExternalResourceOrigins);
       setReviewMode('normal');
     }

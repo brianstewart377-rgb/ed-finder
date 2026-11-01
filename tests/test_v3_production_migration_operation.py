@@ -114,11 +114,14 @@ def test_registered_transition_covers_the_installed_prefix_and_every_pending_ste
     transition = authority["schema_transition"]
     assert transition["from_migration_set_identity"] == reachable[0]
     assert transition["to_migration_set_identity"] == reachable[-1]
-    # The accepted fourth F2d release (1e748c9d, 2026-10-29) is attested for
-    # every reachable prefix: the installed through-021 and the pending
-    # through-022 target.
+    # 022 was applied on 2026-10-31 (apply run 41180459540). The accepted
+    # release is now the fifth F2d release (3fd8e719, 2026-11-01), attested
+    # only for the installed through-022 target, so replaying the completed
+    # transition fails closed until a new reviewed transition is committed.
     compatible = authority["accepted_release_schema_compatibility"]["compatible_migration_sets"]
-    assert set(reachable) <= set(compatible) and len(reachable) == 2
+    assert len(reachable) == 2
+    assert reachable[-1] in compatible
+    assert not set(reachable[:-1]) & set(compatible)
     assert deployer.validate_authority(authority) == []
 
 

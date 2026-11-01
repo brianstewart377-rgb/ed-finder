@@ -11,6 +11,108 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — Fifth F2d release `3fd8e719` accepted in production
+
+Owner-approved, after the post-purge Sunday full backup finished. Release run
+41293253404 (source `3fd8e719`) passed preflight run 41293445849 and was
+accepted by promotion run 41293577222 at 2026-11-01T09:33:27Z to slot green:
+staging, active and public smoke 200, F2d image contract, OpenAPI bounds, 422
+rejections and behavioural probes passed; no migration, no database writes,
+protected resources unchanged. It carries the Colony Planner `/plan` page
+through S5a, the 2026-10-31 audit fixes A1–A4 (#956, #957, #958, #962), the
+Finder F4b work behind its default-off flag and the journal export pause. The
+accepted F2d operator-code identity is now `8696feb8…`; ranking identity is
+unchanged. `deploy/v3-production/target-authority.json` records it as the
+accepted release, attested for the installed through-022 set; `1e748c9d` is the
+recorded rollback artifact and `f667bb4d` stays the minimum schema-compatible
+image. Receipts are under `docs/operations/evidence/2026-11-01-v3-production-*`.
+
+## 2026-11-01 — Finder F4b: picker, ranked cards and browser contracts behind the default-off flag
+
+F4b implements the archetype picker, selected-only minimum tier, ranked cards,
+one-envelope paging, URL-owned selection and retained map markers, plus
+state-carrying Explore/Inspect/watchlist round trips. Selected cards use the
+owner's amended best-rival Clear fit / Close fit rule. Any keeps its no-floor
+search; Compare distance remains suppressed in enabled builds pending F4c.
+
+The protected Product E2E bundle and disposable Review Lab bundle alone opt in
+to `VITE_FINDER_F4_ENABLED=1`. The web image accepts a validated `0`/`1` build
+argument with a fail-closed default of `0`; workflow and release-image contracts
+enforce these boundaries. Product E2E covers the three committed PostgreSQL
+fixture rows, keyboard selection, paging, clean-session selection hydration,
+Inspect return, history, axe and desktop/mobile screenshots. Review Lab adds
+backend-owned ranking failure/empty modes and verifies selection survival,
+normal Any recovery, failure tagging and the support-route matrix.
+
+These are fixture-based implementation and validation changes. The prerequisite
+migration/build/validation and step 9′ product-publication sequence completed
+2026-10-23; slice 1c's representative-scale proof passed all 72 measurements on
+2026-10-31. Before the flag may be enabled in any governed production or release
+build, F4c, F4e, browser acceptance, visual approval, the owner enablement decision
+and the separate governed application-release gate remain required. F4b does not
+enable the flag in such a build or authorize a deployment.
+
+## 2026-11-01 — CI runs the V3 journal flow tests; the stale export-limit test is fixed
+
+`tests/integration/test_v3_journal_research_flow.py` and
+`test_v3_journal_import_flow.py` never ran in CI: the integration job's
+database has only the V2 schema, so both modules skipped. One test had been
+failing unnoticed: `test_export_replay_limited_batch_matches_receipt` still
+expected the old oldest-first export order. The export reads the newest rows
+first, so a 5-row limit now gives 3 observations. The test now names them and
+still proves that the limit applies before sanitization and that the replay
+matches the receipt. A new CI job, "V3 journal flows (PG18+Redis)", applies
+V3 migrations 001, 002, 005, 008 and 009 to an empty PostgreSQL 18 database,
+runs both modules, and fails on any skip. Workflow contract tests pin the job.
+
+## 2026-11-01 — Journal research export paused (owner decision D4)
+
+`RESEARCH_EXPORT_PAUSED` in `apps/api/src/routers/v3_journal_research.py`
+refuses new research exports and consent grants with HTTP 503 and reason
+`research_export_paused`, after the existing authentication and origin checks.
+Exports cannot yet carry colonisation events the CRE can use; resuming them
+requires a reviewed code change. Withdrawal still supersedes lineage batches,
+and all consent and export reads remain available. Database-free route tests
+cover the refusals and withdrawal; PostgreSQL integration coverage preserves
+the export-builder and consent flows with the pause explicitly disabled.
+
+
+## 2026-10-31 — Finder: ranking rows carry their best rival archetype (F4b fit label)
+
+Selected-archetype ranking rows now carry `rival_archetype` and `rival_score`,
+computed from the wide row already fetched for each result. The rival is the
+highest-scoring other archetype excluding Flexible, with ties resolved in
+`ARCHETYPE_KEYS` order; picking Flexible compares against the other seven.
+The generated API clients and application facade carry both optional fields.
+
+F4 section 9 records the owner's amended label rule: Clear fit requires the
+picked score to exceed the rival by at least three points; otherwise Close fit
+names the rival and its score. Rendering that label remains F4b UI work.
+Ranking membership, order, windows, counts, existing fields and identity are
+unchanged, as are Any-mode queries and responses. Regression tests cover rival
+selection, the final-SELECT-only SQL addition, fixture recomputation at every
+floor and facade compatibility with servers that omit the new fields.
+
+## 2026-10-31 — Finder: /api/archetypes/rankings accepts its documented min_score values
+
+Production evidence reported on 2026-10-31: `GET
+https://ed-finder.app/api/archetypes/rankings?archetype=paradise&limit=2`
+returns 200, but adding `min_score=60`, `76` or `88` returns 422. For `76`,
+the validation error is `{"type":"literal_error","loc":["query","min_score"],"msg":"Input should be 60, 76 or 88","input":"76"}`.
+FastAPI 0.141 / Pydantic 2.13 does not coerce query strings to the integer
+values in `Literal[60, 76, 88]`; only the omitted parameter's integer default
+worked. The F4a rankings client sends `min_score` explicitly, so this would
+fail every F4b rankings request. No live UI sends it yet: F4 remains behind its
+default-off flag.
+
+The handler now parses an integer before restricting it to the same three
+indexed floors. The integer enum and default 60 in OpenAPI, helper validation,
+ranking SQL/profile/identity, response fields and paging bounds are unchanged.
+New database-free tests exercise the real FastAPI app's query parsing for
+omitted, accepted and rejected floors, the OpenAPI schema, and the 10,000-row
+window bound; the existing direct-helper tests could not expose this bug.
+This takes effect in production only with the next governed application release.
+
 ## 2026-10-31 — Finder slice 1c: opt-in representative-scale ranking proof
 
 Added `tests/test_archetype_rankings_scale_postgres.py` to prove bounded selected

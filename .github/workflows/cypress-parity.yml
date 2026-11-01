@@ -190,6 +190,8 @@ jobs:
 
       - name: Build Svelte static bundle
         working-directory: apps/web
+        env:
+          VITE_FINDER_F4_ENABLED: '1'
         run: pnpm build
 
       - name: Start Svelte production preview

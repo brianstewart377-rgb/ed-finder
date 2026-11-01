@@ -119,6 +119,7 @@ const bodies: PlanBodiesV1 = {
   belts: [
     {
       belt_id: 'belt-a',
+      lifecycle_state: 'ACTIVE',
       name: `${systemName} A A Belt`,
       parent_body_id: 'star-a',
       ring_type: 'Rocky',
@@ -171,6 +172,7 @@ function evaluation(request: PlanRequestV1): PlanEvaluationV1 {
       t3: hasConsumer && funded ? 1 : 0,
     },
     next_port_cost: { t2: 3, t3: 6 },
+    economies: { now: [], after_plan: [], notes: [] },
     steps,
     plan_checks: [],
     summary: {

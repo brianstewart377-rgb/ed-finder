@@ -2618,6 +2618,16 @@ export interface components {
             tier: "S" | "A" | "B" | "C" | "D";
             /** Selected Archetype */
             selected_archetype?: string | null;
+            /**
+             * Rival Archetype
+             * @description Highest-scoring archetype other than the selected archetype and Flexible; ties use ARCHETYPE_KEYS order.
+             */
+            rival_archetype?: string | null;
+            /**
+             * Rival Score
+             * @description Rival archetype integer score (0–100) from the same stored system row.
+             */
+            rival_score?: number | null;
             /** Primary Archetype */
             primary_archetype?: string | null;
             /** Secondary Archetype */
@@ -3641,6 +3651,57 @@ export interface components {
             created_at?: string | null;
             /** Updated At */
             updated_at?: string | null;
+        };
+        /** EconomyItemV1 */
+        EconomyItemV1: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "own" | "strong_link" | "passed_on_link" | "planetary_port_link" | "weak_links";
+            /** Base */
+            base: number;
+            /** Modifiers */
+            modifiers: components["schemas"]["EconomyModifierV1"][];
+            /** Floored */
+            floored: boolean;
+            /** Value */
+            value: number;
+            /** Source Site Ids */
+            source_site_ids: string[];
+            /** Via Site Id */
+            via_site_id: string | null;
+            /** Rule Ids */
+            rule_ids: string[];
+            /** Count */
+            count: number | null;
+        };
+        /** EconomyModifierV1 */
+        EconomyModifierV1: {
+            /** Condition */
+            condition: string;
+            /** Delta */
+            delta: number;
+        };
+        /** EconomyNoteV1 */
+        EconomyNoteV1: {
+            /** Code */
+            code: string;
+            /** Site Id */
+            site_id: string | null;
+            /** Body Ref */
+            body_ref: string | null;
+            /** Message */
+            message: string;
+        };
+        /** EconomyV1 */
+        EconomyV1: {
+            /** Name */
+            name: string;
+            /** Strength */
+            strength: number;
+            /** Items */
+            items: components["schemas"]["EconomyItemV1"][];
         };
         /** EvidenceFeatureResponse */
         EvidenceFeatureResponse: {
@@ -5309,6 +5370,39 @@ export interface components {
             bodies: components["schemas"]["PlanSystemBodyV1"][];
             /** Belts */
             belts: components["schemas"]["PlanSystemBeltV1"][];
+            /** Economy Facts Generation Id */
+            economy_facts_generation_id?: string | null;
+            /** Reserve Level */
+            reserve_level?: ("pristine" | "major" | "common" | "low" | "depleted") | null;
+            /** Has Black Hole */
+            has_black_hole?: boolean | null;
+            /** Has White Dwarf */
+            has_white_dwarf?: boolean | null;
+            /** Has Neutron Star */
+            has_neutron_star?: boolean | null;
+            /** Economy Notes */
+            economy_notes?: string[];
+        };
+        /** PlanBodyEconomyV1 */
+        PlanBodyEconomyV1: {
+            /** Kind */
+            kind?: ("black_hole" | "neutron_star" | "white_dwarf" | "brown_dwarf" | "other_star" | "earth_like_world" | "water_world" | "ammonia_world" | "gas_giant" | "high_metal_content_world" | "metal_rich_body" | "rocky_ice_body" | "rocky_body" | "icy_body") | null;
+            /** Parent Ref */
+            parent_ref?: string | null;
+            /** In Binary Pair */
+            in_binary_pair?: boolean | null;
+            /** Tidally Locked */
+            tidally_locked?: boolean | null;
+            /** Volcanism */
+            volcanism?: boolean | null;
+            /** Terraformable */
+            terraformable?: boolean | null;
+            /** Has Rings */
+            has_rings?: boolean | null;
+            /** Geological Signals */
+            geological_signals?: number | null;
+            /** Biological Signals */
+            biological_signals?: number | null;
         };
         /** PlanBodyV1 */
         PlanBodyV1: {
@@ -5322,6 +5416,7 @@ export interface components {
             is_landable?: boolean | null;
             /** Is Ringed */
             is_ringed?: boolean | null;
+            economy?: components["schemas"]["PlanBodyEconomyV1"] | null;
         };
         /** PlanCatalogueV1 */
         PlanCatalogueV1: {
@@ -5338,6 +5433,15 @@ export interface components {
             message: string;
             /** Rule Ids */
             rule_ids: string[];
+        };
+        /** PlanEconomiesV1 */
+        PlanEconomiesV1: {
+            /** Now */
+            now: components["schemas"]["PortEconomyV1"][];
+            /** After Plan */
+            after_plan: components["schemas"]["PortEconomyV1"][];
+            /** Notes */
+            notes: components["schemas"]["EconomyNoteV1"][];
         };
         /** PlanEvaluationV1 */
         PlanEvaluationV1: {
@@ -5357,6 +5461,7 @@ export interface components {
             explanations: {
                 [key: string]: components["schemas"]["PlanRuleExplanationV1"];
             };
+            economies: components["schemas"]["PlanEconomiesV1"];
         };
         /** PlanFacilityV1 */
         PlanFacilityV1: {
@@ -5416,6 +5521,7 @@ export interface components {
             bodies?: components["schemas"]["PlanBodyV1"][];
             /** Sites */
             sites: components["schemas"]["PlanSiteV1"][];
+            system_economy?: components["schemas"]["PlanSystemEconomyV1"] | null;
         };
         /** PlanRuleExplanationV1 */
         PlanRuleExplanationV1: {
@@ -5527,6 +5633,8 @@ export interface components {
             inner_radius_km: number | null;
             /** Outer Radius Km */
             outer_radius_km: number | null;
+            /** Lifecycle State */
+            lifecycle_state: string;
         };
         /** PlanSystemBodyV1 */
         PlanSystemBodyV1: {
@@ -5566,6 +5674,38 @@ export interface components {
             signals_complete: boolean | null;
             /** Lifecycle State */
             lifecycle_state: string;
+            /** Economy Kind */
+            economy_kind?: ("black_hole" | "neutron_star" | "white_dwarf" | "brown_dwarf" | "other_star" | "earth_like_world" | "water_world" | "ammonia_world" | "gas_giant" | "high_metal_content_world" | "metal_rich_body" | "rocky_ice_body" | "rocky_body" | "icy_body") | null;
+            /** Economy Parent Id */
+            economy_parent_id?: string | null;
+            /** In Binary Pair */
+            in_binary_pair?: boolean | null;
+            /** Tidally Locked */
+            tidally_locked?: boolean | null;
+            /** Volcanism Present */
+            volcanism_present?: boolean | null;
+            /** Terraformable */
+            terraformable?: boolean | null;
+        };
+        /** PlanSystemEconomyV1 */
+        PlanSystemEconomyV1: {
+            /** Reserve */
+            reserve?: ("pristine" | "major" | "common" | "low" | "depleted") | null;
+            /**
+             * Has Black Hole
+             * @default false
+             */
+            has_black_hole: boolean;
+            /**
+             * Has White Dwarf
+             * @default false
+             */
+            has_white_dwarf: boolean;
+            /**
+             * Has Neutron Star
+             * @default false
+             */
+            has_neutron_star: boolean;
         };
         /** PlanTotalsV1 */
         PlanTotalsV1: {
@@ -5608,6 +5748,22 @@ export interface components {
             metadata?: {
                 [key: string]: unknown;
             };
+        };
+        /** PortEconomyV1 */
+        PortEconomyV1: {
+            /** Site Id */
+            site_id: string;
+            /** Body Ref */
+            body_ref: string | null;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "main" | "remaining_planetary" | "converted" | "unplaced";
+            /** Supports */
+            supports: string | null;
+            /** Economies */
+            economies: components["schemas"]["EconomyV1"][];
         };
         /** PowerplayChangeEvent */
         PowerplayChangeEvent: {

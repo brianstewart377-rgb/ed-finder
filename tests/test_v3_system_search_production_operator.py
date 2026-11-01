@@ -193,9 +193,10 @@ def test_target_authority_reviews_transition_from_through_020_to_long_phase_boun
     desired_payload = (json.dumps(desired_document, indent=2, sort_keys=True) + "\n").encode()
     assert authority["external_authority"]["schema_identity_sha256"] == hashlib.sha256(desired_payload).hexdigest()
     compatible = authority['accepted_release_schema_compatibility']['compatible_migration_sets']
-    # The accepted fourth F2d release (1e748c9d, 2026-10-29) is attested for
-    # both endpoints: the installed through-021 and the registered through-022.
-    assert transition['from_migration_set_identity'] in compatible
+    # 022 was applied on 2026-10-31 (apply run 41180459540). The accepted
+    # release is now the fifth F2d release (3fd8e719, 2026-11-01), attested
+    # only for the installed through-022 target, not the superseded through-021.
+    assert transition['from_migration_set_identity'] not in compatible
     assert transition['to_migration_set_identity'] in compatible
 
 

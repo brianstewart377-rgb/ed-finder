@@ -316,11 +316,21 @@ rollback artifact. It does not require product READY, receipts, counts,
 (apply run 39113822236) and the 18 Search constraints are validated. The first
 F2d release, source `f667bb4d` (release run 39149556699), was accepted by
 promotion run 39149980927 and remains the minimum schema-compatible image.
+**Status (2026-11-01).** The fifth F2d release, source `3fd8e719` (release run
+41293253404), passed preflight run 41293445849 and was accepted by promotion run
+41293577222 to slot green; its attestation (operator-code identity `8696feb8…`,
+attested for the installed through-022 set `828bf02d…`) is the accepted release in
+`deploy/v3-production/target-authority.json`, with the `1e748c9d` backend as the
+recorded rollback artifact and `f667bb4d` unchanged as the minimum
+schema-compatible image. Receipts:
+`docs/operations/evidence/2026-11-01-v3-production-preflight-receipt-run-41293445849.json`
+and `docs/operations/evidence/2026-11-01-v3-production-promotion-receipt-run-41293577222.json`.
 **Status (2026-10-29).** The fourth F2d release, source `1e748c9d` (release run
 40847515414), passed preflight run 40847736690 and was accepted by promotion run
 40850450821 to slot blue; its attestation (operator-code identity `feb0ed71…`,
-which now covers the governed purge operator code) is the accepted release in
-`deploy/v3-production/target-authority.json`, with the `a031c2da` backend as
+which now covers the governed purge operator code) was the accepted release in
+`deploy/v3-production/target-authority.json` until the fifth F2d release above
+superseded it on 2026-11-01, with the `a031c2da` backend as
 the recorded rollback artifact (admitted through its reviewed through-021
 compatibility, PR #911) and `f667bb4d` unchanged as the minimum
 schema-compatible image. The first preflight (run 40840746266, release run

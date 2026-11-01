@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scripts.v3_archetype_plan_probe import PRIMARY_INDEXES  # noqa: E402
-from tests.ratings_v4_pg_fixture import canonical_database  # noqa: E402
+from tests.helpers.purge_pg import canonical_database, connect  # noqa: E402
 from tests.test_v3_governed_derived_purge import (  # noqa: E402
     CHAIN, EXECUTOR, MIGRATIONS, RELATIONS, SURVIVOR, TARGETS,
     _count, _plan, _seed, _sign_plan, installed_purge,
@@ -64,7 +64,7 @@ def _install_copy(connection, *, keyset=True):
         connection.execute((MIGRATIONS / KEYSET_MIGRATION).read_text())
     # Keep autovacuum workers off the new ledger, as 016's fixture does for v3_*.
     for table in ('derived_purge_copy_request', 'derived_purge_copy_event'):
-        connection.execute(sql.SQL('ALTER TABLE {} SET (autovacuum_enabled=false)').format(
+        connection.execute(sql.SQL('ALTER TABLE {} SET (autovacuum_enabled=false,toast.autovacuum_enabled=false)').format(
             sql.Identifier('v3_meta', table)))
 
 
@@ -568,7 +568,7 @@ def test_swap_lock_timeout_under_a_concurrent_reader_changes_nothing(superuser_d
     purge, _ = _authorize(superuser_database)
     staged(c, purge, 'system_search')
     before = state(c)
-    reader = psycopg.connect(make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'], dbname=c.info.dbname))
+    reader = connect(make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'], dbname=c.info.dbname))
     try:
         reader.execute('SELECT count(*) FROM v3_app.system_search').fetchone()
         started = monotonic()
@@ -581,7 +581,7 @@ def test_swap_lock_timeout_under_a_concurrent_reader_changes_nothing(superuser_d
         # lock timeout, then served by whichever relation is live.
         with ThreadPoolExecutor(1) as pool:
             attempt = pool.submit(lambda: (monotonic(), _swap_in_new_session(c.info.dbname, purge)))
-            late = psycopg.connect(make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'], dbname=c.info.dbname))
+            late = connect(make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'], dbname=c.info.dbname))
             try:
                 late.execute("SET lock_timeout='10s'")
                 assert late.execute('SELECT count(*) FROM v3_app.system_search').fetchone()[0] > 0
@@ -597,8 +597,8 @@ def test_swap_lock_timeout_under_a_concurrent_reader_changes_nothing(superuser_d
 
 
 def _swap_in_new_session(dbname, purge):
-    with psycopg.connect(make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'], dbname=dbname),
-                         autocommit=True) as other:
+    with connect(make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'], dbname=dbname),
+                 autocommit=True) as other:
         return swap(other, purge, 'system_search')
 
 
@@ -610,7 +610,7 @@ def test_drop_of_a_child_locks_its_live_parent_only_within_the_lock_timeout(supe
     swap(c, purge, 'system_search')
     validate(c, purge, 'system_search')
     before = state(c)
-    reader = psycopg.connect(make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'], dbname=c.info.dbname))
+    reader = connect(make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'], dbname=c.info.dbname))
     try:
         reader.execute('SELECT count(*) FROM v3_derived.system_rating_vector').fetchone()
         started = monotonic()
@@ -640,7 +640,7 @@ def test_rollback_or_backend_loss_at_every_step_leaves_a_consistent_ledger(super
     prepare(c, purge, code)
     rolled_back(chunk, 2)
     # A backend lost after its chunk but before COMMIT leaves no trace.
-    lost = psycopg.connect(make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'], dbname=c.info.dbname))
+    lost = connect(make_conninfo(os.environ['RATINGS_V4_VALIDATION_DATABASE_URL'], dbname=c.info.dbname))
     before = state(c)
     chunk(lost, purge, code, 2)
     _owner(c).execute('SELECT pg_terminate_backend(%s)', (lost.info.backend_pid,))

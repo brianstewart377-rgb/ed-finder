@@ -30,6 +30,10 @@ from edfinder_api.deps import get_pool
 
 router = APIRouter(prefix="/api/v1/journal", tags=["v3-journal-research"])
 
+# docs/ROADMAP.md decision D4: exports lack colonisation events the CRE can use.
+# Resuming requires a reviewed code change once those events are supported.
+RESEARCH_EXPORT_PAUSED = True
+
 MAX_EXPORT_OBSERVATIONS_DEFAULT = 1_000
 MAX_EXPORT_OBSERVATIONS_CAP = 10_000
 
@@ -109,6 +113,22 @@ async def _require_user(request: Request) -> AuthenticatedUser:
     if user is None:
         raise HTTPException(401, "Sign-in required")
     return user
+
+
+def _research_export_paused_error() -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail={
+            "type": "https://httpstatuses.com/503",
+            "title": "Research exports paused",
+            "status": 503,
+            "detail": (
+                "Research exports are paused because they cannot yet carry "
+                "colonisation events the CRE can use."
+            ),
+            "reason": "research_export_paused",
+        },
+    )
 
 
 def _state_from_effective(state: dict[str, Any] | None) -> V3ResearchConsentState:
@@ -344,6 +364,8 @@ async def put_v3_research_consent(
 ) -> V3ResearchConsentState:
     user = await _require_user(request)
     require_same_origin(request)
+    if RESEARCH_EXPORT_PAUSED and body.decision == "GRANT":
+        raise _research_export_paused_error()
     consent = _consent()
     export_module = _export()
     current = await consent.effective_consent(pool, user.account_id)
@@ -384,6 +406,8 @@ async def create_v3_research_export(
 ) -> V3ResearchExportReceipt:
     user = await _require_user(request)
     require_same_origin(request)
+    if RESEARCH_EXPORT_PAUSED:
+        raise _research_export_paused_error()
     current = await _consent().effective_consent(pool, user.account_id)
     if current is None or current["decision"] != "GRANT":
         raise HTTPException(

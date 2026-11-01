@@ -944,6 +944,17 @@ class ArchetypeRankingRow(BaseModel):
     # `primary_archetype`, which is the system's own strongest archetype read
     # from the summary -- the two often differ.
     selected_archetype:   Optional[str]   = None
+    rival_archetype: Optional[str] = Field(
+        None,
+        description=(
+            'Highest-scoring archetype other than the selected archetype and '
+            'Flexible; ties use ARCHETYPE_KEYS order.'
+        ),
+    )
+    rival_score: Optional[int] = Field(
+        None,
+        description='Rival archetype integer score (0–100) from the same stored system row.',
+    )
     primary_archetype:    Optional[str]   = None
     secondary_archetype:  Optional[str]   = None
     archetype_confidence: Optional[float] = None

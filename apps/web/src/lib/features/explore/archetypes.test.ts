@@ -5,6 +5,7 @@ import {
   ANY_ARCHETYPE_LABEL,
   ARCHETYPES,
   ARCHETYPE_KEYS,
+  CLEAR_FIT_MINIMUM_GAP,
   DEFAULT_MINIMUM_TIER,
   MINIMUM_TIER_SCORES,
   SELECTED_MINIMUM_TIERS,
@@ -18,6 +19,7 @@ import {
   minimumScoreForTier,
   parseArchetypeKey,
   parseMinimumTier,
+  selectedFitLabel,
   tierLabel,
 } from './archetypes';
 
@@ -85,6 +87,43 @@ describe('canonical V3 archetype metadata', () => {
     expect(archetypeLabel('agri_hub')).toBe('agri hub');
     expect(archetypeLabel(null)).toBeNull();
     expect(archetypeLabel('')).toBeNull();
+  });
+});
+
+describe('selected-archetype fit compared with its best rival', () => {
+  it('has one named three-point clear-fit boundary', () => {
+    expect(CLEAR_FIT_MINIMUM_GAP).toBe(3);
+    expect(selectedFitLabel(82, 'megacomplex', 79)).toBe('Clear fit');
+  });
+
+  it.each([81, 79, 75])(
+    'names the rival for a close, tied or losing selected score of %s',
+    (score) => {
+      expect(selectedFitLabel(score, 'megacomplex', 79)).toBe(
+        'Close fit · Megacomplex 79',
+      );
+    },
+  );
+
+  it('does not invent a display name for an unknown rival key', () => {
+    expect(selectedFitLabel(82, 'future_archetype', 79)).toBeNull();
+    expect(selectedFitLabel(79, 'future_archetype', 79)).toBeNull();
+  });
+
+  it('omits the comparison when any input is absent or non-finite', () => {
+    for (const absent of [undefined, null]) {
+      expect(selectedFitLabel(absent, 'megacomplex', 79)).toBeNull();
+      expect(selectedFitLabel(82, absent, 79)).toBeNull();
+      expect(selectedFitLabel(82, 'megacomplex', absent)).toBeNull();
+    }
+    expect(selectedFitLabel(Number.NaN, 'megacomplex', 79)).toBeNull();
+    expect(selectedFitLabel(82, 'megacomplex', Infinity)).toBeNull();
+  });
+
+  it('preserves finite zero as a measured score', () => {
+    expect(selectedFitLabel(0, 'megacomplex', 0)).toBe(
+      'Close fit · Megacomplex 0',
+    );
   });
 });
 

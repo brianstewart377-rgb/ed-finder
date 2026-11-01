@@ -8,7 +8,10 @@ import {
   abandonPlan,
   addSite,
   canMoveSite,
+  countLocationSlots,
   countUsedSlots,
+  locationAliases,
+  locationSlots,
   emptyPlan,
   exportPlan,
   facilitySlotKind,
@@ -68,7 +71,7 @@ function body(id: string, type = 'planet'): PlanSystemBodyV1 {
     geological_signals: 0,
     biological_signals: 0,
     signals_complete: null,
-    lifecycle_state: 'active',
+    lifecycle_state: 'ACTIVE',
   };
 }
 
@@ -93,6 +96,7 @@ function bodies(): PlanBodiesV1 {
         mass_mt: null,
         inner_radius_km: null,
         outer_radius_km: null,
+        lifecycle_state: 'ACTIVE',
       },
     ],
   };
@@ -167,6 +171,127 @@ describe('planner persistence codec', () => {
 });
 
 describe('planner request and slots', () => {
+  it('passes published body and belt economy facts through to evaluation', () => {
+    const data = bodies();
+    data.economy_facts_generation_id = 'derived-fixture';
+    Object.assign(data.bodies[0], {
+      economy_kind: 'high_metal_content_world',
+      economy_parent_id: '2',
+      in_binary_pair: true,
+      tidally_locked: false,
+      volcanism_present: true,
+      terraformable: false,
+      has_rings: true,
+      geological_signals: 3,
+      biological_signals: 2,
+      signals_complete: true,
+    });
+    Object.assign(data.bodies[1], {
+      economy_kind: null,
+      economy_parent_id: null,
+      in_binary_pair: null,
+      tidally_locked: null,
+      volcanism_present: null,
+      terraformable: null,
+    });
+    const request = toPlanRequest(plan(site('port')), data);
+    expect(request.bodies?.[0].economy).toEqual({
+      kind: 'high_metal_content_world',
+      parent_ref: '2',
+      in_binary_pair: true,
+      tidally_locked: false,
+      volcanism: true,
+      terraformable: false,
+      has_rings: true,
+      geological_signals: 3,
+      biological_signals: 2,
+    });
+    expect(request.bodies?.[1].economy).toEqual({
+      kind: null,
+      parent_ref: null,
+      in_binary_pair: null,
+      tidally_locked: null,
+      volcanism: null,
+      terraformable: null,
+      has_rings: false,
+      geological_signals: null,
+      biological_signals: null,
+    });
+    expect(request.bodies?.[2]).toMatchObject({
+      body_ref: '4',
+      economy: { kind: null, parent_ref: '1', has_rings: true },
+    });
+    // A belt with no surviving cluster keeps the same facts on its fallback.
+    data.belts[0].name = 'Missing cluster';
+    expect(toPlanRequest(emptyPlan('42'), data).bodies?.[2]).toMatchObject({
+      body_ref: 'belt:10',
+      economy: { kind: null, parent_ref: '1', has_rings: true },
+    });
+  });
+
+  it.each([
+    [false, 0, 0, null, null],
+    [null, 0, 0, null, null],
+    [true, 0, 0, 0, 0],
+    [false, 2, 0, 2, null],
+    [null, 0, 3, null, 3],
+    [true, 2, 3, 2, 3],
+  ] as const)(
+    'preserves signal knowledge with survey %s and counts %s / %s',
+    (signals_complete, geological_signals, biological_signals, geo, bio) => {
+      const data = bodies();
+      data.economy_facts_generation_id = 'derived-fixture';
+      Object.assign(data.bodies[0], {
+        signals_complete,
+        geological_signals,
+        biological_signals,
+      });
+      expect(
+        toPlanRequest(emptyPlan('42'), data).bodies?.[0].economy,
+      ).toMatchObject({ geological_signals: geo, biological_signals: bio });
+    },
+  );
+
+  it.each([
+    ['pristine', true, false, true],
+    ['common', false, true, false],
+    [null, null, null, null],
+  ] as const)(
+    'passes system economy facts with reserve %s and null flags as false',
+    (reserve_level, has_black_hole, has_white_dwarf, has_neutron_star) => {
+      const data = bodies();
+      Object.assign(data, {
+        economy_facts_generation_id: 'derived-fixture',
+        reserve_level,
+        has_black_hole,
+        has_white_dwarf,
+        has_neutron_star,
+      });
+      expect(toPlanRequest(emptyPlan('42'), data).system_economy).toEqual({
+        reserve: reserve_level,
+        has_black_hole: has_black_hole ?? false,
+        has_white_dwarf: has_white_dwarf ?? false,
+        has_neutron_star: has_neutron_star ?? false,
+      });
+    },
+  );
+
+  it('sends no economy objects when the derived generation is unavailable', () => {
+    const data = bodies();
+    Object.assign(data, {
+      economy_facts_generation_id: null,
+      reserve_level: 'pristine',
+      has_black_hole: true,
+      has_white_dwarf: true,
+      has_neutron_star: true,
+    });
+    data.bodies[0].economy_kind = 'rocky_body';
+    const request = toPlanRequest(emptyPlan('42'), data);
+    expect(request).not.toHaveProperty('system_economy');
+    for (const body of request.bodies ?? [])
+      expect(body).not.toHaveProperty('economy');
+  });
+
   it('maps every non-cluster body and one resolved belt to the API with no computed CP', () => {
     const model = setSlotCount(
       setSlotCount(plan(site('one', { body_ref: '4' })), '1', 'surface', 7),
@@ -221,6 +346,285 @@ describe('planner request and slots', () => {
         ({ body_ref }) => body_ref,
       ),
     ).toEqual(['1', '2', 'belt:10']);
+  });
+
+  it('evaluates a saved site on a belt cluster the belt no longer selects as that same belt', () => {
+    // Cluster 1 ('4') was the belt's location when the site was saved; it is
+    // now retired, so the active belt selects Cluster 8 ('3') instead. The
+    // saved asteroid base is still on the belt: it must stay ringed, and it
+    // must share the belt's one slot total with new builds there.
+    const data = bodies();
+    data.bodies[3].lifecycle_state = 'RETIRED';
+    const model = setSlotCount(
+      plan(
+        site('port'),
+        site('base', {
+          body_ref: '4',
+          facility_id: 'asteroid_base',
+          status: 'complete',
+        }),
+        site('new-base', { body_ref: '3', facility_id: 'asteroid_base' }),
+      ),
+      '3',
+      'orbital',
+      1,
+    );
+    const request = toPlanRequest(model, data);
+    const refs = request.bodies?.map(({ body_ref }) => body_ref) ?? [];
+    expect(refs).toEqual(['1', '2', '3']);
+    expect(request.bodies?.find(({ body_ref }) => body_ref === '3')).toEqual({
+      body_ref: '3',
+      orbital_slots: 1,
+      surface_slots: 0,
+      is_landable: false,
+      is_ringed: true,
+    });
+    expect(
+      request.sites.map(({ site_id, body_ref }) => [site_id, body_ref]),
+    ).toEqual([
+      ['port', '1'],
+      ['base', '3'],
+      ['new-base', '3'],
+    ]);
+    // The saved plan itself keeps its original reference.
+    expect(model.sites[1].body_ref).toBe('4');
+  });
+
+  it('looks up belt capacity and occupancy through every alias, as the plan check does', () => {
+    const data = bodies();
+    data.bodies[3].lifecycle_state = 'RETIRED';
+    const model = setSlotCount(
+      plan(
+        site('port'),
+        site('base', { body_ref: '4', status: 'complete' }),
+        site('gone', { body_ref: '4', status: 'demolished' }),
+      ),
+      '4',
+      'orbital',
+      2,
+    );
+    expect(locationAliases(data, '3')).toEqual(['3', '4', 'belt:10']);
+    expect(locationAliases(data, '1')).toEqual(['1']);
+    expect(locationSlots(model, data, '3')?.orbital_slots).toBe(2);
+    expect(countLocationSlots(model, data, '3')).toEqual({
+      orbital_slots: 1,
+      surface_slots: 0,
+    });
+    // A total entered on the current reference wins over the old alias's.
+    const edited = setSlotCount(model, '3', 'orbital', 3);
+    expect(locationSlots(edited, data, '3')?.orbital_slots).toBe(3);
+    expect(
+      toPlanRequest(edited, data).bodies?.find(
+        ({ body_ref }) => body_ref === '3',
+      )?.orbital_slots,
+    ).toBe(3);
+  });
+
+  it('keeps slot counts entered on a belt alias the belt no longer selects', () => {
+    const data = bodies();
+    data.bodies[3].lifecycle_state = 'RETIRED';
+    const model = setSlotCount(
+      plan(site('port'), site('base', { body_ref: '4' })),
+      '4',
+      'orbital',
+      2,
+    );
+    expect(
+      toPlanRequest(model, data).bodies?.find(
+        ({ body_ref }) => body_ref === '3',
+      )?.orbital_slots,
+    ).toBe(2);
+  });
+
+  it('sends all current locations and only site-referenced non-current bodies and belts, once per reference', () => {
+    const data = bodies();
+    data.bodies.push(
+      body('5'),
+      { ...body('6'), lifecycle_state: 'RETIRED', has_rings: true },
+      { ...body('7'), lifecycle_state: 'MISSING_CANDIDATE' },
+      { ...body('8'), lifecycle_state: 'RETIRED' },
+      { ...body('9'), lifecycle_state: 'MISSING_CANDIDATE' },
+    );
+    data.belts[0].lifecycle_state = 'RETIRED';
+    data.belts.push(
+      {
+        ...data.belts[0],
+        belt_id: '20',
+        name: 'Current belt',
+        lifecycle_state: 'ACTIVE',
+      },
+      {
+        ...data.belts[0],
+        belt_id: '30',
+        name: 'Missing belt',
+        lifecycle_state: 'MISSING_CANDIDATE',
+      },
+      { ...data.belts[0], belt_id: '40', name: 'Unreferenced retired belt' },
+      {
+        ...data.belts[0],
+        belt_id: '50',
+        name: 'Unreferenced missing belt',
+        lifecycle_state: 'MISSING_CANDIDATE',
+      },
+    );
+    const model = setSlotCount(
+      setSlotCount(
+        plan(
+          site('current'),
+          site('retired-planet', { body_ref: '6' }),
+          site('second-retired-planet', { body_ref: '6' }),
+          site('missing-planet', { body_ref: '7', status: 'complete' }),
+          site('retired-belt', { body_ref: '4' }),
+          site('missing-belt', { body_ref: 'belt:30' }),
+          site('unplaced', { body_ref: null }),
+        ),
+        '6',
+        'surface',
+        3,
+      ),
+      'belt:30',
+      'orbital',
+      2,
+    );
+    const request = toPlanRequest(model, data);
+    expect(request.bodies?.map(({ body_ref }) => body_ref)).toEqual([
+      '1',
+      '2',
+      '5',
+      '6',
+      '7',
+      '4',
+      'belt:20',
+      'belt:30',
+    ]);
+    expect(request.bodies?.find(({ body_ref }) => body_ref === '6')).toEqual({
+      body_ref: '6',
+      orbital_slots: null,
+      surface_slots: 3,
+      is_landable: true,
+      is_ringed: true,
+    });
+    expect(
+      request.bodies?.find(({ body_ref }) => body_ref === 'belt:30'),
+    ).toEqual({
+      body_ref: 'belt:30',
+      orbital_slots: 2,
+      surface_slots: 0,
+      is_landable: false,
+      is_ringed: true,
+    });
+    expect(request.sites?.map(({ body_ref }) => body_ref)).toEqual(
+      model.sites.map(({ body_ref }) => body_ref),
+    );
+  });
+
+  it('preserves an explicit non-current belt reference even when the belt has a cluster alias', () => {
+    const data = bodies();
+    data.belts[0].lifecycle_state = 'RETIRED';
+    const request = toPlanRequest(
+      plan(site('belt', { body_ref: 'belt:10' })),
+      data,
+    );
+    expect(request.bodies?.map(({ body_ref }) => body_ref)).toEqual([
+      '1',
+      '2',
+      'belt:10',
+    ]);
+    expect(request.sites?.[0].body_ref).toBe('belt:10');
+  });
+
+  it('keeps a retired belt site on its previously current cluster alias', () => {
+    const data = bodies();
+    data.bodies[3].lifecycle_state = 'RETIRED';
+    data.belts[0].lifecycle_state = 'RETIRED';
+    const model = plan(site('old-belt', { body_ref: '3' }));
+    const request = toPlanRequest(model, data);
+    expect(request.bodies?.map(({ body_ref }) => body_ref)).toEqual([
+      '1',
+      '2',
+      '3',
+    ]);
+    expect(request.bodies?.[2]).toMatchObject({
+      body_ref: '3',
+      surface_slots: 0,
+      is_landable: false,
+      is_ringed: true,
+    });
+    expect(request.sites?.[0].body_ref).toBe('3');
+    expect(() => rejectInvalidLocations(model, data)).toThrow(
+      'no longer in the current galaxy data (retired)',
+    );
+  });
+
+  it('retains a referenced non-current cluster when its active belt moves to a current representative', () => {
+    const data = bodies();
+    data.bodies[3].lifecycle_state = 'RETIRED';
+    expect(
+      toPlanRequest(
+        plan(site('old-belt', { body_ref: '4' })),
+        data,
+      ).bodies?.map(({ body_ref }) => body_ref),
+      // '4' is still the belt, evaluated under its current reference '3'.
+    ).toEqual(['1', '2', '3']);
+    expect(
+      toPlanRequest(emptyPlan('42'), data).bodies?.map(
+        ({ body_ref }) => body_ref,
+      ),
+    ).toEqual(['1', '2', '3']);
+  });
+
+  it.each([
+    ['RETIRED', 'retired'],
+    ['MISSING_CANDIDATE', 'missing from the latest data'],
+  ])(
+    'gives an imported %s body or belt its own current-data message',
+    (lifecycle_state, reason) => {
+      const data = bodies();
+      data.bodies[0].lifecycle_state = lifecycle_state;
+      data.belts[0].lifecycle_state = lifecycle_state;
+      for (const [body_ref, name] of [
+        ['1', 'Test 1'],
+        ['4', 'Test A Belt'],
+        ['belt:10', 'Test A Belt'],
+      ])
+        expect(() =>
+          rejectInvalidLocations(plan(site('old', { body_ref })), data),
+        ).toThrow(
+          `“${name}” is no longer in the current galaxy data (${reason}). Move this site to a current body, or to Unplaced, before importing.`,
+        );
+    },
+  );
+
+  it('unplaces non-current imported bodies and belts only after confirmation, preserving the source plan', () => {
+    const data = bodies();
+    data.bodies[0].lifecycle_state = 'RETIRED';
+    data.bodies.push(
+      { ...body('5'), lifecycle_state: 'MISSING_CANDIDATE' },
+      body('6'),
+    );
+    data.belts[0].lifecycle_state = 'MISSING_CANDIDATE';
+    const imported = plan(
+      site('retired-body'),
+      site('missing-body', { body_ref: '5' }),
+      site('missing-belt-alias', { body_ref: '4' }),
+      site('missing-belt', { body_ref: 'belt:10' }),
+      site('current', { body_ref: '6' }),
+    );
+    expect(
+      unplaceMissingLocations(imported, data).sites.map(
+        ({ body_ref }) => body_ref,
+      ),
+    ).toEqual([null, null, null, null, '6']);
+    expect(imported.sites.map(({ body_ref }) => body_ref)).toEqual([
+      '1',
+      '5',
+      '4',
+      'belt:10',
+      '6',
+    ]);
+    expect(() =>
+      rejectInvalidLocations(unplaceMissingLocations(imported, data), data),
+    ).not.toThrow();
   });
 
   it('rejects imported sites on hidden clusters and barycentres, but accepts the resolved belt', () => {

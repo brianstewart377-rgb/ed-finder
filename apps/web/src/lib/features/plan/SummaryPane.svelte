@@ -1,15 +1,23 @@
 <script lang="ts">
-  import type { PlanEvaluationV1, PlanFacilityV1 } from '$lib/api';
-  import type { PlannerModel } from './model';
+  import type {
+    PlanBodiesV1,
+    PlanEvaluationV1,
+    PlanFacilityV1,
+  } from '$lib/api';
+  import { locationSlots, type PlannerModel } from './model';
   import type { PlannerLocation } from './locations';
   import PlanIcon from './PlanIcon.svelte';
   let {
     model,
+    bodies,
     facilities,
     locations,
     evaluation,
     view,
     error,
+    canRetry = false,
+    retrySeconds = 0,
+    onretry,
     pending,
     stale,
     onstep,
@@ -17,11 +25,15 @@
     onwhy,
   }: {
     model: PlannerModel;
+    bodies: PlanBodiesV1;
     facilities: PlanFacilityV1[];
     locations: PlannerLocation[];
     evaluation: PlanEvaluationV1 | null;
     view: 'now' | 'after_plan';
     error: string;
+    canRetry?: boolean;
+    retrySeconds?: number;
+    onretry?: () => void;
     pending: boolean;
     stale: boolean;
     onstep: (id: string) => void;
@@ -44,7 +56,9 @@
             site.body_ref !== null &&
             locations.some((location) => location.body_ref === site.body_ref) &&
             site.status !== 'demolished' &&
-            model.slots[site.body_ref]?.[`${site.slot_kind}_slots`] == null,
+            locationSlots(model, bodies, site.body_ref)?.[
+              `${site.slot_kind}_slots`
+            ] == null,
         )
         .map((site) => site.body_ref!),
     ),
@@ -76,6 +90,14 @@
       Add a Primary Port to evaluate this plan.
     </p>{/if}
   {#if error}<p class="plan-error" role="alert">{error}</p>{/if}
+  {#if error && canRetry}<button
+      type="button"
+      disabled={pending || retrySeconds > 0}
+      onclick={onretry}
+      >{retrySeconds > 0
+        ? `Try again in ${retrySeconds} s`
+        : 'Try again'}</button
+    >{/if}
   {#if pending}<p class="plan-muted" role="status">Evaluating plan…</p>{/if}
   {#if stale && evaluation}<p class="plan-muted">
       Last good evaluation — awaiting a valid current result.

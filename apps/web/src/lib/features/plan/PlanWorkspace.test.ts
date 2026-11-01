@@ -63,7 +63,7 @@ const bodyData: PlanBodiesV1 = {
       geological_signals: 0,
       biological_signals: 0,
       signals_complete: null,
-      lifecycle_state: 'active',
+      lifecycle_state: 'ACTIVE',
     },
   ],
 };
@@ -101,6 +101,7 @@ function evaluated(t2: number, blocked = 0): PlanEvaluationV1 {
     now: { t2, t3: 0 },
     after_plan: { t2, t3: 0 },
     next_port_cost: { t2: 3, t3: 6 },
+    economies: { now: [], after_plan: [], notes: [] },
     steps: [],
     plan_checks: [],
     summary: { OK: 0, BLOCKED: blocked, NEEDS_INFO: 0, COUNTED: 0, IGNORED: 0 },
@@ -847,6 +848,100 @@ describe('planner workspace evaluation and browser state', () => {
     expect(within(summary).queryByText('999')).not.toBeInTheDocument();
   });
 
+  it.each([
+    new TypeError('Failed to fetch'),
+    new ApiError(503, '/api/v1/plan/evaluate', 'Unavailable'),
+    new ApiError(429, '/api/v1/plan/evaluate', 'Too many requests'),
+  ])(
+    'retries a failed evaluation once with the identical payload: %s',
+    async (error) => {
+      seedPrimary();
+      vi.mocked(evaluateV3Plan).mockRejectedValueOnce(error);
+      render(PlanWorkspaceTestHost);
+      await advance(250);
+      const summary = screen.getByRole('complementary', { name: 'Summary' });
+      expect(within(summary).getByRole('alert')).toHaveTextContent(
+        'The plan could not be evaluated. Try again shortly.',
+      );
+      const payload = vi.mocked(evaluateV3Plan).mock.calls[0][0];
+      await advance(10000);
+      expect(evaluateV3Plan).toHaveBeenCalledOnce();
+      const retry = within(summary).getByRole('button', { name: 'Try again' });
+      const retried = deferred<PlanEvaluationV1>();
+      vi.mocked(evaluateV3Plan).mockReturnValueOnce(retried.promise);
+      await fireEvent.click(retry);
+      await fireEvent.click(retry);
+      expect(evaluateV3Plan).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(evaluateV3Plan).mock.calls[1][0]).toEqual(payload);
+      expect(summary).toHaveAttribute('aria-busy', 'true');
+      retried.resolve(evaluated(23));
+      await advance(0);
+      expect(within(summary).getByText('23')).toBeInTheDocument();
+      expect(within(summary).queryByRole('alert')).not.toBeInTheDocument();
+      expect(
+        within(summary).queryByRole('button', { name: 'Try again' }),
+      ).not.toBeInTheDocument();
+      await advance(10000);
+      expect(evaluateV3Plan).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('counts down Retry-After seconds without retrying automatically', async () => {
+    seedPrimary();
+    vi.mocked(evaluateV3Plan).mockRejectedValueOnce(
+      Object.assign(
+        new ApiError(429, '/api/v1/plan/evaluate', 'Rate limited'),
+        {
+          retryAfterSeconds: 5,
+        },
+      ),
+    );
+    render(PlanWorkspaceTestHost);
+    await advance(250);
+    const summary = screen.getByRole('complementary', { name: 'Summary' });
+    const retry = within(summary).getByRole('button', {
+      name: 'Try again in 5 s',
+    });
+    expect(retry).toBeDisabled();
+    await fireEvent.click(retry);
+    expect(evaluateV3Plan).toHaveBeenCalledOnce();
+    for (let seconds = 4; seconds > 0; seconds -= 1) {
+      await advance(1000);
+      expect(retry).toHaveAccessibleName(`Try again in ${seconds} s`);
+      expect(retry).toBeDisabled();
+    }
+    await advance(1000);
+    expect(retry).toHaveAccessibleName('Try again');
+    expect(retry).toBeEnabled();
+    expect(evaluateV3Plan).toHaveBeenCalledOnce();
+    await fireEvent.click(retry);
+    await advance(0);
+    expect(evaluateV3Plan).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(evaluateV3Plan).mock.calls[1][0]).toEqual(
+      vi.mocked(evaluateV3Plan).mock.calls[0][0],
+    );
+  });
+
+  it('keeps the last good evaluation stale until a manual retry succeeds', async () => {
+    seedPrimary();
+    render(PlanWorkspaceTestHost);
+    await advance(250);
+    vi.mocked(evaluateV3Plan).mockRejectedValueOnce(new TypeError('Offline'));
+    await editOrbitalSlots();
+    await advance(250);
+    const summary = screen.getByRole('complementary', { name: 'Summary' });
+    expect(within(summary).getByText('17').closest('.stale')).not.toBeNull();
+    const retried = deferred<PlanEvaluationV1>();
+    vi.mocked(evaluateV3Plan).mockReturnValueOnce(retried.promise);
+    await fireEvent.click(
+      within(summary).getByRole('button', { name: 'Try again' }),
+    );
+    expect(within(summary).getByText('17').closest('.stale')).not.toBeNull();
+    retried.resolve(evaluated(23));
+    await advance(0);
+    expect(within(summary).getByText('23').closest('.stale')).toBeNull();
+  });
+
   it('announces blocked steps and keeps the last good evaluation greyed after a 400', async () => {
     seedPrimary();
     vi.mocked(evaluateV3Plan).mockResolvedValueOnce(evaluated(17, 2));
@@ -877,6 +972,9 @@ describe('planner workspace evaluation and browser state', () => {
     expect(
       within(summary).getByText(/Last good evaluation/),
     ).toBeInTheDocument();
+    expect(
+      within(summary).queryByRole('button', { name: /Try again/ }),
+    ).not.toBeInTheDocument();
   });
 
   it('shows the blocked count only for a current evaluation of a non-empty plan', async () => {

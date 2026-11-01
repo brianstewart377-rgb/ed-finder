@@ -128,6 +128,40 @@ describe('shared system detail', () => {
     expect(detailValue('Catalogue status')).toBe('Retired from the catalogue');
   });
 
+  it('keeps Inspect usable when the facade omits unknown coordinates', async () => {
+    const id64 = parseId64('9007199254740993');
+    mockedGetSystem.mockResolvedValue({
+      ...referenceSystemDetail({ id64, name: 'Unknown position' }),
+      x: undefined,
+      y: undefined,
+      z: undefined,
+    });
+    const { container } = render(SystemDetailTestHost, { props: { id64 } });
+
+    expect(
+      await screen.findByRole('heading', { name: 'Unknown position' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(id64)).toBeInTheDocument();
+    expect(container.querySelector('[data-system-id64]')).toHaveAttribute(
+      'data-system-id64',
+      id64,
+    );
+    expect(detailValue('Coordinates')).toBe('Coordinates unavailable');
+    expect(detailValue('Main star')).toBe('G2 V');
+    expect(container.textContent).not.toMatch(
+      /undefined|null|NaN|0\.00, 0\.00, 0\.00/u,
+    );
+
+    const bodies = screen.getByRole('list', { name: 'System bodies' });
+    await fireEvent.click(
+      within(bodies).getByRole('button', { name: 'Reference System 3 Planet' }),
+    );
+    expect(await screen.findByRole('article')).toHaveAttribute(
+      'data-selected-body-id',
+      '3',
+    );
+  });
+
   it('flags an incomplete body catalogue but not a lagging source total', async () => {
     mockedGetSystem.mockResolvedValueOnce(
       referenceSystemDetail({ source_body_count: 5 }),

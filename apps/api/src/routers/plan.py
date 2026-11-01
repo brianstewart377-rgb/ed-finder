@@ -12,13 +12,29 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from edfinder_api.config import limiter
-from edfinder_api.cpe import RULEBOOK_RELEASE, Body, Plan, Site, evaluate_plan
+from edfinder_api.cpe import (
+    RULEBOOK_RELEASE,
+    Body,
+    EconomyBody,
+    EconomySystem,
+    Plan,
+    Site,
+    evaluate_economies,
+    evaluate_plan,
+)
 from edfinder_api.cpe.budget import _cost
 from edfinder_api.cpe.catalogue import planner_facilities, prerequisites_for
+from edfinder_api.cpe.economy import BodyKind, ItemKind, PortEconomy, PortRole
 from edfinder_api.cpe.explain import explain_rule
 from edfinder_api.cpe.plan import PlanInvalid
 from edfinder_api.deps import get_readonly_pool
 from edfinder_api.mechanics.cp_rules import escalating_port_tier
+from edfinder_api.routers.plan_economy_facts import (
+    ReserveLevel,
+    aggregate_reserve_levels,
+    economy_kind,
+    economy_topology,
+)
 from edfinder_api.routers.v3 import (
     SystemId,
     _bounded,
@@ -74,6 +90,12 @@ class PlanSystemBodyV1(PlanModel):
     biological_signals: int
     signals_complete: bool | None
     lifecycle_state: str
+    economy_kind: BodyKind | None = None
+    economy_parent_id: str | None = None
+    in_binary_pair: bool | None = None
+    tidally_locked: bool | None = None
+    volcanism_present: bool | None = None
+    terraformable: bool | None = None
 
 
 class PlanSystemBeltV1(PlanModel):
@@ -85,6 +107,7 @@ class PlanSystemBeltV1(PlanModel):
     mass_mt: float | None
     inner_radius_km: float | None
     outer_radius_km: float | None
+    lifecycle_state: str
 
 
 class PlanBodiesV1(PlanModel):
@@ -93,6 +116,31 @@ class PlanBodiesV1(PlanModel):
     system_id64: str
     bodies: list[PlanSystemBodyV1]
     belts: list[PlanSystemBeltV1]
+    economy_facts_generation_id: str | None = None
+    reserve_level: ReserveLevel | None = None
+    has_black_hole: bool | None = None
+    has_white_dwarf: bool | None = None
+    has_neutron_star: bool | None = None
+    economy_notes: list[str] = Field(default_factory=list)
+
+
+class PlanBodyEconomyV1(PlanModel):
+    kind: BodyKind | None = None
+    parent_ref: str | None = Field(default=None, min_length=1, max_length=64)
+    in_binary_pair: bool | None = None
+    tidally_locked: bool | None = None
+    volcanism: bool | None = None
+    terraformable: bool | None = None
+    has_rings: bool | None = None
+    geological_signals: int | None = Field(default=None, ge=0, le=1000)
+    biological_signals: int | None = Field(default=None, ge=0, le=1000)
+
+
+class PlanSystemEconomyV1(PlanModel):
+    reserve: ReserveLevel | None = None
+    has_black_hole: bool = False
+    has_white_dwarf: bool = False
+    has_neutron_star: bool = False
 
 
 class PlanBodyV1(BaseModel):
@@ -103,6 +151,7 @@ class PlanBodyV1(BaseModel):
     surface_slots: int | None = Field(default=None, ge=0, le=64, strict=True)
     is_landable: bool | None = Field(default=None, strict=True)
     is_ringed: bool | None = Field(default=None, strict=True)
+    economy: PlanBodyEconomyV1 | None = None
 
 
 class PlanSiteV1(BaseModel):
@@ -122,6 +171,7 @@ class PlanRequestV1(BaseModel):
     system_id64: str = Field(pattern=r"^[0-9]{1,19}$", strict=True)
     bodies: list[PlanBodyV1] = Field(default_factory=list, max_length=1000)
     sites: list[PlanSiteV1] = Field(min_length=1, max_length=300)
+    system_economy: PlanSystemEconomyV1 | None = None
 
 
 class PlanTotalsV1(PlanModel):
@@ -172,6 +222,50 @@ class PlanRuleExplanationV1(PlanModel):
     page: int | None
 
 
+class EconomyModifierV1(PlanModel):
+    condition: str
+    delta: float
+
+
+class EconomyItemV1(PlanModel):
+    kind: ItemKind
+    base: float
+    modifiers: list[EconomyModifierV1]
+    floored: bool
+    value: float
+    source_site_ids: list[str]
+    via_site_id: str | None
+    rule_ids: list[str]
+    count: int | None
+
+
+class EconomyV1(PlanModel):
+    name: str
+    strength: float
+    items: list[EconomyItemV1]
+
+
+class PortEconomyV1(PlanModel):
+    site_id: str
+    body_ref: str | None
+    role: PortRole
+    supports: str | None
+    economies: list[EconomyV1]
+
+
+class EconomyNoteV1(PlanModel):
+    code: str
+    site_id: str | None
+    body_ref: str | None
+    message: str
+
+
+class PlanEconomiesV1(PlanModel):
+    now: list[PortEconomyV1]
+    after_plan: list[PortEconomyV1]
+    notes: list[EconomyNoteV1]
+
+
 class PlanEvaluationV1(PlanModel):
     rulebook_release: str
     system_id64: str
@@ -182,6 +276,7 @@ class PlanEvaluationV1(PlanModel):
     plan_checks: list[PlanCheckV1]
     summary: PlanSummaryV1
     explanations: dict[str, PlanRuleExplanationV1]
+    economies: PlanEconomiesV1
 
 
 class PlanIssueV1(PlanModel):
@@ -259,6 +354,7 @@ async def bodies(
         f"""SELECT ring.body_pk
               FROM {schema}.rings ring
              WHERE ring.system_id64=$1 AND ring.kind='RING'
+               AND ring.lifecycle_state='ACTIVE'
              GROUP BY ring.body_pk""",
         numeric_id,
     ))
@@ -280,7 +376,8 @@ async def bodies(
         f"""SELECT ring.ring_pk,ring.name,ring.body_pk,
                    ring_type.display_name AS ring_type,
                    reserve_type.display_name AS reserve,
-                   ring.mass_mt,ring.inner_radius_km,ring.outer_radius_km
+                   ring.mass_mt,ring.inner_radius_km,ring.outer_radius_km,
+                   ring.lifecycle_state
               FROM {schema}.rings ring
               LEFT JOIN v3_vocab.ring_type ring_type USING(ring_type_id)
               LEFT JOIN v3_vocab.reserve_type reserve_type USING(reserve_type_id)
@@ -288,11 +385,44 @@ async def bodies(
              ORDER BY ring.ring_pk""",
         numeric_id,
     ))
+    published = await _bounded(pool.fetchrow("""
+        SELECT c.derived_generation_id,d.canonical_generation_id
+          FROM v3_meta.current_derived_generation c
+          JOIN v3_meta.derived_generation d USING(derived_generation_id)
+         WHERE d.lifecycle_state='PUBLISHED'
+    """))
+    facts_generation_id = None
+    mechanics_by_body = {}
+    topology = {}
+    reserve_level = None
+    economy_notes = []
+    active_kinds = set()
+    if (published is not None
+            and str(published["canonical_generation_id"]) == generation.generation_id):
+        facts_generation_id = published["derived_generation_id"]
+        mechanics_rows = await _bounded(pool.fetch("""
+            SELECT body_pk,body_class,spectral_class,luminosity_class,volcanism,
+                   terraformable,tidally_locked,reserve_level
+              FROM v3_derived.body_mechanics
+             WHERE derived_generation_id=$1 AND system_id64=$2
+             ORDER BY body_pk
+        """, facts_generation_id, numeric_id))
+        mechanics_by_body = {row["body_pk"]: row for row in mechanics_rows}
+        topology = economy_topology(rows)
+        reserve_level, economy_notes = aggregate_reserve_levels(rows, mechanics_by_body, belt_rows)
+        active_kinds = {
+            economy_kind(mechanics["body_class"], mechanics["spectral_class"])
+            for row in rows
+            if row["lifecycle_state"] == "ACTIVE"
+            and (mechanics := mechanics_by_body.get(row["body_pk"])) is not None
+        }
     ringed_bodies = {row["body_pk"] for row in ring_rows}
     signals_by_body = {row["body_pk"]: row for row in signal_rows}
     result = []
     for row in rows:
         signal = signals_by_body.get(row["body_pk"])
+        mechanics = mechanics_by_body.get(row["body_pk"])
+        parent_id, binary_pair = topology.get(row["body_pk"], (None, None))
         result.append(PlanSystemBodyV1(
             body_id=str(row["body_pk"]),
             name=row["name"],
@@ -315,12 +445,27 @@ async def bodies(
             biological_signals=signal["biological_signals"] if signal else 0,
             signals_complete=row["signals_complete"],
             lifecycle_state=row["lifecycle_state"],
+            economy_kind=(
+                economy_kind(mechanics["body_class"], mechanics["spectral_class"])
+                if mechanics is not None else None
+            ),
+            economy_parent_id=parent_id,
+            in_binary_pair=binary_pair,
+            tidally_locked=mechanics["tidally_locked"] if mechanics is not None else None,
+            volcanism_present=mechanics["volcanism"] if mechanics is not None else None,
+            terraformable=mechanics["terraformable"] if mechanics is not None else None,
         ))
     return PlanBodiesV1(
         generation_id=generation.generation_id,
         publication_sequence=generation.publication_sequence,
         # Echo the canonical decimal form, so "000123" and "123" answer alike.
         system_id64=str(numeric_id),
+        economy_facts_generation_id=str(facts_generation_id) if facts_generation_id is not None else None,
+        reserve_level=reserve_level,
+        has_black_hole="black_hole" in active_kinds if facts_generation_id is not None else None,
+        has_white_dwarf="white_dwarf" in active_kinds if facts_generation_id is not None else None,
+        has_neutron_star="neutron_star" in active_kinds if facts_generation_id is not None else None,
+        economy_notes=economy_notes,
         bodies=result,
         belts=[
             PlanSystemBeltV1(
@@ -332,8 +477,37 @@ async def bodies(
                 mass_mt=row["mass_mt"],
                 inner_radius_km=row["inner_radius_km"],
                 outer_radius_km=row["outer_radius_km"],
+                lifecycle_state=row["lifecycle_state"],
             )
             for row in belt_rows
+        ],
+    )
+
+
+def _port_economy(port: PortEconomy) -> PortEconomyV1:
+    return PortEconomyV1(
+        site_id=port.site_id,
+        body_ref=port.body_ref,
+        role=port.role,
+        supports=port.supports,
+        economies=[
+            EconomyV1(
+                name=economy.name,
+                strength=economy.strength,
+                items=[
+                    EconomyItemV1(**{
+                        **asdict(item),
+                        "modifiers": [
+                            EconomyModifierV1(condition=condition, delta=delta)
+                            for condition, delta in item.modifiers
+                        ],
+                        "source_site_ids": list(item.source_site_ids),
+                        "rule_ids": list(item.rule_ids),
+                    })
+                    for item in economy.items
+                ],
+            )
+            for economy in port.economies
         ],
     )
 
@@ -351,7 +525,7 @@ async def bodies(
 async def evaluate(request: Request, body: PlanRequestV1) -> PlanEvaluationV1 | JSONResponse:
     plan = Plan(
         system_id64=int(body.system_id64),
-        bodies=tuple(Body(**item.model_dump()) for item in body.bodies),
+        bodies=tuple(Body(**item.model_dump(exclude={"economy"})) for item in body.bodies),
         sites=tuple(Site(**item.model_dump()) for item in body.sites),
     )
     try:
@@ -363,11 +537,39 @@ async def evaluate(request: Request, body: PlanRequestV1) -> PlanEvaluationV1 | 
         )
         return JSONResponse(status_code=400, content=invalid.model_dump())
 
+    economy_bodies = tuple(
+        EconomyBody(item.body_ref, **item.economy.model_dump())
+        if item.economy is not None else EconomyBody(item.body_ref)
+        for item in body.bodies
+    )
+    economy_system = (
+        EconomySystem(**body.system_economy.model_dump())
+        if body.system_economy is not None else EconomySystem()
+    )
+    try:
+        economy_now = evaluate_economies(plan.sites, economy_bodies, economy_system, view="now")
+        economy_after = evaluate_economies(
+            plan.sites, economy_bodies, economy_system, view="after_plan",
+        )
+    except ValueError as exc:
+        invalid = PlanInvalidV1(
+            error="plan_invalid",
+            issues=[PlanIssueV1(code="ECONOMY_INPUT", site_id=None, message=str(exc))],
+        )
+        return JSONResponse(status_code=400, content=invalid.model_dump())
+
     cited = {
         rule_id
         for item in (*evaluation.steps, *evaluation.plan_checks)
         for rule_id in item.rule_ids
     }
+    cited.update(
+        rule_id
+        for port in (*economy_now.ports, *economy_after.ports)
+        for economy in port.economies
+        for item in economy.items
+        for rule_id in item.rule_ids
+    )
     return PlanEvaluationV1(
         rulebook_release=evaluation.rulebook_release,
         system_id64=body.system_id64,
@@ -392,4 +594,12 @@ async def evaluate(request: Request, body: PlanRequestV1) -> PlanEvaluationV1 | 
             rule_id: PlanRuleExplanationV1(**explain_rule(rule_id))
             for rule_id in sorted(cited)
         },
+        economies=PlanEconomiesV1(
+            now=[_port_economy(port) for port in economy_now.ports],
+            after_plan=[_port_economy(port) for port in economy_after.ports],
+            notes=[
+                EconomyNoteV1(**asdict(note))
+                for note in dict.fromkeys((*economy_now.notes, *economy_after.notes))
+            ],
+        ),
     )

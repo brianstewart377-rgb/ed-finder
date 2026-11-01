@@ -51,6 +51,7 @@ function renderOrder(fixture = facilityFixture(), onupdate = vi.fn()) {
     model: fixture.model,
     facilities: fixture.facilities,
     locations: resolvePlanLocations(fixture.bodies),
+    bodies: fixture.bodies,
     systemName: fixture.systemName,
     evaluation: null,
     stale: false,
@@ -222,6 +223,64 @@ describe('build order facility editing', () => {
       expect(
         screen.getByRole('combobox', { name: 'Facility for step 1' }),
       ).toBeDisabled();
+    },
+  );
+
+  it.each([
+    { kind: 'body', state: 'RETIRED', label: 'retired' },
+    {
+      kind: 'body',
+      state: 'MISSING_CANDIDATE',
+      label: 'missing from the latest data',
+    },
+    { kind: 'belt', state: 'RETIRED', label: 'retired' },
+  ] as const)(
+    'keeps a saved $state $kind visible while allowing status changes and a move to a current location',
+    async ({ kind, state, label }) => {
+      const fixture = facilityFixture();
+      const location =
+        kind === 'body' ? fixture.bodies.bodies[1] : fixture.bodies.belts[0];
+      location.lifecycle_state = state;
+      const ref = kind === 'body' ? '2' : 'belt:1';
+      fixture.model.sites[0].body_ref = ref;
+      const onupdate = vi.fn();
+      const { container } = renderOrder(fixture, onupdate);
+      const locationLabel = `${location.name.slice(fixture.systemName.length + 1)} (${label})`;
+
+      expect(container.querySelector('.step-description')).toHaveTextContent(
+        `Primary Outpost · orbital · ${locationLabel}`,
+      );
+      await fireEvent.click(screen.getByLabelText('Edit Colony site 1'));
+      const bodySelect = screen.getByRole('combobox', {
+        name: 'Body for step 1',
+      });
+      expect(bodySelect).toBeEnabled();
+      expect(bodySelect).toHaveValue(ref);
+      expect(
+        within(bodySelect).getByRole('option', {
+          name: `${locationLabel} — location no longer current`,
+        }),
+      ).toBeDisabled();
+      expect(
+        within(bodySelect)
+          .getAllByRole('option')
+          .filter((option) => !(option as HTMLOptionElement).disabled)
+          .map((option) => (option as HTMLOptionElement).value),
+      ).toEqual([
+        '',
+        ...resolvePlanLocations(fixture.bodies).map((entry) => entry.body_ref),
+      ]);
+      const status = screen.getByRole('combobox', {
+        name: 'Status for step 1',
+      });
+      expect(status).toBeEnabled();
+      await fireEvent.change(status, { target: { value: 'building' } });
+      expect(onupdate).toHaveBeenLastCalledWith('site-1', {
+        status: 'building',
+      });
+      await fireEvent.change(bodySelect, { target: { value: '1' } });
+      expect(onupdate).toHaveBeenLastCalledWith('site-1', { body_ref: '1' });
+      expect(fixture.model.sites[0].body_ref).toBe(ref);
     },
   );
 });

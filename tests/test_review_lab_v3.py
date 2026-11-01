@@ -4,7 +4,7 @@ import json
 import subprocess
 import sys
 import time
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -24,7 +24,7 @@ from apps.api.src.review_environment_fixtures import (  # noqa: E402
 from apps.api.src.review_runtime_guard import ReviewRuntimeGuardError, validate_review_runtime_env  # noqa: E402
 import review_environment as review_env  # noqa: E402
 from scripts.dev import seed_review_v3_generation as review_seed  # noqa: E402
-from scripts.dev.review_lab import api_contracts, browser_runner, contract, lifecycle, network_policy, scenarios  # noqa: E402
+from scripts.dev.review_lab import api_contracts, browser_runner, contract, lifecycle, network_policy, scenarios, support_matrix  # noqa: E402
 from scripts.dev.review_lab.process_registry import ReviewProcessRegistry  # noqa: E402
 from v3_spansh.contracts import GRID_EDGE_LY, macro_grid_key  # noqa: E402
 
@@ -86,10 +86,16 @@ def test_review_scenarios_are_only_lab_specific_states():
         'synthetic_wiring',
         'api_failure',
         'empty_results',
+        'rankings_api_failure',
+        'rankings_empty_results',
         'renderer_recovery',
     )
     flows = scenarios.selected_browser_flow_keys(scenarios.resolve_scenarios('all'))
-    assert flows == ('syntheticWiring', 'apiFailure', 'emptyResults', 'rendererRecovery')
+    assert flows == (
+        'syntheticWiring', 'apiFailure', 'emptyResults',
+        'rankingsApiFailure', 'rankingsEmptyResults', 'rendererRecovery',
+    )
+    assert set(flows) == set(browser_runner.REQUIRED_CHECKS_BY_FLOW)
     assert 'explore_inspect' not in scenarios.scenario_names()
     assert 'navigation_containment' not in scenarios.scenario_names()
 
@@ -119,8 +125,124 @@ def test_review_backend_not_cypress_owns_failure_and_empty_injection():
     assert 'review_lab_synthetic_empty' not in collector
     assert "mode == 'api_failure'" in review_main
     assert "mode == 'empty_results'" in review_main
+    assert "mode == 'rankings_api_failure'" in review_main
+    assert "mode == 'rankings_empty_results'" in review_main
     assert 'review_lab_synthetic_empty' in review_main
     assert "'/api/review/scenario/{mode}'" in support
+
+
+def test_review_rankings_scenarios_and_route_matrix_preserve_existing_coverage():
+    support_matrix.validate_support_route_matrix()
+    routes = {route.route: route for route in support_matrix.REVIEW_SUPPORT_ROUTE_MATRIX}
+    assert routes['/api/local/search'].scenario_coverage == (
+        'synthetic_wiring', 'api_failure', 'empty_results', 'renderer_recovery', 'rankings_empty_results',
+    )
+    rankings = routes['/api/archetypes/rankings']
+    assert rankings.scenario_coverage == ('rankings_api_failure', 'rankings_empty_results')
+    assert rankings.required_for_reviewed_flow is True
+    assert rankings.allowed_response_characteristics == (
+        'tagged review-only 503 in rankings_api_failure mode',
+        'contract-shaped empty result with ranking identity in rankings_empty_results mode',
+    )
+    control = routes['/api/review/scenario/{mode}']
+    assert control.allowed_response_characteristics == (
+        'normal', 'api_failure', 'empty_results', 'rankings_api_failure', 'rankings_empty_results',
+    )
+    assert control.scenario_coverage == (
+        'api_failure', 'empty_results', 'rankings_api_failure', 'rankings_empty_results',
+    )
+    for name, flow in (
+        ('rankings_api_failure', 'rankingsApiFailure'),
+        ('rankings_empty_results', 'rankingsEmptyResults'),
+    ):
+        scenario, = scenarios.resolve_scenarios(name)
+        assert scenario.browser_flow_keys == (flow,)
+        assert scenario.required_review_only_routes == ('/api/review/scenario/{mode}',)
+        assert scenario.api_contracts == ('health', 'review_control')
+
+
+def test_review_collector_preserves_url_selection_and_checks_both_failure_tags():
+    collector = read('apps/web/cypress/e2e/review-lab.cy.ts')
+    assert "['api-failure', 'rankings-api-failure'].includes(String(tag ?? ''))" in collector
+    assert "for (const tag of ['api-failure', 'rankings-api-failure'])" in collector
+    assert 'expect(isExpectedReviewFailure(503, tag), tag).to.equal(true)' in collector
+    assert 'expect(isExpectedReviewFailure(500, tag), tag).to.equal(false)' in collector
+    assert "expect(isExpectedReviewFailure(503, 'unknown-failure')).to.equal(false)" in collector
+    assert 'expectedFailure: isExpectedReviewFailure(' in collector
+    assert "response.headers['x-edfinder-review-failure']" in collector
+    assert 'cy.visit(`/explore?selected=${REVIEW_SYSTEM.id64}`' in collector
+    assert 'localStorage.setItem(selectedStorageKey' not in collector
+    assert 'data-map-label-selected="true"' in collector
+    assert "getAll('selected')).to.deep.equal([" in collector
+
+
+def test_review_collector_uses_a_fresh_selection_search_alias_per_call():
+    collector = read('apps/web/cypress/e2e/review-lab.cy.ts')
+    before_helper, declaration, remainder = collector.partition('const establishSelectedSystem = () => {')
+    assert declaration
+    helper, closing, _ = remainder.partition('\n    };')
+    assert closing
+    # The counter must survive both flows, while each helper call captures a
+    # different alias before registering its route and queuing its wait.
+    assert 'let selectionSearchCount = 0;' in before_helper
+    assert collector.count('selectionSearchCount = 0') == 1
+    alias = 'const selectionSearchAlias = `selectionSearch${++selectionSearchCount}`;'
+    intercept = "cy.intercept('POST', '/api/local/search').as(selectionSearchAlias);"
+    wait = 'cy.wait(`@${selectionSearchAlias}`)'
+    assert alias in helper
+    assert intercept in helper
+    assert wait in helper
+    assert helper.index(alias) < helper.index(intercept) < helper.index(wait)
+
+
+@pytest.mark.parametrize('flow,check', [
+    ('rankingsApiFailure', 'selectedMarkerPreserved'),
+    ('rankingsEmptyResults', 'anySearchRestored'),
+])
+def test_ranked_review_checks_fail_closed(flow, check):
+    selected = tuple(
+        scenario for scenario in scenarios.REGISTERED_SCENARIOS
+        if flow in scenario.browser_flow_keys
+    )
+    summary = valid_summary(flow)
+    assert browser_runner.evaluate_browser_synthetic(summary, selected)['status'] == 'passed'
+    summary['scenarios'][flow]['checks'][check] = False
+    failed = browser_runner.evaluate_browser_synthetic(summary, selected)
+    assert failed['status'] == 'failed'
+    assert failed['safe_diagnostics']['missing_scenario_checks'] == {flow: [check]}
+
+
+@pytest.mark.parametrize('scenario,flow,expected_failure', [
+    ('api_failure', 'apiFailure', True),
+    ('rankings_api_failure', 'rankingsApiFailure', True),
+    ('rankings_empty_results', 'rankingsEmptyResults', False),
+])
+def test_review_bundle_enables_f4_and_failure_summary_covers_each_failure_flow(
+    tmp_path, monkeypatch, scenario, flow, expected_failure,
+):
+    selected = scenarios.resolve_scenarios(scenario)
+    summary = valid_summary(flow)
+    (tmp_path / 'browser-summary.json').write_text(json.dumps(summary), encoding='utf-8')
+    commands = []
+    monkeypatch.setattr(browser_runner, '_port_available', lambda *_: True)
+    monkeypatch.setattr(browser_runner, '_wait_for_preview_ready', lambda *_: None)
+
+    def run(command, **kwargs):
+        commands.append((command, kwargs))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(browser_runner, 'run_subprocess', run)
+    registry = SimpleNamespace(start=lambda *_args, **_kwargs: None)
+    result = browser_runner.run_browser_phase(tmp_path, selected, registry)
+    assert commands[0][0] == ['pnpm', 'build']
+    assert commands[0][1]['env_overrides']['VITE_FINDER_F4_ENABLED'] == '1'
+    assert result['browser_synthetic']['status'] == 'passed'
+    assert result['synthetic_failure_injection_verified'] is expected_failure
+    if expected_failure:
+        summary['scenarios'][flow]['checks']['selectedMarkerPreserved'] = False
+        (tmp_path / 'browser-summary.json').write_text(json.dumps(summary), encoding='utf-8')
+        result = browser_runner.run_browser_phase(tmp_path, selected, registry)
+        assert result['synthetic_failure_injection_verified'] is False
 
 
 def test_review_preview_is_explicitly_bound_to_loopback():
@@ -162,12 +284,15 @@ def test_nonzero_cypress_exit_fails_even_when_a_summary_exists():
     assert error.value.safe_diagnostics == diagnostics
 
 
-def test_expected_failure_must_be_explicitly_tagged():
-    injected = {'method': 'POST', 'path': '/api/local/search', 'status': 503, 'expectedFailure': True}
-    untagged = {'method': 'POST', 'path': '/api/local/search', 'status': 503}
+@pytest.mark.parametrize('method,path', [
+    ('POST', '/api/local/search'), ('GET', '/api/archetypes/rankings'),
+])
+def test_expected_failure_must_be_explicitly_tagged(method, path):
+    injected = {'method': method, 'path': path, 'status': 503, 'expectedFailure': True}
+    untagged = {'method': method, 'path': path, 'status': 503}
     assert network_policy.list_unexpected_api_errors([injected]) == []
     assert network_policy.list_unexpected_api_errors([untagged]) == [
-        {'method': 'POST', 'path': '/api/local/search', 'status': 503}
+        {'method': method, 'path': path, 'status': 503}
     ]
 
 
@@ -796,11 +921,9 @@ def test_finder_contract_requires_v3_source_and_every_fixture_system(monkeypatch
             api_contracts.run_api_contract_phase(scenarios.resolve_scenarios('synthetic_wiring'))
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize('mode', ['normal', 'api_failure', 'empty_results'])
-async def test_review_middleware_delegates_normal_v3_search_and_preserves_fault_modes(monkeypatch, mode):
+@pytest.fixture
+def review_main_module(monkeypatch):
     import importlib
-    from unittest.mock import AsyncMock
 
     monkeypatch.setenv('ED_FINDER_REVIEW_STACK_MARKER', 'edfinder-review')
     monkeypatch.setenv('DATABASE_URL', 'postgresql://review_user:review_password@review-postgres:5432/edfinder_local_review')
@@ -809,13 +932,23 @@ async def test_review_middleware_delegates_normal_v3_search_and_preserves_fault_
     # defence in depth, so pin the explicit review-env values first.
     monkeypatch.setenv('CORS_ORIGINS', 'http://test')
     monkeypatch.setenv('ADMIN_TOKEN', 'test-admin-token')
-    module = importlib.import_module('apps.api.src.review_main')
+    return importlib.import_module('apps.api.src.review_main')
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('mode', [
+    'normal', 'api_failure', 'empty_results', 'rankings_api_failure', 'rankings_empty_results',
+])
+async def test_review_middleware_delegates_normal_v3_search_and_preserves_fault_modes(review_main_module, mode):
+    from unittest.mock import AsyncMock
+
+    module = review_main_module
     request = SimpleNamespace(method='POST', url=SimpleNamespace(path='/api/local/search'),
                               app=SimpleNamespace(state=SimpleNamespace(review_scenario=mode)))
     next_response = object()
     call_next = AsyncMock(return_value=next_response)
     result = await module.review_scenario_middleware(request, call_next)
-    if mode == 'normal':
+    if mode not in {'api_failure', 'empty_results'}:
         assert result is next_response
         call_next.assert_awaited_once_with(request)
     else:
@@ -826,6 +959,136 @@ async def test_review_middleware_delegates_normal_v3_search_and_preserves_fault_
         else:
             assert result.status_code == 200
             assert json.loads(result.body) == {'results': [], 'total': 0, 'count': 0, 'source': 'review_lab_synthetic_empty'}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('mode', [
+    'normal', 'api_failure', 'empty_results', 'rankings_api_failure', 'rankings_empty_results',
+])
+async def test_review_rankings_middleware_preserves_contract_and_other_modes(review_main_module, monkeypatch, mode):
+    from unittest.mock import AsyncMock
+    from apps.api.src.models import ArchetypeRankingsResponse
+    from apps.api.src.ranking.profile import RANKING_VERSION, ranking_sha256
+
+    module = review_main_module
+    generation = {
+        'derived_generation_id': '00000000-0000-0000-0000-000000000001',
+        'publication_sequence': 7,
+        'archetype_version': 'review-test-archetype',
+        'archetype_manifest_sha256': 'a' * 64,
+        'archetype_model_sha256': 'b' * 64,
+    }
+    transaction_options = []
+
+    @asynccontextmanager
+    async def transaction(**kwargs):
+        transaction_options.append(kwargs)
+        yield
+
+    connection = SimpleNamespace(transaction=transaction)
+
+    @asynccontextmanager
+    async def acquire():
+        yield connection
+
+    pool = SimpleNamespace(acquire=acquire)
+    get_pool = AsyncMock(return_value=pool)
+    resolve_generation = AsyncMock(return_value=generation)
+    monkeypatch.setattr(module, 'get_pool', get_pool)
+    monkeypatch.setattr(module, '_current_derived_generation', resolve_generation)
+    request = SimpleNamespace(
+        method='GET', url=SimpleNamespace(path='/api/archetypes/rankings'),
+        query_params={'archetype': 'flexible'},
+        app=SimpleNamespace(state=SimpleNamespace(review_scenario=mode)),
+    )
+    next_response = object()
+    call_next = AsyncMock(return_value=next_response)
+    result = await module.review_scenario_middleware(request, call_next)
+    if mode not in {'rankings_api_failure', 'rankings_empty_results'}:
+        assert result is next_response
+        call_next.assert_awaited_once_with(request)
+    elif mode == 'rankings_api_failure':
+        assert result.status_code == 503
+        assert result.headers['x-edfinder-review-failure'] == 'rankings-api-failure'
+        assert json.loads(result.body)['status'] == 503
+        call_next.assert_not_awaited()
+    else:
+        assert result.status_code == 200
+        payload = json.loads(result.body)
+        validated = ArchetypeRankingsResponse.model_validate(payload)
+        assert validated.archetype == 'flexible'
+        assert validated.archetype_label == 'Flexible Multi-Role Colony'
+        assert validated.results == []
+        assert validated.total == validated.count == 0
+        assert validated.is_truncated is False
+        assert payload['ranking'] == {
+            **generation, 'ranking_version': RANKING_VERSION, 'ranking_sha256': ranking_sha256(),
+        }
+        assert validated.source == f'v3:{RANKING_VERSION}'
+        get_pool.assert_awaited_once()
+        resolve_generation.assert_awaited_once_with(connection)
+        assert transaction_options == [{'isolation': 'repeatable_read', 'readonly': True}]
+        call_next.assert_not_awaited()
+    if mode != 'rankings_empty_results':
+        get_pool.assert_not_awaited()
+        resolve_generation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('method,path', [
+    ('POST', '/api/archetypes/rankings'),
+    ('GET', '/api/archetypes/rankings/extra'),
+    ('GET', '/api/system/9100000000001'),
+])
+@pytest.mark.parametrize('mode', ['rankings_api_failure', 'rankings_empty_results'])
+async def test_review_rankings_modes_only_intercept_exact_get_route(review_main_module, mode, method, path):
+    from unittest.mock import AsyncMock
+
+    request = SimpleNamespace(
+        method=method, url=SimpleNamespace(path=path),
+        app=SimpleNamespace(state=SimpleNamespace(review_scenario=mode)),
+    )
+    next_response = object()
+    call_next = AsyncMock(return_value=next_response)
+    assert await review_main_module.review_scenario_middleware(request, call_next) is next_response
+    call_next.assert_awaited_once_with(request)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('archetype', [None, '', 'not-an-archetype'])
+async def test_review_empty_rankings_reject_unknown_archetype_before_database(review_main_module, monkeypatch, archetype):
+    from unittest.mock import AsyncMock
+
+    get_pool = AsyncMock()
+    monkeypatch.setattr(review_main_module, 'get_pool', get_pool)
+    request = SimpleNamespace(
+        method='GET', url=SimpleNamespace(path='/api/archetypes/rankings'),
+        query_params={'archetype': archetype},
+        app=SimpleNamespace(state=SimpleNamespace(review_scenario='rankings_empty_results')),
+    )
+    result = await review_main_module.review_scenario_middleware(request, AsyncMock())
+    assert result.status_code == 422
+    get_pool.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_review_scenario_control_has_closed_mode_allowlist():
+    from fastapi import HTTPException
+    from apps.api.src.review_support_routes import REVIEW_SCENARIO_MODES, set_review_scenario
+
+    expected_modes = {
+        'normal', 'api_failure', 'empty_results', 'rankings_api_failure', 'rankings_empty_results',
+    }
+    assert REVIEW_SCENARIO_MODES == expected_modes
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(review_scenario='normal')))
+    for mode in sorted(expected_modes):
+        assert await set_review_scenario(request, mode) == {'scenario': mode}
+        assert request.app.state.review_scenario == mode
+    prior_mode = request.app.state.review_scenario
+    with pytest.raises(HTTPException) as error:
+        await set_review_scenario(request, 'unknown')
+    assert error.value.status_code == 400
+    assert request.app.state.review_scenario == prior_mode
 
 
 @pytest.mark.asyncio

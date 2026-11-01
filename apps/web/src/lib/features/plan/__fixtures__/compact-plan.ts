@@ -60,7 +60,7 @@ export function compactPlanFixture(bodyCount = 40, siteCount = 80) {
       geological_signals: index ? 2 : 0,
       biological_signals: index ? 1 : 0,
       signals_complete: true,
-      lifecycle_state: 'active',
+      lifecycle_state: 'ACTIVE',
     })),
     belts: ['Metal Rich', 'Rocky'].map((ring_type, index) => ({
       belt_id: String(index + 1),
@@ -71,6 +71,7 @@ export function compactPlanFixture(bodyCount = 40, siteCount = 80) {
       mass_mt: null,
       inner_radius_km: null,
       outer_radius_km: null,
+      lifecycle_state: 'ACTIVE',
     })),
   };
   const statuses: PlannerSite['status'][] = [
@@ -110,6 +111,7 @@ export function compactPlanFixture(bodyCount = 40, siteCount = 80) {
     now: { t2: 17, t3: 4 },
     after_plan: { t2: 23, t3: 6 },
     next_port_cost: { t2: 3, t3: 6 },
+    economies: { now: [], after_plan: [], notes: [] },
     steps: model.sites.map((site, index) => ({
       site_id: site.site_id,
       facility_id: site.facility_id,

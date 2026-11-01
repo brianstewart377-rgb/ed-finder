@@ -30,6 +30,7 @@ import {
 } from '@ed-finder/api-client/core';
 import { parseLosslessJson } from '@ed-finder/api-client/lossless-json';
 import { parseId64, type Id64 } from '@ed-finder/api-client/id64';
+import { FINDER_F4_ENABLED } from '$lib/config';
 import {
   isArchetypeKey,
   isTier,
@@ -147,7 +148,23 @@ export const listV3PlanBodies = async (
 export const evaluateV3Plan = async (
   body: PlanRequestV1,
   signal?: AbortSignal,
-) => (await evaluatePlanSdk({ body, throwOnError: true, signal })).data;
+) => {
+  const result = await evaluatePlanSdk({ body, throwOnError: false, signal });
+  if (result.data !== undefined) return result.data;
+  const header = result.response?.headers.get('Retry-After')?.trim();
+  const seconds = header && /^\d+$/.test(header) ? Number(header) : null;
+  const retryAfterSeconds =
+    seconds !== null && Number.isSafeInteger(seconds) ? seconds : null;
+  const error =
+    result.error instanceof ApiError
+      ? result.error
+      : new ApiError(
+          result.response?.status ?? 0,
+          '/api/v1/plan/evaluate',
+          result.error,
+        );
+  throw Object.assign(error, { retryAfterSeconds });
+};
 
 /** Identity only: Plan does not load Inspect's map, stations or ratings. */
 export const getPlanSystem = async (systemId: string, signal?: AbortSignal) =>
@@ -424,7 +441,10 @@ export type ExploreSystem = Readonly<
     | 'geo_signal_total'
     | 'confidence'
     | 'completeness'
-  > & { id64: Id64 } & Partial<RankingIdentityFields>
+  > &
+    Pick<ArchetypeRankingRow, 'rival_archetype' | 'rival_score'> & {
+      id64: Id64;
+    } & Partial<RankingIdentityFields>
 >;
 
 /** Exclusive offset ceiling and navigable window applied to every mode. */
@@ -560,9 +580,10 @@ export type SystemDetail = Readonly<{
   name: string;
   /** The system's own catalogue lifecycle: ACTIVE, MISSING_CANDIDATE, RETIRED. */
   lifecycleState: string;
-  x: number;
-  y: number;
-  z: number;
+  /** F4 omits an unknown legacy origin; only Sol is known to occupy (0, 0, 0). */
+  x?: number;
+  y?: number;
+  z?: number;
   sourceBodyCount: number | null;
   loadedBodyCount: number;
   sourceUpdatedAt: string | null;
@@ -907,6 +928,10 @@ export function normalizeRankingRow(
     distance,
     primary_archetype: row.primary_archetype ?? null,
     secondary_archetype: row.secondary_archetype ?? null,
+    ...(row.rival_archetype !== undefined
+      ? { rival_archetype: row.rival_archetype }
+      : {}),
+    ...(row.rival_score !== undefined ? { rival_score: row.rival_score } : {}),
     archetype_confidence: row.archetype_confidence ?? null,
     overall_development_potential: row.overall_development_potential ?? null,
     buildability_score: row.buildability_score ?? null,
@@ -1295,13 +1320,24 @@ export async function getSystem(
       bodies.status === 'fulfilled' &&
       rings.status === 'fulfilled' &&
       stations.status === 'fulfilled'
-    )
-      return systemDetailFromV3(
+    ) {
+      const detail = systemDetailFromV3(
         system.value.data,
         bodies.value.data,
         rings.value.data,
         stations.value.data,
       );
+      if (
+        FINDER_F4_ENABLED &&
+        detail.id64 !== SOL_ID64 &&
+        detail.x === 0 &&
+        detail.y === 0 &&
+        detail.z === 0
+      ) {
+        return { ...detail, x: undefined, y: undefined, z: undefined };
+      }
+      return detail;
+    }
   }
   throw new ApiError(
     503,
