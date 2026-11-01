@@ -87,6 +87,17 @@ now shows Explore, Inspect and Plan, including the active-page state on `/plan`.
 Component and browser coverage check the links, remaining upcoming item and
 responsive layout.
 
+## 2026-11-01 — Colony Planner: floating, tabbed facility picker
+
+The facility picker opens beside the body's add button, or as a centred sheet
+on narrow screens, with keyboard focus, Escape, Close and outside-click
+dismissal. Both, Orbital and Surface tabs replace six-row pages with one
+scrolling list grouped by facility type, with starports first and search scoped
+to the selected tab. Rows show compact server-evaluated CP costs and rewards;
+only visible choices request previews, with at most six pending requests and
+cancellation when the plan, location or filters change. Primary Port, location
+fit and the 300-site limit remain enforced.
+
 ## 2026-11-01 — Sixth F2d release `181f6fed` accepted in production
 
 Owner-approved. Release run 41319999720 (source `181f6fed`) passed preflight
