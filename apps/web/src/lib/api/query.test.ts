@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { QueryClient } from '@tanstack/svelte-query';
 import { queryClient, queryKeys } from './query';
 import { parseId64 } from '$lib/domain/id64';
+import { ARCHETYPE_KEYS } from '$lib/features/explore/archetypes';
 
 describe('Svelte Query application contract', () => {
   it('uses the accepted root defaults', () => {
@@ -186,5 +187,73 @@ describe('Finder archetype explanation query keys', () => {
     } finally {
       client.clear();
     }
+  });
+});
+
+describe('Finder custom-weight rerank query keys', () => {
+  const request = {
+    id64s: [parseId64('9007199254740993'), parseId64('42')],
+    weights: Object.fromEntries(ARCHETYPE_KEYS.map((key) => [key, 100])),
+    archetype: 'flexible' as const,
+  };
+
+  it('keys every weight, selected archetype, and exact current page id64 list', () => {
+    const key = queryKeys.archetypeRerank(request);
+    expect(key).toEqual([
+      'ed-finder',
+      'explore',
+      'archetype-rerank',
+      'flexible',
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      100,
+      '9007199254740993',
+      '42',
+    ]);
+    for (const weight of ARCHETYPE_KEYS) {
+      expect(
+        queryKeys.archetypeRerank({
+          ...request,
+          weights: { ...request.weights, [weight]: 95 },
+        }),
+      ).not.toEqual(key);
+    }
+    expect(
+      queryKeys.archetypeRerank({ ...request, archetype: 'paradise' }),
+    ).not.toEqual(key);
+    expect(
+      queryKeys.archetypeRerank({ ...request, archetype: null }),
+    ).not.toEqual(key);
+    expect(
+      queryKeys.archetypeRerank({
+        ...request,
+        id64s: [...request.id64s].reverse(),
+      }),
+    ).not.toEqual(key);
+    expect(
+      queryKeys.archetypeRerank({ ...request, id64s: [parseId64('43')] }),
+    ).not.toEqual(key);
+    expect(
+      queryKeys.archetypeRerank({
+        ...request,
+        weights: Object.fromEntries(Object.entries(request.weights).reverse()),
+      }),
+    ).toEqual(key);
+    expect(
+      queryKeys.archetypeRerank({ ...request, archetype: undefined }),
+    ).toEqual(queryKeys.archetypeRerank({ ...request, archetype: null }));
+  });
+
+  it('keeps presets independent of the committed blend', () => {
+    expect(queryKeys.archetypeProfiles()).toEqual([
+      'ed-finder',
+      'explore',
+      'archetype-profiles',
+    ]);
   });
 });

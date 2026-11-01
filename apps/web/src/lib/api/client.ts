@@ -48,6 +48,7 @@ import {
   claimOwnerApiV1AuthOwnerClaimPost,
   frontierLinkApiV1AuthFrontierLinkPost,
   getArchetypeRankingsApiArchetypesRankingsGet,
+  getProfilesApiArchetypesProfilesGet,
   getSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGet,
   getProfileSyncApiProfileSyncSyncKeyGet,
   getV3CurrentGeneration,
@@ -71,6 +72,7 @@ import {
   localSearchEndpointApiLocalSearchPost,
   mapHeatmapApiMapHeatmapGet,
   mapSystemsApiMapSystemsGet,
+  postArchetypeRerankApiArchetypesRerankPost,
   putProfileSyncApiProfileSyncSyncKeyPut,
   removeWatchlistApiV2WatchlistSyncKeyId64Delete,
   systemExplanationApiRatingsV4SystemsSystemId64ExplanationGet,
@@ -523,6 +525,27 @@ export type ArchetypeRankingsPage = Readonly<{
   ranking: RankingProvenance;
   source?: string | null;
   query_ms?: number | null;
+}>;
+
+/** URL-owned integer percentages; the facade validates all eight V3 keys. */
+export type ArchetypeRerankRequest = Readonly<{
+  id64s: readonly Id64[];
+  weights: Readonly<Record<string, number>>;
+  archetype?: ArchetypeKey | null;
+}>;
+
+/** Separate display scores never overwrite a saved system's score identity. */
+export type ArchetypeRerankResult = Readonly<{
+  results: readonly Readonly<{ id64: Id64; score: number; tier: Tier }>[];
+  ranking: RankingProvenance;
+}>;
+
+export type ArchetypeWeightProfile = Readonly<{
+  id: string;
+  label: string;
+  description: string;
+  archetype: ArchetypeKey | null;
+  weights: Readonly<Record<ArchetypeKey, number>>;
 }>;
 
 /** One catalogued ring or belt of a body (V3 canonical generation). */
@@ -1064,6 +1087,163 @@ export async function getArchetypeRankings(
     signal,
   });
   return normalizeRankingsResponse(data, request);
+}
+
+function checkedArchetypeWeights(
+  value: unknown,
+  scale: 1 | 100,
+): Record<ArchetypeKey, number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new TypeError('The archetype weights are invalid');
+  const entries = Object.entries(value);
+  if (
+    entries.length !== ARCHETYPE_KEYS.length ||
+    entries.some(
+      ([key, weight]) =>
+        !isArchetypeKey(key) ||
+        !finiteNumber(weight) ||
+        weight < 0 ||
+        weight > scale ||
+        (scale === 100 && !Number.isInteger(weight)),
+    ) ||
+    !entries.some(([, weight]) => weight > 0)
+  )
+    throw new TypeError('The archetype weights are invalid');
+  const weights = value as Record<ArchetypeKey, number>;
+  return Object.fromEntries(
+    ARCHETYPE_KEYS.map((key) => [key, weights[key]]),
+  ) as Record<ArchetypeKey, number>;
+}
+
+/** One bounded request for the committed current page; never searches anew. */
+export async function rerankArchetypes(
+  request: ArchetypeRerankRequest,
+  signal?: AbortSignal,
+): Promise<ArchetypeRerankResult> {
+  if (
+    !Array.isArray(request.id64s) ||
+    request.id64s.length < 1 ||
+    request.id64s.length > 500 ||
+    (request.archetype != null && !isArchetypeKey(request.archetype))
+  )
+    throw new RangeError('Reranking requires 1–500 systems and a V3 archetype');
+  const id64s = request.id64s.map((id64) => {
+    const canonical = parseId64(id64);
+    if (BigInt(canonical) > 9_223_372_036_854_775_807n)
+      throw new RangeError('Rerank id64 must fit a non-negative bigint');
+    return canonical;
+  });
+  const expectedIds = new Set(id64s);
+  if (expectedIds.size !== id64s.length)
+    throw new RangeError('Rerank systems must be unique');
+  const percentages = checkedArchetypeWeights(request.weights, 100);
+  const weights = Object.fromEntries(
+    ARCHETYPE_KEYS.map((key) => [key, percentages[key] / 100]),
+  ) as Record<ArchetypeKey, number>;
+  const { data } = await postArchetypeRerankApiArchetypesRerankPost({
+    throwOnError: true,
+    body: {
+      // Pydantic accepts decimal strings; Number would lose large identifiers.
+      id64s: id64s as unknown as number[],
+      weights,
+      ...(request.archetype == null ? {} : { archetype: request.archetype }),
+    },
+    signal,
+  });
+  const invalid = () =>
+    new TypeError('The archetype rerank response is invalid');
+  const ranking = normalizeRankingProvenance(data?.ranking);
+  if (
+    !data ||
+    !ranking ||
+    (data.archetype ?? null) !== (request.archetype ?? null) ||
+    data.profile_applied != null ||
+    !Array.isArray(data.results) ||
+    data.results.length !== id64s.length ||
+    (data.missing_id64s != null &&
+      (!Array.isArray(data.missing_id64s) || data.missing_id64s.length !== 0))
+  )
+    throw invalid();
+  const applied = checkedArchetypeWeights(data.weights_applied, 1);
+  if (ARCHETYPE_KEYS.some((key) => applied[key] !== weights[key]))
+    throw invalid();
+  let previousScore = 100;
+  const results = data.results.map((row) => {
+    if (
+      !row ||
+      !isScore(row.reranked_score) ||
+      !Number.isInteger(row.reranked_score) ||
+      row.reranked_score > previousScore ||
+      !isTier(row.tier) ||
+      (row.original_score != null && !isScore(row.original_score)) ||
+      (row.confidence != null && !isUnitInterval(row.confidence)) ||
+      (row.completeness != null && !isUnitInterval(row.completeness)) ||
+      (row.primary_archetype != null &&
+        !isArchetypeKey(row.primary_archetype)) ||
+      (row.secondary_archetype != null &&
+        !isArchetypeKey(row.secondary_archetype))
+    )
+      throw invalid();
+    const id64 = losslessId64(row.id64);
+    if (!expectedIds.delete(id64)) throw invalid();
+    previousScore = row.reranked_score;
+    return { id64, score: row.reranked_score, tier: row.tier };
+  });
+  if (expectedIds.size) throw invalid();
+  return { results, ranking };
+}
+
+/** Preset ratios become exact URL percentages, without rounding a blend. */
+export async function getArchetypeProfiles(
+  signal?: AbortSignal,
+): Promise<readonly ArchetypeWeightProfile[]> {
+  const { data } = await getProfilesApiArchetypesProfilesGet({
+    throwOnError: true,
+    signal,
+  });
+  const invalid = () =>
+    new TypeError('The archetype profiles response is invalid');
+  if (
+    !data ||
+    !Array.isArray(data.profiles) ||
+    data.profiles.length < 1 ||
+    data.profiles.length > 32
+  )
+    throw invalid();
+  const ids = new Set<string>();
+  return data.profiles.map((profile) => {
+    if (
+      !profile ||
+      typeof profile.id !== 'string' ||
+      !/^[a-z][a-z0-9_-]{0,63}$/.test(profile.id) ||
+      ids.has(profile.id) ||
+      typeof profile.label !== 'string' ||
+      !profile.label.trim() ||
+      profile.label.length > 120 ||
+      typeof profile.description !== 'string' ||
+      profile.description.length > 500 ||
+      (profile.archetype != null && !isArchetypeKey(profile.archetype))
+    )
+      throw invalid();
+    ids.add(profile.id);
+    const ratios = checkedArchetypeWeights(profile.weights, 1);
+    // Both the equal (0.125 each) and single-archetype presets preserve their
+    // precise blend when the largest weight becomes 100%.
+    const maximum = Math.max(...Object.values(ratios));
+    const weights = checkedArchetypeWeights(
+      Object.fromEntries(
+        ARCHETYPE_KEYS.map((key) => [key, (ratios[key] / maximum) * 100]),
+      ),
+      100,
+    );
+    return {
+      id: profile.id,
+      label: profile.label,
+      description: profile.description,
+      archetype: profile.archetype ?? null,
+      weights,
+    };
+  });
 }
 
 /**

@@ -479,10 +479,13 @@ import {
   distanceReferenceForAnchor,
   getArchetypeRankings,
   getArchetypeExplanation,
+  getArchetypeProfiles,
+  rerankArchetypes,
   normalizeAnySearchResponse,
   normalizeRankingProvenance,
   normalizeRankingsResponse,
   type ArchetypeRankingsPage,
+  type ArchetypeRerankRequest,
   type DistanceAnchor,
 } from './client';
 import { parseId64 } from '@ed-finder/api-client/id64';
@@ -535,6 +538,300 @@ const flexibleRequest = {
   page_size: 1,
   offset: 0,
 };
+
+describe('Finder custom-weight rerank facade', () => {
+  const request: ArchetypeRerankRequest = {
+    id64s: [parseId64('9007199254740993'), parseId64('42')],
+    weights: Object.fromEntries(ARCHETYPE_KEYS.map((key) => [key, 50])),
+    archetype: 'flexible',
+  };
+  const envelope = () => ({
+    archetype: 'flexible',
+    profile_applied: null,
+    weights_applied: Object.fromEntries(
+      ARCHETYPE_KEYS.map((key) => [key, 0.5]),
+    ),
+    missing_id64s: [] as string[],
+    ranking: { ...provenance },
+    results: [
+      {
+        id64: '42',
+        reranked_score: 90,
+        tier: 'S',
+        original_score: 93,
+        confidence: 0.95,
+        completeness: 0.97,
+        primary_archetype: 'flexible',
+        secondary_archetype: null,
+      },
+      {
+        id64: '9007199254740993',
+        reranked_score: 80,
+        tier: 'A',
+        original_score: 88,
+        confidence: 0.9,
+        completeness: 0.95,
+        primary_archetype: 'flexible',
+        secondary_archetype: null,
+      },
+    ],
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('sends one bounded generated request with exact id64s and percentages converted to ratios', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify(envelope()).replace(
+            '"9007199254740993"',
+            '9007199254740993',
+          ),
+          { headers: { 'content-type': 'application/json' } },
+        ),
+      );
+    const controller = new AbortController();
+    const result = await rerankArchetypes(request, controller.signal);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const sent = fetchMock.mock.calls[0][0] as Request;
+    expect(new URL(sent.url).pathname).toBe('/api/archetypes/rerank');
+    expect(sent.method).toBe('POST');
+    expect(sent.credentials).toBe('include');
+    expect(await sent.json()).toEqual({
+      id64s: request.id64s,
+      weights: envelope().weights_applied,
+      archetype: 'flexible',
+    });
+    controller.abort();
+    expect(sent.signal.aborted).toBe(true);
+    expect(result).toEqual({
+      ranking: provenance,
+      results: [
+        { id64: '42', score: 90, tier: 'S' },
+        { id64: '9007199254740993', score: 80, tier: 'A' },
+      ],
+    });
+  });
+
+  it('omits archetype in Any mode', async () => {
+    const response = { ...envelope(), archetype: null };
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse(response));
+    await rerankArchetypes({ ...request, archetype: null });
+    expect(
+      await (fetchMock.mock.calls[0][0] as Request).json(),
+    ).not.toHaveProperty('archetype');
+  });
+
+  it('accepts the 500-system bound and preserves the largest signed-bigint id', async () => {
+    const id64s = [
+      ...Array.from({ length: 499 }, (_, index) => parseId64(String(index))),
+      parseId64('9223372036854775807'),
+    ];
+    const response = {
+      ...envelope(),
+      results: id64s.map((id64) => ({
+        id64,
+        reranked_score: 80,
+        tier: 'A',
+      })),
+    };
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse(response));
+    const result = await rerankArchetypes({ ...request, id64s });
+    expect(result.results).toHaveLength(500);
+    expect(result.results[499].id64).toBe('9223372036854775807');
+    expect(
+      (await (fetchMock.mock.calls[0][0] as Request).json()).id64s,
+    ).toEqual(id64s);
+  });
+
+  it.each([
+    ['empty page', { id64s: [] }],
+    [
+      'too many systems',
+      {
+        id64s: Array.from({ length: 501 }, (_, index) =>
+          parseId64(String(index)),
+        ),
+      },
+    ],
+    ['duplicate systems', { id64s: [parseId64('42'), parseId64('42')] }],
+    ['unsafe numeric id', { id64s: [9007199254740992] }],
+    ['signed bigint overflow', { id64s: [parseId64('9223372036854775808')] }],
+    ['unknown archetype', { archetype: 'legacy' }],
+    ['missing weights', { weights: { paradise: 100 } }],
+    ['extra weights', { weights: { ...request.weights, extra: 1 } }],
+    [
+      'zero blend',
+      { weights: Object.fromEntries(ARCHETYPE_KEYS.map((key) => [key, 0])) },
+    ],
+    [
+      'fractional percentage',
+      { weights: { ...request.weights, paradise: 12.5 } },
+    ],
+    ['negative percentage', { weights: { ...request.weights, paradise: -1 } }],
+    [
+      'oversized percentage',
+      { weights: { ...request.weights, paradise: 101 } },
+    ],
+    [
+      'nonfinite percentage',
+      { weights: { ...request.weights, paradise: Number.NaN } },
+    ],
+  ])('rejects %s before transport', async (_name, changed) => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    await expect(
+      rerankArchetypes({ ...request, ...changed } as ArchetypeRerankRequest),
+    ).rejects.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'missing row',
+    'duplicate row',
+    'unrequested row',
+    'missing identity',
+    'changed archetype',
+    'changed weights',
+    'partial weights',
+    'extra weights',
+    'profile override',
+    'missing system',
+    'invalid score',
+    'fractional score',
+    'invalid tier',
+    'invalid confidence',
+    'invalid completeness',
+    'invalid original score',
+    'legacy classification',
+    'ascending order',
+  ])('fails closed on %s', async (malformed) => {
+    const response = envelope();
+    if (malformed === 'missing row') response.results.pop();
+    if (malformed === 'duplicate row') response.results[1].id64 = '42';
+    if (malformed === 'unrequested row') response.results[1].id64 = '43';
+    if (malformed === 'missing identity') response.ranking = null as never;
+    if (malformed === 'changed archetype') response.archetype = 'paradise';
+    if (malformed === 'changed weights')
+      response.weights_applied.paradise = 0.4;
+    if (malformed === 'partial weights')
+      delete response.weights_applied.paradise;
+    if (malformed === 'extra weights') response.weights_applied.extra = 0;
+    if (malformed === 'profile override')
+      response.profile_applied = 'generalist' as never;
+    if (malformed === 'missing system') response.missing_id64s.push('42');
+    if (malformed === 'invalid score') response.results[0].reranked_score = 101;
+    if (malformed === 'fractional score')
+      response.results[0].reranked_score = 89.5;
+    if (malformed === 'invalid tier') response.results[0].tier = 'Z';
+    if (malformed === 'invalid confidence')
+      response.results[0].confidence = 1.1;
+    if (malformed === 'invalid completeness')
+      response.results[0].completeness = -1;
+    if (malformed === 'invalid original score')
+      response.results[0].original_score = -1;
+    if (malformed === 'legacy classification')
+      response.results[0].primary_archetype = 'agri';
+    if (malformed === 'ascending order') response.results.reverse();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(response));
+    await expect(rerankArchetypes(request)).rejects.toThrow();
+  });
+
+  it('propagates a structured failure for the caller to keep original results visible', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ detail: 'unavailable' }, { status: 503 }),
+    );
+    await expect(rerankArchetypes(request)).rejects.toMatchObject({
+      status: 503,
+    });
+  });
+});
+
+describe('Finder archetype preset profiles facade', () => {
+  const profile = () => ({
+    id: 'generalist',
+    label: 'Generalist',
+    description: 'Equal weight on every V3 archetype fit',
+    archetype: null,
+    weights: Object.fromEntries(ARCHETYPE_KEYS.map((key) => [key, 0.125])),
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('gets V3 presets through the generated SDK and preserves equal/one-hot blend ratios as URL percentages', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({
+        profiles: [
+          profile(),
+          {
+            ...profile(),
+            id: 'paradise',
+            archetype: 'paradise',
+            weights: Object.fromEntries(
+              ARCHETYPE_KEYS.map((key) => [key, key === 'paradise' ? 1 : 0]),
+            ),
+          },
+        ],
+      }),
+    );
+    const profiles = await getArchetypeProfiles();
+    expect(new URL((fetchMock.mock.calls[0][0] as Request).url).pathname).toBe(
+      '/api/archetypes/profiles',
+    );
+    expect(profiles[0].weights).toEqual(
+      Object.fromEntries(ARCHETYPE_KEYS.map((key) => [key, 100])),
+    );
+    expect(profiles[1].weights).toEqual(
+      Object.fromEntries(
+        ARCHETYPE_KEYS.map((key) => [key, key === 'paradise' ? 100 : 0]),
+      ),
+    );
+  });
+
+  it.each([
+    'empty',
+    'too many',
+    'duplicate',
+    'legacy',
+    'missing weight',
+    'extra weight',
+    'zero weights',
+    'oversized weight',
+    'fractional percentages',
+    'label',
+    'description',
+    'id',
+  ])('rejects malformed %s presets', async (malformed) => {
+    const response = { profiles: [profile()] };
+    if (malformed === 'empty') response.profiles = [];
+    if (malformed === 'too many')
+      response.profiles = Array.from({ length: 33 }, profile);
+    if (malformed === 'duplicate') response.profiles.push(profile());
+    if (malformed === 'legacy')
+      response.profiles[0].archetype = 'agri' as never;
+    if (malformed === 'missing weight')
+      delete response.profiles[0].weights.paradise;
+    if (malformed === 'extra weight') response.profiles[0].weights.legacy = 1;
+    if (malformed === 'zero weights')
+      response.profiles[0].weights = Object.fromEntries(
+        ARCHETYPE_KEYS.map((key) => [key, 0]),
+      );
+    if (malformed === 'oversized weight')
+      response.profiles[0].weights.paradise = 1.1;
+    if (malformed === 'fractional percentages')
+      response.profiles[0].weights.paradise = 0.3;
+    if (malformed === 'label') response.profiles[0].label = '';
+    if (malformed === 'description')
+      response.profiles[0].description = 'x'.repeat(501);
+    if (malformed === 'id') response.profiles[0].id = 'x'.repeat(65);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(response));
+    await expect(getArchetypeProfiles()).rejects.toThrow();
+  });
+});
 
 describe('Finder archetype explanation facade', () => {
   const id64 = parseId64('9007199254740993');

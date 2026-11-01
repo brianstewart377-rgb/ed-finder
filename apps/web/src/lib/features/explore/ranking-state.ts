@@ -4,7 +4,7 @@
  *
  * The URL is the source of truth for shareable ranking state. This module is
  * pure: it parses and canonicalizes `archetype`, `min-tier`, `page_size`,
- * `offset` (and, once slice 2 defines the contract, `weight`), decides which
+ * `offset` and `weights`, decides which
  * request a state produces, and applies the one exclusive 10,000 navigation
  * ceiling to every mode *from the URL alone, before any request is issued*.
  * Rendering, history effects and hydration live in the Explore feature behind
@@ -17,6 +17,7 @@ import type {
 } from '$lib/api/client';
 import {
   ANY_ARCHETYPE,
+  ARCHETYPE_KEYS,
   DEFAULT_MINIMUM_TIER,
   isArchetypeKey,
   minimumScoreForTier,
@@ -33,7 +34,7 @@ export type FinderRankingState = Readonly<{
   pageSize: number;
   /** Non-negative integer below `NAVIGATION_LIMIT`. */
   offset: number;
-  /** Empty until slice 2 defines the V3 weight contract. */
+  /** URL-only complete eight-key percentage blend, or empty for no reranking. */
   weights: Readonly<Record<string, number>>;
 }>;
 
@@ -51,6 +52,8 @@ export const RANKING_URL_PARAMETERS = [
   'min-tier',
   'page_size',
   'offset',
+  'weights',
+  // Retired draft format is still stripped from canonical URLs.
   'weight',
 ] as const;
 export type RankingUrlParameter = (typeof RANKING_URL_PARAMETERS)[number];
@@ -59,12 +62,35 @@ export type RankingUrlParameter = (typeof RANKING_URL_PARAMETERS)[number];
 export const SELECTION_URL_PARAMETER = 'selected';
 export const DETAIL_URL_PARAMETER = 'system';
 
-/**
- * Slice 2 has not defined the weight dimensions or total rules, so weights are
- * neither parsed nor emitted. Flip only with that contract.
- */
-export const WEIGHT_CONTRACT_DEFINED = false;
-export const WEIGHT_BASIS_POINTS_MAX = 10_000;
+/** Equal relative weights: the API normalizes their sum when blending. */
+export const DEFAULT_ARCHETYPE_WEIGHTS: Readonly<Record<string, number>> =
+  Object.freeze(Object.fromEntries(ARCHETYPE_KEYS.map((key) => [key, 100])));
+
+/** Reject the entire vector rather than silently changing a shared blend. */
+export function normalizeWeights(
+  input: unknown,
+): Readonly<Record<string, number>> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+  const values = input as Record<string, unknown>;
+  if (
+    Object.keys(values).length !== ARCHETYPE_KEYS.length ||
+    !ARCHETYPE_KEYS.every(
+      (key) =>
+        Object.hasOwn(values, key) &&
+        typeof values[key] === 'number' &&
+        Number.isInteger(values[key]) &&
+        values[key] >= 0 &&
+        values[key] <= 100,
+    ) ||
+    !ARCHETYPE_KEYS.some((key) => (values[key] as number) > 0)
+  )
+    return {};
+  return Object.freeze(
+    Object.fromEntries(
+      ARCHETYPE_KEYS.map((key) => [key, values[key] as number]),
+    ),
+  );
+}
 
 export const DEFAULT_RANKING_STATE: FinderRankingState = Object.freeze({
   archetype: ANY_ARCHETYPE,
@@ -124,7 +150,7 @@ export function lastPageCorrection(
  * selected archetype defaults to B, page size is 1..50 (default 50), offset is
  * a non-negative integer below the ceiling (a URL at or beyond it canonicalizes
  * to the last valid page of the 10,000-row window before any request), and
- * weights are empty until slice 2.
+ * custom weights are a complete bounded percentage vector in either mode.
  */
 export function normalizeRankingState(
   input: Partial<FinderRankingState> | null | undefined,
@@ -151,9 +177,7 @@ export function normalizeRankingState(
     minimumTier,
     pageSize,
     offset,
-    weights: WEIGHT_CONTRACT_DEFINED
-      ? Object.freeze({ ...(input?.weights ?? {}) })
-      : DEFAULT_RANKING_STATE.weights,
+    weights: normalizeWeights(input?.weights),
   };
 }
 
@@ -220,36 +244,38 @@ function parseIntegerParameter(
 }
 
 /**
- * Parse weight parameters (`<dimension>:<basis-points>`, integers 0–10000).
- * Until slice 2 defines the allowed dimensions this always yields `{}` and
- * reports each value as ignored.
+ * Parse exactly one eight-value percentage vector in ARCHETYPE_KEYS order.
+ * The maximum valid wire text is eight "100" values plus seven commas.
  */
-export function parseWeightParameters(
-  values: readonly string[],
-  options: { contractDefined: boolean } = {
-    contractDefined: WEIGHT_CONTRACT_DEFINED,
-  },
-): { weights: Readonly<Record<string, number>>; issues: RankingUrlIssue[] } {
-  const issues: RankingUrlIssue[] = [];
-  const weights: Record<string, number> = {};
-  for (const value of values) {
-    if (!options.contractDefined) {
-      issues.push({ parameter: 'weight', reason: 'ignored', value });
-      continue;
-    }
-    const match = /^([a-z][a-z0-9_]*):(0|[1-9]\d{0,4})$/.exec(value);
-    const basisPoints = match ? Number(match[2]) : Number.NaN;
-    if (!match || basisPoints > WEIGHT_BASIS_POINTS_MAX) {
-      issues.push({ parameter: 'weight', reason: 'invalid', value });
-      continue;
-    }
-    if (match[1] in weights) {
-      issues.push({ parameter: 'weight', reason: 'duplicate', value });
-      continue;
-    }
-    weights[match[1]] = basisPoints;
-  }
-  return { weights: Object.freeze(weights), issues };
+export function parseWeightParameters(values: readonly string[]): {
+  weights: Readonly<Record<string, number>>;
+  issues: RankingUrlIssue[];
+} {
+  if (values.length === 0) return { weights: {}, issues: [] };
+  if (values.length > 1)
+    return {
+      weights: {},
+      issues: [
+        { parameter: 'weights', reason: 'duplicate', value: values.join(',') },
+      ],
+    };
+  const value = values[0];
+  const parts = value.length <= 31 ? value.split(',') : [];
+  const weights =
+    parts.length === ARCHETYPE_KEYS.length &&
+    parts.every((part) => INTEGER_TEXT.test(part))
+      ? normalizeWeights(
+          Object.fromEntries(
+            ARCHETYPE_KEYS.map((key, index) => [key, Number(parts[index])]),
+          ),
+        )
+      : {};
+  return {
+    weights,
+    issues: Object.keys(weights).length
+      ? []
+      : [{ parameter: 'weights', reason: 'invalid', value }],
+  };
 }
 
 export function parseRankingSearchParams(
@@ -312,8 +338,10 @@ export function parseRankingSearchParams(
     }
   }
 
-  const weightResult = parseWeightParameters(params.getAll('weight'));
+  const weightResult = parseWeightParameters(params.getAll('weights'));
   issues.push(...weightResult.issues);
+  for (const value of params.getAll('weight'))
+    issues.push({ parameter: 'weight', reason: 'ignored', value });
 
   const state = normalizeRankingState({
     archetype,
@@ -338,7 +366,7 @@ function isRankingParameter(name: string): name is RankingUrlParameter {
 
 /**
  * Serialize ranking state in canonical order (archetype, min-tier, page_size,
- * offset, sorted weights), then `selected`, then `system`, then every
+ * offset, weights in ARCHETYPE_KEYS order), then `selected`, then `system`, then every
  * unrelated parameter in its original order. Defaults are omitted so one
  * state always yields one URL.
  */
@@ -356,11 +384,11 @@ export function serializeRankingSearchParams(
   if (state.pageSize !== DEFAULT_PAGE_SIZE)
     output.set('page_size', String(state.pageSize));
   if (state.offset !== 0) output.set('offset', String(state.offset));
-  if (WEIGHT_CONTRACT_DEFINED) {
-    for (const dimension of Object.keys(state.weights).sort()) {
-      output.append('weight', `${dimension}:${state.weights[dimension]}`);
-    }
-  }
+  if (Object.keys(state.weights).length)
+    output.set(
+      'weights',
+      ARCHETYPE_KEYS.map((key) => state.weights[key]).join(','),
+    );
   for (const passive of [SELECTION_URL_PARAMETER, DETAIL_URL_PARAMETER]) {
     for (const value of base.getAll(passive)) output.append(passive, value);
   }

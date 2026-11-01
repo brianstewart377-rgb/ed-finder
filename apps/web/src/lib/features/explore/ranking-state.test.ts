@@ -7,7 +7,8 @@ import {
   PAGE_SIZE_MAX,
   PAGE_SIZE_MIN,
   RANKING_URL_PARAMETERS,
-  WEIGHT_CONTRACT_DEFINED,
+  DEFAULT_ARCHETYPE_WEIGHTS,
+  normalizeWeights,
   hasRankingSearchParams,
   lastPageCorrection,
   lastValidOffset,
@@ -20,6 +21,8 @@ import {
   serializeRankingSearchParams,
   stripRankingSearchParams,
 } from './ranking-state';
+
+import { ARCHETYPE_KEYS } from './archetypes';
 
 const params = (query: string) => new URLSearchParams(query);
 const parse = (query: string) => parseRankingSearchParams(params(query));
@@ -93,11 +96,31 @@ describe('FinderRankingState normalization', () => {
     }
   });
 
-  it('keeps weights empty until the slice-2 contract exists', () => {
-    expect(WEIGHT_CONTRACT_DEFINED).toBe(false);
-    expect(
-      normalizeRankingState({ weights: { capacity: 2500 } }).weights,
-    ).toEqual({});
+  it('accepts only complete bounded positive V3 percentage vectors in either mode', () => {
+    for (const archetype of ['any', 'flexible'] as const) {
+      expect(
+        normalizeRankingState({ archetype, weights: DEFAULT_ARCHETYPE_WEIGHTS })
+          .weights,
+      ).toEqual(DEFAULT_ARCHETYPE_WEIGHTS);
+    }
+    for (const weights of [
+      {},
+      { capacity: 2500 },
+      { ...DEFAULT_ARCHETYPE_WEIGHTS, extra: 1 },
+      { ...DEFAULT_ARCHETYPE_WEIGHTS, paradise: -1 },
+      { ...DEFAULT_ARCHETYPE_WEIGHTS, paradise: 101 },
+      { ...DEFAULT_ARCHETYPE_WEIGHTS, paradise: 1.5 },
+      { ...DEFAULT_ARCHETYPE_WEIGHTS, paradise: Infinity },
+      { ...DEFAULT_ARCHETYPE_WEIGHTS, paradise: NaN },
+      Object.fromEntries(ARCHETYPE_KEYS.map((key) => [key, 0])),
+    ])
+      expect(normalizeWeights(weights)).toEqual({});
+    const weights = normalizeWeights({
+      ...DEFAULT_ARCHETYPE_WEIGHTS,
+      paradise: 7,
+    });
+    expect(weights.paradise).toBe(7);
+    expect(Object.isFrozen(weights)).toBe(true);
   });
 });
 
@@ -199,6 +222,7 @@ describe('ranking URL parsing', () => {
       'min-tier',
       'page_size',
       'offset',
+      'weights',
       'weight',
     ]);
   });
@@ -334,7 +358,7 @@ describe('ranking URL parsing', () => {
     ).toBe('archetype=stronghold&min-tier=S&page_size=10&offset=100');
   });
 
-  it('does not parse or emit weights until slice 2 defines the contract', () => {
+  it('drops the retired weight draft format', () => {
     const parsed = parse('weight=capacity:2500&weight=risk:100');
     expect(parsed.state.weights).toEqual({});
     expect(parsed.issues).toEqual([
@@ -344,19 +368,77 @@ describe('ranking URL parsing', () => {
     expect(serialize(parsed.state)).toBe('');
   });
 
-  it('parses basis-point weights only when the contract is explicitly enabled', () => {
-    const enabled = parseWeightParameters(
-      ['capacity:2500', 'risk:10000', 'risk:5', 'bad', 'over:10001', 'neg:-1'],
-      { contractDefined: true },
+  it('round-trips all eight weights in fixed key order and preserves passive URL state', () => {
+    const value = '100,0,5,10,15,20,25,30';
+    const expected = Object.fromEntries(
+      ARCHETYPE_KEYS.map((key, i) => [key, Number(value.split(',')[i])]),
     );
-    expect(enabled.weights).toEqual({ capacity: 2500, risk: 10_000 });
-    expect(enabled.issues).toEqual([
-      { parameter: 'weight', reason: 'duplicate', value: 'risk:5' },
-      { parameter: 'weight', reason: 'invalid', value: 'bad' },
-      { parameter: 'weight', reason: 'invalid', value: 'over:10001' },
-      { parameter: 'weight', reason: 'invalid', value: 'neg:-1' },
-    ]);
-    expect(parseWeightParameters(['capacity:2500']).weights).toEqual({});
+    for (const prefix of ['', 'archetype=flexible&']) {
+      const parsed = parse(
+        `${prefix}weights=${encodeURIComponent(value)}&selected=123&system=456&view=cards`,
+      );
+      expect(parsed.state.weights).toEqual(expected);
+      expect(parsed.issues).toEqual([]);
+      expect(parsed.canonical).toBe(true);
+      expect(
+        serialize(parsed.state, 'view=cards&system=456&selected=123'),
+      ).toBe(
+        `${prefix}weights=${encodeURIComponent(value)}&selected=123&system=456&view=cards`,
+      );
+    }
+    const shuffled = Object.fromEntries(
+      [...Object.entries(expected)].reverse(),
+    );
+    expect(serialize({ weights: shuffled })).toBe(
+      `weights=${encodeURIComponent(value)}`,
+    );
+    expect(parse('weights=100,0,5,10,15,20,25,30').canonical).toBe(true);
+  });
+
+  it('drops every malformed vector as one invalid option', () => {
+    for (const value of [
+      '',
+      '100',
+      '100,0,0,0,0,0,0',
+      '100,0,0,0,0,0,0,0,0',
+      '0,0,0,0,0,0,0,0',
+      '101,0,0,0,0,0,0,0',
+      '-1,100,0,0,0,0,0,0',
+      '1.5,0,0,0,0,0,0,0',
+      '+1,0,0,0,0,0,0,0',
+      '01,0,0,0,0,0,0,0',
+      '1e2,0,0,0,0,0,0,0',
+      'NaN,0,0,0,0,0,0,0',
+      '100, 0,0,0,0,0,0,0',
+      `${'9'.repeat(10000)},0,0,0,0,0,0,0`,
+    ]) {
+      const query = `weights=${encodeURIComponent(value)}&selected=123&view=cards`;
+      const parsed = parse(query);
+      expect(parsed.state.weights).toEqual({});
+      expect(parsed.issues).toEqual([
+        { parameter: 'weights', reason: 'invalid', value },
+      ]);
+      expect(parsed.canonical).toBe(false);
+      expect(serialize(parsed.state, query)).toBe('selected=123&view=cards');
+    }
+  });
+
+  it('rejects duplicate vectors and strips both weight formats in disabled builds', () => {
+    expect(parseWeightParameters([])).toEqual({ weights: {}, issues: [] });
+    const query = 'weights=100,0,0,0,0,0,0,0&weights=100,0,0,0,0,0,0,0';
+    expect(parse(query)).toMatchObject({
+      state: { weights: {} },
+      canonical: false,
+      issues: [{ parameter: 'weights', reason: 'duplicate' }],
+    });
+    const hand = params(
+      `${query}&weight=capacity:2500&selected=123&system=456&view=cards`,
+    );
+    expect(hasRankingSearchParams(hand)).toBe(true);
+    expect(stripRankingSearchParams(hand).toString()).toBe(
+      'selected=123&system=456&view=cards',
+    );
+    expect(hasRankingSearchParams(stripRankingSearchParams(hand))).toBe(false);
   });
 });
 

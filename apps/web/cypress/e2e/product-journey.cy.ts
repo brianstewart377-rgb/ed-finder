@@ -1,5 +1,8 @@
 import { GALAXY_REGION_NAMES } from '../../src/lib/spatial/galaxy-regions';
+import { archetypeLabel } from '../../src/lib/features/explore/archetypes';
 import type {
+  ArchetypeRerankResponse,
+  ArchetypesProfilesResponse,
   RankingIdentity,
   SystemArchetypeExplanationResponse,
 } from '../../src/lib/api/generated/types.gen';
@@ -358,13 +361,280 @@ const captureFinder = (state: 'any' | 'flexible' | 'flexible-explanation') => {
 };
 
 describe('V3 Explore to Inspect product checkpoint', () => {
+  it('applies custom weights once, shares them in the URL and resets on a fresh Explore visit', () => {
+    // A bounded normal-API fixture makes this URL-only journey independent of
+    // catalogue scoring changes. The real seeded ranking journey follows it.
+    const ranking: RankingIdentity = {
+      ranking_version: 'v3-colony-potential-2',
+      ranking_sha256: 'a'.repeat(64),
+      derived_generation_id: '11111111-1111-4111-8111-111111111111',
+      publication_sequence: 1,
+      archetype_version: 'v3-archetype-1',
+      archetype_manifest_sha256: 'b'.repeat(64),
+      archetype_model_sha256: 'c'.repeat(64),
+    };
+    const weights = {
+      paradise: 0.95,
+      mining_hub: 0,
+      manufacturing_hub: 0,
+      megacomplex: 0,
+      research_hub: 0,
+      stronghold: 0,
+      population_capital: 0,
+      flexible: 0,
+    };
+    const profiles: ArchetypesProfilesResponse = {
+      profiles: [
+        ...ARCHETYPE_KEYS.map((key) => ({
+          id: key,
+          label: archetypeLabel(key),
+          description: `${archetypeLabel(key)} fit only`,
+          archetype: key,
+          weights: Object.fromEntries(
+            ARCHETYPE_KEYS.map((dimension) => [
+              dimension,
+              dimension === key ? 1 : 0,
+            ]),
+          ) as typeof weights,
+        })),
+        {
+          id: 'generalist',
+          label: 'Generalist',
+          description: 'Equal weight on every V3 archetype fit',
+          archetype: null,
+          weights: Object.fromEntries(
+            ARCHETYPE_KEYS.map((key) => [key, 0.125]),
+          ) as typeof weights,
+        },
+      ],
+    };
+    const reranked: ArchetypeRerankResponse = {
+      archetype: null,
+      profile_applied: null,
+      weights_applied: weights,
+      missing_id64s: [],
+      ranking,
+      results: [
+        { id64: 202, reranked_score: 67, tier: 'B', original_score: 80 },
+        { id64: 101, reranked_score: 34, tier: 'D', original_score: 90 },
+      ],
+    };
+    cy.intercept('GET', '/api/v1/auth/session', {
+      authenticated: false,
+      user: null,
+      owner_claim_available: false,
+    }).as('customWeightsSession');
+    cy.intercept('GET', '/api/v2/watchlist/*', (request) => {
+      request.reply({
+        sync_key: new URL(request.url).pathname.split('/').at(-1),
+        watchlist: [],
+      });
+    }).as('customWeightsWatchlist');
+    cy.intercept('GET', '/api/map/systems*', {
+      systems: [],
+      truncated: false,
+    }).as('customWeightsMapSystems');
+    cy.intercept('GET', '/api/map/heatmap*', {
+      source: 'pyramid',
+      generation_id: ranking.derived_generation_id,
+      spatial_generation_id: ranking.derived_generation_id,
+      spatial_pyramid_version: 'v1',
+      source_system_count: 2,
+      coverage_at: '2026-11-01T00:00:00Z',
+      level: 0,
+      cell_size_ly: 1000,
+      voxel_size: 1000,
+      bounds: {
+        min_x: 0,
+        max_x: 1000,
+        min_y: 0,
+        max_y: 1000,
+        min_z: 0,
+        max_z: 1000,
+      },
+      cells: [
+        {
+          origin_x_ly: 0,
+          origin_y_ly: 0,
+          origin_z_ly: 0,
+          centroid_x_ly: 20,
+          centroid_y_ly: 30,
+          centroid_z_ly: 40,
+          system_count: 2,
+        },
+      ],
+      count: 1,
+      max_cells: 40_000,
+      truncated: false,
+    }).as('customWeightsHeatmap');
+    cy.intercept('POST', '/api/local/search', {
+      results: [
+        {
+          id64: 101,
+          name: 'Weights Alpha',
+          coords: { x: 10, y: 20, z: 30 },
+          overall_development_potential: 90,
+          primary_archetype: 'flexible',
+          confidence: 0.9,
+          completeness: 0.8,
+        },
+        {
+          id64: 202,
+          name: 'Weights Beta',
+          coords: { x: 30, y: 40, z: 50 },
+          overall_development_potential: 80,
+          primary_archetype: 'paradise',
+          confidence: 0.85,
+          completeness: 0.75,
+        },
+      ],
+      total: 2,
+      count: 2,
+      total_is_capped: false,
+      ranking,
+    }).as('customWeightsSearch');
+    cy.intercept('GET', '/api/archetypes/profiles', profiles).as(
+      'customWeightsProfiles',
+    );
+    cy.intercept('POST', '/api/archetypes/rerank', reranked).as(
+      'customWeightsRerank',
+    );
+
+    const dialog = '[data-testid="archetype-weights-dialog"]';
+    const assertReranked = () => {
+      cy.get('[data-system-result]').should(($rows) => {
+        expect(
+          $rows.toArray().map((row) => row.dataset.systemResult),
+        ).to.deep.equal(['202', '101']);
+      });
+      cy.get('[data-system-result="202"] [data-custom-weight-score]').should(
+        'have.text',
+        'Blended score: 67.0',
+      );
+      cy.get('[data-system-result="101"] [data-custom-weight-score]').should(
+        'have.text',
+        'Blended score: 34.0',
+      );
+      cy.contains('button', /^Custom weights$/).should('be.visible');
+    };
+    const assertWeightsUrl = () => {
+      cy.location('search', { timeout: 15_000 }).should((search) => {
+        expect(new URLSearchParams(search).getAll('weights')).to.deep.equal([
+          '95,0,0,0,0,0,0,0',
+        ]);
+      });
+    };
+
+    cy.viewport(1280, 800);
+    cy.visit('/explore?page_size=2');
+    cy.wait('@customWeightsSearch');
+    cy.get('[data-system-result]')
+      .first()
+      .should('have.attr', 'data-system-result', '101');
+    cy.get('[data-custom-weight-score]').should('not.exist');
+    cy.get('.ranking-controls').screenshot(
+      `product/finder-weights-picker-${Cypress.browser.name}-1280x800`,
+      { overwrite: true, disableTimersAndAnimations: true },
+    );
+    cy.contains('button', /^Weights$/).click();
+    cy.wait('@customWeightsProfiles');
+    cy.get(dialog).should('be.visible').and('have.attr', 'role', 'dialog');
+    cy.get(`${dialog} input[type="range"]`).should('have.length', 8);
+    cy.contains(`${dialog} button`, /^Paradise World$/).click();
+    cy.contains(`${dialog} label`, 'Paradise World')
+      .invoke('attr', 'for')
+      .then((id) => {
+        cy.get(`input[id="${id}"]`)
+          .should('have.attr', 'step', '5')
+          .invoke('val', 95)
+          .trigger('input')
+          .trigger('change')
+          .should('have.value', '95');
+      });
+    cy.get('@customWeightsRerank.all').should('have.length', 0);
+    cy.location('search').should((search) => {
+      expect(new URLSearchParams(search).has('weights')).to.equal(false);
+    });
+    cy.injectAxe();
+    cy.checkA11y(dialog);
+    for (const [width, height] of [
+      [1280, 800],
+      [390, 844],
+    ]) {
+      cy.viewport(width, height);
+      cy.get(dialog)
+        .should('be.visible')
+        .scrollTo('top', { ensureScrollable: false });
+      cy.screenshot(
+        `product/finder-custom-weights-${Cypress.browser.name}-${width}x${height}`,
+        {
+          capture: 'viewport',
+          overwrite: true,
+          disableTimersAndAnimations: true,
+        },
+      );
+    }
+    cy.viewport(1280, 800);
+    cy.contains(`${dialog} button`, /^Apply$/).click();
+    cy.get(dialog).should('not.exist');
+    cy.wait('@customWeightsRerank').then(({ request }) => {
+      expect(request.body.id64s.map(String)).to.deep.equal(['101', '202']);
+      expect(request.body.weights).to.deep.equal(weights);
+      expect(request.body.archetype ?? null).to.equal(null);
+      expect(request.body).not.to.have.property('profile');
+    });
+    assertReranked();
+    assertWeightsUrl();
+    cy.get('@customWeightsRerank.all').should('have.length', 1);
+
+    cy.reload();
+    cy.wait('@customWeightsSearch');
+    cy.wait('@customWeightsRerank');
+    assertReranked();
+    assertWeightsUrl();
+    cy.get('@customWeightsRerank.all').should('have.length', 2);
+    cy.contains('button', /^Custom weights$/).click();
+    cy.get(dialog).should('be.visible');
+    cy.get(`${dialog} button[aria-label="Close weights"]`).click();
+    cy.contains('button', /^Custom weights$/).should('be.focused');
+
+    // Leave while weights are still active: clearing first would conceal an
+    // accidental persisted preference that Clear also happened to remove.
+    cy.visit('/explore');
+    cy.contains('button', /^Weights$/)
+      .should('be.visible')
+      .click();
+    cy.get(`${dialog} input[type="range"]`).each(($slider) => {
+      expect($slider).to.have.value('100');
+    });
+    cy.contains('button', /^Custom weights$/).should('not.exist');
+    cy.location('search').should((search) => {
+      expect(new URLSearchParams(search).has('weights')).to.equal(false);
+    });
+    cy.get('@customWeightsRerank.all').should('have.length', 2);
+
+    cy.visit('/explore?page_size=2&weights=95,0,0,0,0,0,0,0');
+    cy.wait('@customWeightsSearch');
+    cy.wait('@customWeightsRerank');
+    assertReranked();
+    cy.contains('button', /^Clear weights$/).click();
+    cy.get('[data-custom-weight-score]').should('not.exist');
+    cy.get('[data-system-result]')
+      .first()
+      .should('have.attr', 'data-system-result', '101');
+    cy.location('search').should((search) => {
+      expect(new URLSearchParams(search).has('weights')).to.equal(false);
+    });
+    cy.get('@customWeightsRerank.all').should('have.length', 3);
+  });
+
   it('ranks the pinned Flexible B corpus, retains URL selection and restores Finder history', () => {
     const selectedId = FLEXIBLE_B_FIXTURE_ROWS[0].id64;
     let copiedExploreUrl = '';
     let copiedExploreQuery = '';
     let rankingIdentity: RankingIdentity;
     cy.viewport(1280, 800);
-    // Observe real API traffic only: the Product lane never supplies a response.
+    // This seeded journey observes real API traffic throughout.
     cy.intercept('GET', '/api/archetypes/rankings*').as('rankings');
     cy.intercept('GET', '/api/archetypes/system/*/explanation*').as(
       'archetypeExplanation',

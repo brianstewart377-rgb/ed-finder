@@ -1,8 +1,10 @@
 import { QueryClient } from '@tanstack/svelte-query';
 import type { Id64 } from '$lib/domain/id64';
+import { ARCHETYPE_KEYS } from '$lib/features/explore/archetypes';
 import type {
   ArchetypeExplanationIdentity,
   ArchetypeRankingsRequest,
+  ArchetypeRerankRequest,
   CatalogueViewportRequest,
   DistanceAnchor,
   ExploreSearchRequest,
@@ -72,6 +74,18 @@ export const queryKeys = {
       request.min_score,
       request.page_size,
       request.offset,
+    ] as const,
+  archetypeProfiles: () =>
+    [...queryKeys.all, 'explore', 'archetype-profiles'] as const,
+  /** Fixed weight order and exact page membership/order, never slider drafts. */
+  archetypeRerank: (request: ArchetypeRerankRequest) =>
+    [
+      ...queryKeys.all,
+      'explore',
+      'archetype-rerank',
+      request.archetype ?? null,
+      ...ARCHETYPE_KEYS.map((key) => request.weights[key]),
+      ...request.id64s,
     ] as const,
   /** Every identity sent to the explanation gate, including hash-only rebuilds. */
   archetypeExplanation: (

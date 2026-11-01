@@ -11,6 +11,16 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-01 — Finder F4d: URL-only custom archetype weights
+
+The feature-gated Explore weights popover adds eight accessible draft sliders,
+V3 preset blends and explicit Apply/Reset controls. Committed weights live only
+in the canonical URL. One bounded V3 rerank reorders the current page and shows
+its blended scores; Clear restores the original order, and rerank failures
+leave the unweighted results visible. Base score identities and saved-system
+persistence remain unchanged. Unit/component and product-journey coverage checks
+URL round trips, request bounds, fallback behavior and popover accessibility.
+
 ## 2026-11-01 — Finder F4 archetype UI enabled for governed release builds
 
 Owner enablement decision (F4 design question 3). Every gate in the F4 design is

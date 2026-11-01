@@ -50,6 +50,8 @@ vi.mock('$lib/api/client', async (loadOriginal) => {
     autocompleteSystems: vi.fn(),
     searchExploreSystems: vi.fn(),
     getArchetypeRankings: vi.fn(),
+    rerankArchetypes: vi.fn(),
+    getArchetypeProfiles: vi.fn(),
     getArchetypeExplanation: vi.fn(),
     getSystem: vi.fn(),
     getCatalogueViewportSystems: vi.fn(),
@@ -170,6 +172,7 @@ function mockFacadeDefaults(): void {
   });
   mockedGoto.mockImplementation(async () => undefined);
   vi.mocked(api.autocompleteSystems).mockResolvedValue({ results: [] });
+  vi.mocked(api.getArchetypeProfiles).mockResolvedValue([]);
   mockedPage.url = new URL('http://localhost/explore');
   vi.mocked(api.searchExploreSystems).mockResolvedValue({
     results: [],
@@ -640,6 +643,197 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it.each(['', 'archetype=manufacturing_hub&'])(
+    'commits page-only weights on Apply, preserves base scores and clears the blend (%s)',
+    async (mode) => {
+      vi.mocked(api.rerankArchetypes).mockImplementation(async (request) => ({
+        results: [...request.id64s].reverse().map((id64, index) => ({
+          id64,
+          score: 90 - index,
+          tier: 'S' as const,
+        })),
+        ranking: rankingIdentity,
+      }));
+      renderEnabled(`${mode}page_size=3`, { anchor: anchorA });
+      await screen.findByText('3 results on this page.');
+      expect(api.getArchetypeProfiles).not.toHaveBeenCalled();
+      const baseRequests =
+        vi.mocked(api.searchExploreSystems).mock.calls.length +
+        vi.mocked(api.getArchetypeRankings).mock.calls.length;
+      await fireEvent.click(screen.getByRole('button', { name: 'Weights' }));
+      await waitFor(() =>
+        expect(api.getArchetypeProfiles).toHaveBeenCalledTimes(1),
+      );
+      const slider = screen.getByRole('slider', { name: 'Paradise World' });
+      await fireEvent.input(slider, { target: { value: '45' } });
+      await fireEvent.input(slider, { target: { value: '65' } });
+      expect(api.rerankArchetypes).not.toHaveBeenCalled();
+      expect(mockedPage.url.searchParams.has('weights')).toBe(false);
+      await fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+      await screen.findByText('Blended score: 90.0');
+      expect(api.rerankArchetypes).toHaveBeenCalledTimes(1);
+      expect(api.rerankArchetypes).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id64s: rankedRows.map((row) => row.id64),
+          weights: expect.objectContaining({ paradise: 65, mining_hub: 100 }),
+          archetype: mode ? 'manufacturing_hub' : null,
+        }),
+        expect.any(AbortSignal),
+      );
+      expect(mockedPage.url.searchParams.get('weights')).toBe(
+        '65,100,100,100,100,100,100,100',
+      );
+      expect(mockedPage.state.anchor).toEqual(anchorA);
+      expect(
+        vi.mocked(api.searchExploreSystems).mock.calls.length +
+          vi.mocked(api.getArchetypeRankings).mock.calls.length,
+      ).toBe(baseRequests);
+      const list = screen.getByRole('list', { name: 'System results' });
+      expect(
+        within(list)
+          .getAllByRole('listitem')
+          .map((row) => row.getAttribute('data-system-result')),
+      ).toEqual([...rankedRows].reverse().map((row) => row.id64));
+      expect(rankedRows[2].ranking_score).toBe(77);
+      expect(rankedRows[2].score_kind).toBe('selected_fit');
+      expect(
+        screen.getByRole('button', { name: 'Custom weights' }),
+      ).toHaveFocus();
+      await fireEvent.click(
+        screen.getByRole('button', { name: 'Clear weights' }),
+      );
+      await waitFor(() =>
+        expect(mockedPage.url.searchParams.has('weights')).toBe(false),
+      );
+      expect(screen.queryByText(/Blended score:/)).not.toBeInTheDocument();
+      expect(
+        within(list)
+          .getAllByRole('listitem')
+          .map((row) => row.getAttribute('data-system-result')),
+      ).toEqual(rankedRows.map((row) => row.id64));
+      expect(api.rerankArchetypes).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('reranks each committed page once and restores URL weights without a local preference', async () => {
+    vi.mocked(api.rerankArchetypes).mockImplementation(async (request) => ({
+      results: request.id64s.map((id64) => ({
+        id64,
+        score: 85,
+        tier: 'A' as const,
+      })),
+      ranking: rankingIdentity,
+    }));
+    const navigation = renderEnabled(
+      'page_size=1&weights=25,100,100,100,100,100,100,100',
+    );
+    await screen.findByText('Blended score: 85.0');
+    expect(api.rerankArchetypes).toHaveBeenCalledTimes(1);
+    await fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(api.rerankArchetypes).toHaveBeenCalledTimes(2));
+    await screen.findByText('Blended score: 85.0');
+    expect(
+      vi
+        .mocked(api.rerankArchetypes)
+        .mock.calls.map(([request]) => request.id64s),
+    ).toEqual([[rankedRows[0].id64], [rankedRows[1].id64]]);
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Custom weights' }),
+    );
+    expect(screen.getByRole('slider', { name: 'Paradise World' })).toHaveValue(
+      '25',
+    );
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    navigation.restore('');
+    await screen.findByRole('button', { name: 'Weights' });
+    expect(screen.queryByText(/Blended score:/)).not.toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Weights' }));
+    expect(screen.getByRole('slider', { name: 'Paradise World' })).toHaveValue(
+      '100',
+    );
+    expect(api.rerankArchetypes).toHaveBeenCalledTimes(2);
+    expect(Object.keys(localStorage).some((key) => /weight/i.test(key))).toBe(
+      false,
+    );
+  });
+
+  it.each(['request error', 'changed generation'])(
+    'retains unweighted rows and explains a rerank %s',
+    async (failure) => {
+      if (failure === 'request error')
+        vi.mocked(api.rerankArchetypes).mockRejectedValue(
+          new Error('unavailable'),
+        );
+      else
+        vi.mocked(api.rerankArchetypes).mockResolvedValue({
+          results: [...rankedRows]
+            .reverse()
+            .map(({ id64 }) => ({ id64, score: 85, tier: 'A' as const })),
+          ranking: {
+            ...rankingIdentity,
+            derived_generation_id: 'another-generation',
+          },
+        });
+      renderEnabled('page_size=3&weights=100,0,0,0,0,0,0,0');
+      await screen.findByText(
+        'Custom weights unavailable. Showing the original results.',
+      );
+      expect(screen.queryByText(/Blended score:/)).not.toBeInTheDocument();
+      expect(
+        within(screen.getByRole('list', { name: 'System results' }))
+          .getAllByRole('listitem')
+          .map((row) => row.getAttribute('data-system-result')),
+      ).toEqual(rankedRows.map((row) => row.id64));
+      expect(
+        screen.getByRole('button', { name: 'Clear weights' }),
+      ).toBeEnabled();
+    },
+  );
+
+  it('ignores an in-flight blend after weights are cleared', async () => {
+    let finish!: (
+      value: Awaited<ReturnType<typeof api.rerankArchetypes>>,
+    ) => void;
+    vi.mocked(api.rerankArchetypes).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    renderEnabled('page_size=3&weights=100,0,0,0,0,0,0,0');
+    await waitFor(() => expect(api.rerankArchetypes).toHaveBeenCalledTimes(1));
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Clear weights' }),
+    );
+    finish({
+      results: [...rankedRows]
+        .reverse()
+        .map(({ id64 }) => ({ id64, score: 85, tier: 'A' })),
+      ranking: rankingIdentity,
+    });
+    await tick();
+    expect(screen.queryByText(/Blended score:/)).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole('list', { name: 'System results' }))
+        .getAllByRole('listitem')
+        .map((row) => row.getAttribute('data-system-result')),
+    ).toEqual(rankedRows.map((row) => row.id64));
+  });
+
+  it('keeps weights controls and requests absent with the feature flag off', async () => {
+    featureGate.enabled = false;
+    renderEnabled('weights=100,0,0,0,0,0,0,0');
+    await waitFor(() => expect(api.searchExploreSystems).toHaveBeenCalled());
+    expect(
+      screen.queryByRole('button', { name: 'Weights' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Custom weights' }),
+    ).not.toBeInTheDocument();
+    expect(api.rerankArchetypes).not.toHaveBeenCalled();
+    expect(api.getArchetypeProfiles).not.toHaveBeenCalled();
   });
 
   it.each([

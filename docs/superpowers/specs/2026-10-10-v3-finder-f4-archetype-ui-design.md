@@ -75,6 +75,13 @@ governed release, with the previous release as the recorded rollback artifact.
 This decision does not itself deploy anything: the flag reaches production only
 through the next owner-approved governed application release.
 
+**Status update — 2026-11-01: F4d custom weights.** F3 slice 2 (#862) and
+its generated client are available. F4d adds draft sliders, V3 preset blends
+and a bounded current-page `/rerank` behind `VITE_FINDER_F4_ENABLED`. Owner
+answer 2 is now **URL-only** (section 9): shared/bookmarked Explore URLs retain
+the blend; a fresh `/explore` starts with default weights. No local preference
+or persistence schema is added. Existing enablement and release gates stand.
+
 F4a and F4b are code-only increments validated against disposable fixtures.
 They remain hidden behind a default-off build feature gate until the governed
 production sequence has applied the pending migrations (rewritten `011` and
@@ -916,13 +923,15 @@ Reserve an end-aligned `ranking-tools` slot beside the picker in the responsive
 layout, but render no dead slider controls in the first increment. This preserves
 the F2 design's F4 pop-out-slider slot without depending on an endpoint that has
 not been cut over (`docs/superpowers/specs/2026-09-16-v3-finder-f2-archetype-ranking-design.md:150-155`).
-After slice 2, the slot gets a **Tune ranking** disclosure button with
-`aria-expanded` and `aria-controls`. It opens a non-modal labelled
-`role="region"` pop-out containing native range inputs, visible numeric values,
-Reset, Cancel and Apply. Escape closes it and returns focus to the button; Apply
-issues one rerank and commits one URL history entry. **Unverified:** slider names,
-ranges, defaults and normalization must come from the future V3 `/rerank`
-contract, not the legacy five-weight model.
+F4d now provides a **Weights** button beside the picker (a **Custom weights**
+chip while committed), with `aria-expanded` and `aria-controls`. It opens a
+labelled non-modal `role="dialog"` with eight native range inputs (0–100%,
+5% steps), visible numeric values, V3 presets, Reset to default, Cancel and
+Apply. Escape, Close and outside click dismiss it and return focus to the
+trigger; below 640px it is a centred sheet. All-zero drafts disable Apply with
+an explanation. Apply issues at most one current-page rerank and commits one
+URL history entry; dragging never requests a rerank. The V3 contract and the
+2026-11-01 owner answer below supersede the earlier provisional weight format.
 
 ## 6. State and URL contract
 
@@ -934,7 +943,7 @@ type FinderRankingState = Readonly<{
   minimumTier: "S" | "A" | "B" | null; // null is mandatory in Any until slice 1d
   pageSize: number; // facade page_size, integer 1..50; default 50
   offset: number;
-  weights: Readonly<Record<string, number>>; // empty until slice 2
+  weights: Readonly<Record<string, number>>; // empty or all eight V3 integer percentages
 }>;
 ```
 
@@ -1047,15 +1056,20 @@ and page size, or two anchors at identical coordinates with different identities
 share the live 30-second-fresh Any-results entry and the normalized rows — and the
 snapshots saved from them — carry the first anchor's reference.                                                                                                                                                                                                                                                                                                                                                                                           |
 | Page offset        | `offset=50`                                              | Omit zero. Accept one non-negative integer; reject duplicates, fractions and negatives. In **every** mode — decided from the URL alone, before any request — reject `offset >= 10,000`, canonicalize such a URL to the last valid page before the first dispatch, and send at most `min(page_size, 10,000 - offset)`; this never waits for `total_is_capped` or any other response metadata, and no mode may navigate beyond 10,000 (the anchor is not URL state, so an anchored search cannot be told apart from an unanchored one after a reload). Previous/Next stop at the envelope's `navigable_total` (= `min(total, 10,000)`). Reset to zero when archetype, minimum tier, page size or the **committed** anchor changes; draft text edits do not reset it. Positive out-of-range corrections go through the same anchor-state-preserving helper as every other `/explore` navigation — SvelteKit `goto(destination, { replaceState: true, state: page.state })`, carrying `page.state.anchor` so hydration does not fall back to a galaxy-wide search — never the native History API. |
-| Future weights     | repeated, key-sorted `weight=<dimension>:<basis-points>` | Example only: `weight=capacity:2500`. Values are integers 0–10000 to avoid float serialization drift. Do not parse or emit until slice 2 defines allowed keys and total rules. **Unverified:** dimension identifiers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Custom weights | `weights=100,0,0,0,0,0,0,0` | One value containing exactly eight comma-separated integers 0–100 in `ARCHETYPE_KEYS` order: paradise, mining_hub, manufacturing_hub, megacomplex, research_hub, stronghold, population_capital, flexible. At least one must be positive. Invalid or duplicate parameters are dropped with the existing unsupported-option notice; the provisional singular `weight` format is removed. Omit weights for default ranking. In Any mode keep no tier floor; in selected mode keep the selected archetype and its minimum tier. Rerank only the current page after its base request completes, passing the selected archetype when present. Weights change neither page membership nor base score identity. Apply and Clear preserve the current offset; ordinary archetype/tier/page-size/anchor resets still apply. |
 | Selected system    | `selected=<id64>`                                        | Passive Explore selection only. Result selection and a Babylon system pick write the lossless id here and hydrate the persisted selection plus Babylon marker without opening detail. Clearing selection removes only `selected`; omission on `/explore` clears URL-owned selection. |
 | Detail overlay     | existing `system=<id64>`                                 | **In F4-enabled builds** exclusively opens `SystemOverlay` on `/explore` and remains the Inspect trigger (`apps/web/src/lib/components/AppShell.svelte:19-33`, `apps/web/src/lib/components/AppShell.svelte:76`); closing the overlay removes only `system`, and it never clears or creates `selected`. The Inspect page's **Open in Explore** link therefore emits the **originating Explore query** plus `selected=<id64>&system=<id64>` in an enabled build (today it emits only `?system=`, `apps/web/src/routes/inspect/+page.svelte:26-27`): Explore passes its current query string to Inspect (as a `from` parameter, URL-encoded) and Inspect's link replays it **after deleting any `selected` and `system` entries it already contains** and then setting both to the inspected id — a replay that merely appended them would produce `selected=A&selected=B` when the user inspected B from a page where A was selected, which a first-value parser resolves to A and a fail-closed duplicate parser rejects outright. So `archetype`, `min-tier`, `page_size` and `offset` come back exactly as they were, while the selection is unambiguously the inspected system; a test returns from a page whose prior selection was a different system and asserts single-valued `selected`/`system` equal to the inspected id. The anchor, which is not URL state, travels in SvelteKit history state — which means the **outbound** navigation must carry it: Explore's Inspect affordance is not a plain `<a href>` in an enabled build but a `goto('/inspect?…', { state: page.state })` (or an anchor whose click handler does the same), so the new Inspect history entry holds `page.state.anchor` for the return `goto` to preserve; the anchored round-trip test asserts the state transfer on the way out as well as the restored 500-LY request on the way back. Without that, the return side would have no anchor to carry and an anchored Any search would come back galaxy-wide; if the user arrived at Inspect by a bare link with no `from`, the return link falls back to `/explore?selected=…&system=…` and the page hydrates as unanchored default Any, which its URL honestly describes. An enabled-build round-trip test covers a selected-archetype page and an anchored Any page: Explore → Inspect → **Open in Explore** restores the archetype, floor, page, anchor and selection, and closing the overlay leaves the inspected system selected. **In the default-off build** the live behaviour is unchanged: `AppShell` keeps copying `?system=` into `selectedSystem` exactly as today, and a disabled-build `?system=` regression test proves it. |
 
-Serialize keys in the table's order and weights lexicographically so copying the
+Serialize keys in the table's order and weights in `ARCHETYPE_KEYS` order so copying the
 same state produces one stable URL. Picker and minimum-tier commits create a
 history entry; offset navigation creates one entry; Reset creates one history
-entry; selection commits create one entry with `selected=<id64>`; future slider
-edits remain local draft state until Apply. Preserve
+entry; selection commits create one entry with `selected=<id64>`; slider
+edits remain local draft state until Apply. Slider percentages convert to 0–1
+for `/rerank`; the service normalizes their relative blend. Reset restores an
+equal blend (100% for each key) in the draft; Clear weights removes the URL
+override and restores the original page order. Presets come from the V3
+`/profiles` route and use proportional integer percentages. No weights enter
+local storage, cookies, saved-system snapshots or the persistence layer. Preserve
 unrelated query parameters. A response-driven out-of-range correction is not a
 user navigation: compute the last valid offset, derive the destination from
 reactive `page.url`, use the shared anchor-state-preserving helper
@@ -1094,7 +1108,7 @@ response-driven page correction replace.
 
 When `VITE_FINDER_F4_ENABLED !== '1'`, the hydrator does not parse or apply the
 F4 parameters at all. It removes `archetype`, `min-tier`, `page_size`, `offset`
-and `weight` with SvelteKit replace-state, leaves `selected`, `system` and
+and `weights` (plus retired `weight`) with SvelteKit replace-state, leaves `selected`, `system` and
 unrelated parameters intact, and retains the unchanged local-search request
 branch described above.
 
@@ -1407,8 +1421,8 @@ for:
   without a reference;
 - default-off feature config and explicit fixture opt-in; the disabled request
   selector must make the rankings branch unreachable for a hand-authored F4 URL;
-- future weight basis-point parsing behind a disabled feature flag, activated
-  only with the slice-2 contract.
+- bounded eight-value integer-percentage weights, malformed/duplicate removal,
+  URL-only round trips and disabled-build stripping under the slice-2 contract.
 
 ### Svelte component tests
 
@@ -2579,6 +2593,15 @@ are kept verbatim; these answers govern where they differ from earlier text.
 - **Questions 2, 3 and 4 — still open.** None of them blocks F4b: question 2
   concerns custom weights after slice 2 (F4d), question 3 the later governed
   enablement build, and question 4 an Any-mode tier control (slice 1d).
+
+#### Owner answers (2026-11-01)
+
+- **Question 2 — URL-only.** Custom archetype weights live only in the Explore
+  URL, so sharing or bookmarking the link retains them. They are not remembered
+  in local storage, cookies or the persistence layer. Opening `/explore` fresh
+  starts with the default weights. This answer supersedes the 2026-10-21 open
+  status for question 2 and governs F4d. Slider drafts commit only with Apply;
+  Clear weights removes the URL parameter in one action.
 
 ### Review dispositions (2026-10-10)
 

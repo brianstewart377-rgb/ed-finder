@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { createQuery } from '@tanstack/svelte-query';
+  import {
+    createQueries,
+    createQuery,
+    type CreateQueryOptions,
+  } from '@tanstack/svelte-query';
   import { fromStore } from 'svelte/store';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
@@ -13,9 +17,12 @@
     getCommanderTravelHeatmap,
     getMapHeatmap,
     getArchetypeRankings,
+    getArchetypeProfiles,
+    rerankArchetypes,
     getSystem,
     searchExploreSystems,
     type AutocompleteSystem,
+    type ArchetypeRerankRequest,
     type CatalogueViewportResponse,
     type DistanceAnchor,
     type ExploreSearchRequest,
@@ -44,6 +51,7 @@
     readExploreAnchor,
   } from './navigation';
   import ArchetypePicker from './ArchetypePicker.svelte';
+  import ArchetypeWeightsPopover from './ArchetypeWeightsPopover.svelte';
   import ArchetypeExplanation from './ArchetypeExplanation.svelte';
   import FinderResultRanking from './FinderResultRanking.svelte';
   import { usePersistenceContext } from '$lib/persistence/context';
@@ -306,6 +314,100 @@
     FINDER_F4_ENABLED &&
       !results.isError &&
       (results.isFetching || !currentResponse || pageCorrection !== null),
+  );
+  let profilesRequested = $state(false);
+  // Optional weights must add no query observers to the unweighted page.
+  const weightProfileQueries = createQueries(
+    (): {
+      queries: CreateQueryOptions<
+        Awaited<ReturnType<typeof getArchetypeProfiles>>
+      >[];
+    } => ({
+      queries:
+        FINDER_F4_ENABLED && profilesRequested
+          ? [
+              {
+                queryKey: queryKeys.archetypeProfiles(),
+                queryFn: ({ signal }: { signal: AbortSignal }) =>
+                  getArchetypeProfiles(signal),
+                staleTime: Infinity,
+                retry: 0,
+              },
+            ]
+          : [],
+    }),
+  );
+  const weightProfiles = $derived(weightProfileQueries[0]);
+  const customWeights = $derived(
+    FINDER_F4_ENABLED && Object.keys(rankingState.weights).length > 0,
+  );
+  const rerankRequest = $derived<ArchetypeRerankRequest | null>(
+    customWeights &&
+      currentResponse &&
+      !results.isFetching &&
+      pageCorrection === null &&
+      results.data?.results.length
+      ? {
+          id64s: results.data.results.map((system) => system.id64),
+          weights: rankingState.weights,
+          archetype:
+            rankingState.archetype === 'any' ? null : rankingState.archetype,
+        }
+      : null,
+  );
+  const rerankQueries = createQueries(
+    (): {
+      queries: CreateQueryOptions<
+        Awaited<ReturnType<typeof rerankArchetypes>>
+      >[];
+    } => {
+      const request = rerankRequest;
+      return {
+        queries: request
+          ? [
+              {
+                // A refreshed generation must not reuse a blend of older scores,
+                // even when the page contains the same systems in the same order.
+                queryKey: [
+                  ...queryKeys.archetypeRerank(request),
+                  results.data?.results[0]?.ranking_provenance,
+                ],
+                queryFn: ({ signal }: { signal: AbortSignal }) =>
+                  rerankArchetypes(request, signal),
+                staleTime: Infinity,
+                retry: 0,
+                refetchOnMount: false,
+                refetchOnWindowFocus: false,
+                refetchOnReconnect: false,
+              },
+            ]
+          : [],
+      };
+    },
+  );
+  const reranked = $derived(rerankQueries[0]);
+  const compatibleRerank = $derived.by(() => {
+    if (!rerankRequest || reranked?.isError || !reranked?.data) return null;
+    const data = reranked.data;
+    // Keep row explanations and base score identities bound to one publication.
+    // Blended values are presentation-only; they never overwrite saved scores.
+    return results.data?.results.every((system) => {
+      const provenance = system.ranking_provenance;
+      return (
+        provenance &&
+        Object.entries(data.ranking).every(
+          ([key, value]) =>
+            provenance[key as keyof typeof provenance] === value,
+        )
+      );
+    })
+      ? data
+      : null;
+  });
+  const blendedScores = $derived(
+    new Map(
+      compatibleRerank?.results.map((row) => [row.id64, row.score]) ?? [],
+    ),
   );
   const activeArchetypeLabel = $derived(archetypeLabel(rankingState.archetype));
   const rankingDataNotReady = $derived.by(() => {
@@ -652,9 +754,13 @@
       main_star_type: system.mainStarClass,
     })),
   );
-  const systems = $derived(
-    displayedResults?.results ?? (FINDER_F4_ENABLED ? [] : viewportSystems),
-  );
+  const systems = $derived.by(() => {
+    const base =
+      displayedResults?.results ?? (FINDER_F4_ENABLED ? [] : viewportSystems);
+    if (!compatibleRerank) return base;
+    const byId = new Map(base.map((system) => [system.id64, system]));
+    return compatibleRerank.results.map((row) => byId.get(row.id64)!);
+  });
   let finderSequence = 0;
   const finderRevision = $derived.by(() => {
     if (!FINDER_F4_ENABLED)
@@ -1298,13 +1404,38 @@
         </p>
       {/if}
     {/if}
-    <ArchetypePicker
-      archetype={rankingState.archetype}
-      minimumTier={rankingState.minimumTier}
-      onArchetypeChange={(archetype) =>
-        commitRanking({ archetype, minimumTier: null })}
-      onMinimumTierChange={(minimumTier) => commitRanking({ minimumTier })}
-    />
+    <div class="ranking-controls">
+      <div class="ranking-picker">
+        <ArchetypePicker
+          archetype={rankingState.archetype}
+          minimumTier={rankingState.minimumTier}
+          onArchetypeChange={(archetype) =>
+            commitRanking({ archetype, minimumTier: null })}
+          onMinimumTierChange={(minimumTier) => commitRanking({ minimumTier })}
+        />
+      </div>
+      <div class="ranking-tools">
+        <ArchetypeWeightsPopover
+          weights={rankingState.weights}
+          profiles={weightProfiles?.data ?? []}
+          profilesLoading={weightProfiles?.isFetching ?? false}
+          profilesError={weightProfiles?.isError ?? false}
+          onopen={() => {
+            profilesRequested = true;
+          }}
+          onapply={(weights) => commitRanking({ weights }, false)}
+        />
+        {#if customWeights}
+          <button
+            type="button"
+            class="quiet-button"
+            onclick={() => commitRanking({ weights: {} }, false)}
+          >
+            Clear weights
+          </button>
+        {/if}
+      </div>
+    </div>
     <label class="page-size"
       >Results per page
       <input
@@ -1352,6 +1483,14 @@
       {#if FINDER_F4_ENABLED}
         <div role="status" aria-live="polite" class="ranking-status">
           {#if rankingNotice}<p>{rankingNotice}</p>{/if}
+          {#if customWeights}
+            <p>Custom weights reorder this page only.</p>
+            {#if rerankRequest && reranked?.isFetching}
+              <p>Applying custom weights…</p>
+            {:else if rerankRequest && (reranked?.isError || (reranked?.data && !compatibleRerank))}
+              <p>Custom weights unavailable. Showing the original results.</p>
+            {/if}
+          {/if}
           {#if updatingResults}
             <p>
               {displayedResults ? 'Updating… ' : ''}{rankingState.archetype ===
@@ -1487,6 +1626,11 @@
                       >{system.main_star_type} star</span
                     >{/if}
                 </span>
+                {#if blendedScores.has(system.id64)}
+                  <span class="blended-score" data-custom-weight-score>
+                    Blended score: {blendedScores.get(system.id64)!.toFixed(1)}
+                  </span>
+                {/if}
               </button>
               <!-- eslint-disable svelte/no-navigation-without-resolve -- inspectHref resolves the Inspect route -->
               <a
@@ -1834,6 +1978,36 @@
 </main>
 
 <style>
+  .ranking-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 0.75rem;
+  }
+  .ranking-picker {
+    min-width: 0;
+  }
+  .ranking-tools {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.75rem;
+    margin-block: 1.5rem;
+  }
+  @media (max-width: 639px) {
+    .ranking-controls {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .ranking-tools {
+      flex-direction: row;
+      justify-content: flex-end;
+      margin-block: 0;
+    }
+  }
+  .blended-score {
+    display: block;
+    font-weight: 600;
+  }
   .committed-anchor,
   .result-paging {
     display: flex;
