@@ -187,6 +187,7 @@ export function toPlanRequest(
 ): PlanRequestV1 {
   if (model.system_id64 !== data.system_id64)
     throw new Error('Bodies belong to a different system.');
+  const hasEconomyFacts = data.economy_facts_generation_id != null;
   const referenced = new Set(model.sites.map((site) => site.body_ref));
   // A saved site may still use an alias the belt no longer selects, for
   // example a cluster that has since been retired. It is still the same belt:
@@ -195,7 +196,7 @@ export function toPlanRequest(
   // one slot total and keep the belt's properties (ringed, no surface). Only
   // the request is normalised; saved site references are never rewritten.
   const evaluationRef = new Map<string, string>();
-  const evaluatedBelts: { body_ref: string }[] = [];
+  const evaluatedBelts: { body_ref: string; parent_ref: string | null }[] = [];
   for (const belt of data.belts) {
     const aliases = beltAliases(data, belt);
     const canonical =
@@ -205,7 +206,10 @@ export function toPlanRequest(
     if (canonical === undefined || evaluationRef.has(canonical)) continue;
     for (const alias of aliases)
       if (!evaluationRef.has(alias)) evaluationRef.set(alias, canonical);
-    evaluatedBelts.push({ body_ref: canonical });
+    evaluatedBelts.push({
+      body_ref: canonical,
+      parent_ref: belt.parent_body_id,
+    });
   }
   const beltRefs = new Set(evaluationRef.keys());
   return {
@@ -223,16 +227,52 @@ export function toPlanRequest(
           surface_slots: model.slots[body.body_id]?.surface_slots ?? null,
           is_landable: body.is_landable,
           is_ringed: body.has_rings,
+          ...(hasEconomyFacts
+            ? {
+                economy: {
+                  kind: body.economy_kind ?? null,
+                  parent_ref: body.economy_parent_id ?? null,
+                  in_binary_pair: body.in_binary_pair ?? null,
+                  tidally_locked: body.tidally_locked ?? null,
+                  volcanism: body.volcanism_present ?? null,
+                  terraformable: body.terraformable ?? null,
+                  has_rings: body.has_rings,
+                  geological_signals:
+                    body.signals_complete !== true &&
+                    body.geological_signals === 0
+                      ? null
+                      : body.geological_signals,
+                  biological_signals:
+                    body.signals_complete !== true &&
+                    body.biological_signals === 0
+                      ? null
+                      : body.biological_signals,
+                },
+              }
+            : {}),
         })),
-      ...evaluatedBelts.map(({ body_ref }) => ({
+      ...evaluatedBelts.map(({ body_ref, parent_ref }) => ({
         body_ref,
         orbital_slots:
           locationSlots(model, data, body_ref)?.orbital_slots ?? null,
         surface_slots: 0,
         is_landable: false,
         is_ringed: true,
+        ...(hasEconomyFacts
+          ? { economy: { kind: null, parent_ref, has_rings: true } }
+          : {}),
       })),
     ],
+    ...(hasEconomyFacts
+      ? {
+          system_economy: {
+            reserve: data.reserve_level ?? null,
+            has_black_hole: data.has_black_hole ?? false,
+            has_white_dwarf: data.has_white_dwarf ?? false,
+            has_neutron_star: data.has_neutron_star ?? false,
+          },
+        }
+      : {}),
     sites: model.sites.map(
       ({ site_id, facility_id, body_ref, slot_kind, status, name }) => ({
         site_id,

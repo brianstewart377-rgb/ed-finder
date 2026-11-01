@@ -171,6 +171,127 @@ describe('planner persistence codec', () => {
 });
 
 describe('planner request and slots', () => {
+  it('passes published body and belt economy facts through to evaluation', () => {
+    const data = bodies();
+    data.economy_facts_generation_id = 'derived-fixture';
+    Object.assign(data.bodies[0], {
+      economy_kind: 'high_metal_content_world',
+      economy_parent_id: '2',
+      in_binary_pair: true,
+      tidally_locked: false,
+      volcanism_present: true,
+      terraformable: false,
+      has_rings: true,
+      geological_signals: 3,
+      biological_signals: 2,
+      signals_complete: true,
+    });
+    Object.assign(data.bodies[1], {
+      economy_kind: null,
+      economy_parent_id: null,
+      in_binary_pair: null,
+      tidally_locked: null,
+      volcanism_present: null,
+      terraformable: null,
+    });
+    const request = toPlanRequest(plan(site('port')), data);
+    expect(request.bodies?.[0].economy).toEqual({
+      kind: 'high_metal_content_world',
+      parent_ref: '2',
+      in_binary_pair: true,
+      tidally_locked: false,
+      volcanism: true,
+      terraformable: false,
+      has_rings: true,
+      geological_signals: 3,
+      biological_signals: 2,
+    });
+    expect(request.bodies?.[1].economy).toEqual({
+      kind: null,
+      parent_ref: null,
+      in_binary_pair: null,
+      tidally_locked: null,
+      volcanism: null,
+      terraformable: null,
+      has_rings: false,
+      geological_signals: null,
+      biological_signals: null,
+    });
+    expect(request.bodies?.[2]).toMatchObject({
+      body_ref: '4',
+      economy: { kind: null, parent_ref: '1', has_rings: true },
+    });
+    // A belt with no surviving cluster keeps the same facts on its fallback.
+    data.belts[0].name = 'Missing cluster';
+    expect(toPlanRequest(emptyPlan('42'), data).bodies?.[2]).toMatchObject({
+      body_ref: 'belt:10',
+      economy: { kind: null, parent_ref: '1', has_rings: true },
+    });
+  });
+
+  it.each([
+    [false, 0, 0, null, null],
+    [null, 0, 0, null, null],
+    [true, 0, 0, 0, 0],
+    [false, 2, 0, 2, null],
+    [null, 0, 3, null, 3],
+    [true, 2, 3, 2, 3],
+  ] as const)(
+    'preserves signal knowledge with survey %s and counts %s / %s',
+    (signals_complete, geological_signals, biological_signals, geo, bio) => {
+      const data = bodies();
+      data.economy_facts_generation_id = 'derived-fixture';
+      Object.assign(data.bodies[0], {
+        signals_complete,
+        geological_signals,
+        biological_signals,
+      });
+      expect(
+        toPlanRequest(emptyPlan('42'), data).bodies?.[0].economy,
+      ).toMatchObject({ geological_signals: geo, biological_signals: bio });
+    },
+  );
+
+  it.each([
+    ['pristine', true, false, true],
+    ['common', false, true, false],
+    [null, null, null, null],
+  ] as const)(
+    'passes system economy facts with reserve %s and null flags as false',
+    (reserve_level, has_black_hole, has_white_dwarf, has_neutron_star) => {
+      const data = bodies();
+      Object.assign(data, {
+        economy_facts_generation_id: 'derived-fixture',
+        reserve_level,
+        has_black_hole,
+        has_white_dwarf,
+        has_neutron_star,
+      });
+      expect(toPlanRequest(emptyPlan('42'), data).system_economy).toEqual({
+        reserve: reserve_level,
+        has_black_hole: has_black_hole ?? false,
+        has_white_dwarf: has_white_dwarf ?? false,
+        has_neutron_star: has_neutron_star ?? false,
+      });
+    },
+  );
+
+  it('sends no economy objects when the derived generation is unavailable', () => {
+    const data = bodies();
+    Object.assign(data, {
+      economy_facts_generation_id: null,
+      reserve_level: 'pristine',
+      has_black_hole: true,
+      has_white_dwarf: true,
+      has_neutron_star: true,
+    });
+    data.bodies[0].economy_kind = 'rocky_body';
+    const request = toPlanRequest(emptyPlan('42'), data);
+    expect(request).not.toHaveProperty('system_economy');
+    for (const body of request.bodies ?? [])
+      expect(body).not.toHaveProperty('economy');
+  });
+
   it('maps every non-cluster body and one resolved belt to the API with no computed CP', () => {
     const model = setSlotCount(
       setSlotCount(plan(site('one', { body_ref: '4' })), '1', 'surface', 7),
