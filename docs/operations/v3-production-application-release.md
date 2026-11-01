@@ -316,11 +316,22 @@ rollback artifact. It does not require product READY, receipts, counts,
 (apply run 39113822236) and the 18 Search constraints are validated. The first
 F2d release, source `f667bb4d` (release run 39149556699), was accepted by
 promotion run 39149980927 and remains the minimum schema-compatible image.
+**Status (2026-11-01, second release).** The sixth F2d release, source `181f6fed`
+(release run 41319999720), passed preflight run 41320584087 and was accepted by
+promotion run 41320746913 at 2026-11-01T15:21:35Z to slot blue; its attestation
+(operator-code identity `8696feb8…` unchanged, attested for the installed
+through-022 set `828bf02d…`) is the accepted release in
+`deploy/v3-production/target-authority.json`, with the `3fd8e719` backend as the
+recorded rollback artifact and `f667bb4d` unchanged as the minimum
+schema-compatible image. Receipts:
+`docs/operations/evidence/2026-11-01-v3-production-preflight-receipt-run-41320584087.json`
+and `docs/operations/evidence/2026-11-01-v3-production-promotion-receipt-run-41320746913.json`.
 **Status (2026-11-01).** The fifth F2d release, source `3fd8e719` (release run
 41293253404), passed preflight run 41293445849 and was accepted by promotion run
 41293577222 to slot green; its attestation (operator-code identity `8696feb8…`,
-attested for the installed through-022 set `828bf02d…`) is the accepted release in
-`deploy/v3-production/target-authority.json`, with the `1e748c9d` backend as the
+attested for the installed through-022 set `828bf02d…`) was the accepted release in
+`deploy/v3-production/target-authority.json` until the sixth F2d release above
+superseded it later the same day, with the `1e748c9d` backend as the
 recorded rollback artifact and `f667bb4d` unchanged as the minimum
 schema-compatible image. Receipts:
 `docs/operations/evidence/2026-11-01-v3-production-preflight-receipt-run-41293445849.json`

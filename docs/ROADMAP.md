@@ -353,6 +353,19 @@ newer dated source wins).
   then the post-go-live work recorded in the 2026-10-21 entries. Known
   follow-ups: the dense-window development sort is slow near the galactic core,
   and the PR #877 visual polish list.
+- **Production app promoted to `181f6fed`, the sixth F2d release (2026-11-01).**
+  Owner-approved. Release run 41319999720, preflight run 41320584087, promote
+  run 41320746913, receipt `created_at` `2026-11-01T15:21:35Z`, active slot
+  green→blue, `status: accepted`; app-only, no migration, no database writes.
+  It carries the Colony Planner S5b economy facts (#967), the Raven Colonial
+  layout import with DaftMav's 112 build types (#970) and the Finder F4c saved
+  surfaces behind the default-off F4 flag (#969). Operator-code and ranking
+  identities are unchanged. Public checks after promotion: `/api/health`
+  reports build `181f6fed` with the database connected, and `/`, `/plan`,
+  `/explore` and `/openapi.json` answer 200. The `3fd8e719` backend is the
+  recorded rollback artifact; `f667bb4d` stays the minimum schema-compatible
+  image. Receipts under
+  `docs/operations/evidence/2026-11-01-v3-production-*-run-4132*`.
 - **Production app promoted to `3fd8e719`, the fifth F2d release (2026-11-01).**
   Owner-approved. Release run 41293253404, preflight run 41293445849, promote
   run 41293577222, receipt `created_at` `2026-11-01T09:33:27Z`, active slot
