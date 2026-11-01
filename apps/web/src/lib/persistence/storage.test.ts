@@ -2,6 +2,13 @@ import { get } from 'svelte/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseId64 } from '$lib/domain/id64';
 
+const f4 = vi.hoisted(() => ({ enabled: false }));
+vi.mock('$lib/config', () => ({
+  get FINDER_F4_ENABLED() {
+    return f4.enabled;
+  },
+}));
+
 import {
   DEFAULT_FC_CONFIG,
   LOCAL_STORAGE_KEYS,
@@ -38,13 +45,17 @@ import {
   expansionPlans,
   fcRoute,
   myWork,
+  pins,
   profileSyncKey,
   profileSyncLast,
   selectedSystem,
 } from './stores';
 
 describe('persistence compatibility', () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {
+    localStorage.clear();
+    f4.enabled = false;
+  });
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -866,6 +877,89 @@ describe('persistence compatibility', () => {
     const pins = pinnedCodec.decode(legacyPersistenceFixtures.pinnedBareArray);
     expect(pins.ok).toBe(true);
     if (pins.ok) expect(pins.value[0]).not.toHaveProperty('ranking_provenance');
+  });
+
+  it.each([false, true])(
+    'hydrates pre-F4c pin and compare snapshots without rewriting or guessing facts (F4=%s)',
+    (enabled) => {
+      f4.enabled = enabled;
+      const legacy = {
+        id64: '9007199254740993',
+        name: 'Older saved system',
+        archetype_score: 72,
+        primary_archetype: 'agri_hub',
+        distance: 0,
+        notes: 'Keep my saved evidence',
+      };
+      const rawCompare = JSON.stringify([legacy]);
+      const rawPins = JSON.stringify([
+        { ...legacy, pinned_at: '2026-09-21T00:00:00Z' },
+      ]);
+      localStorage.setItem(PERSISTENCE_KEYS.compare, rawCompare);
+      localStorage.setItem(PERSISTENCE_KEYS.pins, rawPins);
+      const write = vi.spyOn(Storage.prototype, 'setItem');
+
+      compare.hydrate();
+      pins.hydrate();
+
+      expect(get(compare).diagnostic).toBeNull();
+      expect(get(compare).value).toEqual([legacy]);
+      expect(get(pins).value[0]).toMatchObject(legacy);
+      expect(snapshotRankingIdentity(get(compare).value[0])).toMatchObject({
+        score_kind: 'unknown',
+        selected_archetype: null,
+        distance_reference: null,
+        ranking_provenance: null,
+      });
+      expect(get(compare).value[0]).not.toHaveProperty(
+        'overall_development_potential',
+      );
+      expect(write).not.toHaveBeenCalled();
+      expect(localStorage.getItem(PERSISTENCE_KEYS.compare)).toBe(rawCompare);
+      expect(localStorage.getItem(PERSISTENCE_KEYS.pins)).toBe(rawPins);
+    },
+  );
+
+  it('preserves an unknown historical selected key through F4 hydration and write-through', () => {
+    f4.enabled = true;
+    const historical = {
+      id64: '42',
+      name: 'Historical selection',
+      ranking_score: 73,
+      ranking_tier: null,
+      score_kind: 'selected_fit',
+      selected_archetype: 'agri_hub',
+      distance_reference: null,
+      ranking_provenance: null,
+      overall_development_potential: 81,
+      historical_detail: { retained: true },
+    };
+    const raw = JSON.stringify([historical]);
+    localStorage.setItem(PERSISTENCE_KEYS.compare, raw);
+    const write = vi.spyOn(Storage.prototype, 'setItem');
+    compare.hydrate();
+
+    expect(get(compare).value).toEqual([historical]);
+    expect(write).not.toHaveBeenCalled();
+    expect(
+      snapshotRankingIdentity(get(compare).value[0]).selected_archetype,
+    ).toBeNull();
+    expect(compare.set(get(compare).value)).toBe(true);
+    expect(localStorage.getItem(PERSISTENCE_KEYS.compare)).toBe(raw);
+  });
+
+  it('retains the flag-off decoder behavior for unknown selected keys', () => {
+    const decoded = compareCodec.decode(
+      JSON.stringify([
+        {
+          id64: '42',
+          name: 'Historical selection',
+          selected_archetype: 'agri_hub',
+        },
+      ]),
+    );
+    expect(decoded.ok).toBe(true);
+    if (decoded.ok) expect(decoded.value[0].selected_archetype).toBeNull();
   });
 
   it("trusts a sol distance reference only with Sol's id64 and normalizes a Sol anchor", () => {

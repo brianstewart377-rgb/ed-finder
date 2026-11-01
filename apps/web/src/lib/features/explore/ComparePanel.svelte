@@ -4,7 +4,14 @@
   import { FINDER_F4_ENABLED } from '$lib/config';
   import type { Id64 } from '$lib/domain/id64';
   import { usePersistenceContext } from '$lib/persistence/context';
-  import { buildCompareRows, compareCsv, COMPARE_MAX } from './compare-metrics';
+  import {
+    buildCompareNotes,
+    buildCompareRows,
+    compareCsv,
+    COMPARE_MAX,
+    snapshotProvenanceSummary,
+    snapshotScoreSummary,
+  } from './compare-metrics';
   import { inspectHref, navigateWithAnchor } from './navigation';
 
   let { onOpenDetail } = $props<{ onOpenDetail?: (id64: Id64) => void }>();
@@ -12,8 +19,13 @@
   const entries = $derived($compare.value);
   const rows = $derived(
     FINDER_F4_ENABLED
-      ? buildCompareRows(entries, { suppressDistance: true })
+      ? buildCompareRows(entries, { finderF4Enabled: true })
       : buildCompareRows(entries),
+  );
+  const notes = $derived(
+    FINDER_F4_ENABLED
+      ? buildCompareNotes(entries, { finderF4Enabled: true })
+      : [],
   );
   const componentId = $props.id();
   const headingId = `${componentId}-compare-title`;
@@ -31,7 +43,7 @@
     const blob = new Blob(
       [
         FINDER_F4_ENABLED
-          ? compareCsv(entries, { suppressDistance: true })
+          ? compareCsv(entries, { finderF4Enabled: true })
           : compareCsv(entries),
       ],
       { type: 'text/csv;charset=utf-8' },
@@ -145,6 +157,16 @@
                   >
                   <!-- eslint-enable svelte/no-navigation-without-resolve -->
                 {/if}
+                {#if FINDER_F4_ENABLED}
+                  <span class="snapshot-detail"
+                    >{snapshotScoreSummary(entry)}</span
+                  >
+                  {#if snapshotProvenanceSummary(entry)}
+                    <span class="snapshot-detail"
+                      >{snapshotProvenanceSummary(entry)}</span
+                    >
+                  {/if}
+                {/if}
                 <button
                   type="button"
                   class="remove-system"
@@ -189,19 +211,17 @@
         </tbody>
       </table>
     </div>
+    {#each notes as note (note)}
+      <p class="compare-note">{note}</p>
+    {/each}
     <p class="compare-note">
-      Best values are labelled where at least two known values differ.
-      {#if FINDER_F4_ENABLED}
-        Higher scores and counts are better.
-      {:else}
-        Shorter distances are better; higher scores and counts are better.
-      {/if}
+      Best values are labelled where at least two known values differ. Shorter
+      distances are better; higher scores and counts are better.
     </p>
   {/if}
   <p class="compare-note">
-    Saved in this browser. Values{#if !FINDER_F4_ENABLED}
-      and search reference distances{/if}
-    reflect when each system was added.
+    Saved in this browser. Values and search reference distances reflect when
+    each system was added.
   </p>
 </section>
 
@@ -247,6 +267,15 @@
   .compare-note {
     color: var(--muted);
     line-height: 1.6;
+  }
+  .snapshot-detail {
+    display: block;
+    max-width: 24rem;
+    margin-top: 0.5rem;
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-weight: 400;
+    overflow-wrap: anywhere;
   }
   .compare-note {
     font-size: 0.82rem;

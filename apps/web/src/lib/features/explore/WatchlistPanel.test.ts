@@ -25,6 +25,8 @@ import {
   pinnedCodec,
   syncKeyCodec,
   PERSISTENCE_KEYS,
+  SNAPSHOT_SOL_ID64,
+  type PinnedEntry,
 } from '$lib/persistence/storage';
 import WatchlistTestHost from './WatchlistTestHost.svelte';
 import InspectPageTestHost from '../../../routes/inspect/InspectPageTestHost.svelte';
@@ -92,6 +94,33 @@ const getMock = vi.mocked(getWatchlist);
 const addMock = vi.mocked(addWatchlist);
 const removeMock = vi.mocked(removeWatchlist);
 
+function f4Pin(id: string, fields: Partial<PinnedEntry> = {}): PinnedEntry {
+  return {
+    id64: parseId64(id),
+    name: `Candidate ${id}`,
+    pinned_at: '2026-09-01T12:00:00Z',
+    score_kind: 'selected_fit',
+    selected_archetype: 'flexible',
+    ranking_score: 95,
+    ranking_tier: 'B',
+    overall_development_potential: 80,
+    primary_archetype: 'flexible',
+    secondary_archetype: 'old_custom_key',
+    distance: 0,
+    distance_reference: { kind: 'sol', id64: SNAPSHOT_SOL_ID64, name: 'Sol' },
+    ranking_provenance: {
+      ranking_version: 'ranking-v1',
+      ranking_sha256: 'a'.repeat(64),
+      archetype_version: 'archetype-v1',
+      archetype_model_sha256: 'b'.repeat(64),
+      derived_generation_id: 'generation-1',
+      publication_sequence: 1,
+      archetype_manifest_sha256: 'c'.repeat(64),
+    },
+    ...fields,
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   queryClient.clear();
@@ -141,6 +170,142 @@ afterEach(() => {
 });
 
 describe('saved systems panel', () => {
+  it('labels F4 saved scores by mode, preserves API tiers and shows referenced zero distance', async () => {
+    featureGate.enabled = true;
+    services.pins.set([f4Pin('42')]);
+    render(WatchlistTestHost);
+    const table = await screen.findByRole('table', { name: 'Pinned systems' });
+    expect(
+      within(table).getByRole('columnheader', { name: 'Saved scores' }),
+    ).toBeInTheDocument();
+    const scores = within(table).getByText(/Best Colony Potential 80/);
+    expect(scores).toHaveTextContent(
+      'Flexible Multi-Role Colony fit 95 · Tier B',
+    );
+    expect(scores).not.toHaveTextContent(/Tier S/);
+    expect(
+      within(table).getByText('Flexible Multi-Role Colony'),
+    ).toBeInTheDocument();
+    expect(within(table).getByText('old custom key')).toBeInTheDocument();
+    expect(within(table).getByText('0.00 LY')).toBeInTheDocument();
+    expect(within(table).getByText('Distance from Sol')).toBeInTheDocument();
+    expect(
+      within(table).getByText(/Ranked on generation generation-1/),
+    ).toHaveTextContent('publication 1');
+    await fireEvent.click(
+      within(table).getByRole('button', { name: 'Compare Candidate 42' }),
+    );
+    expect(services.compare.read().value[0]).toMatchObject({
+      overall_development_potential: 80,
+      ranking_score: 95,
+      ranking_tier: 'B',
+      selected_archetype: 'flexible',
+      distance: 0,
+      distance_reference: { kind: 'sol', id64: SNAPSHOT_SOL_ID64 },
+    });
+  });
+
+  it('keeps pre-F4 pins readable with unknown reference and without guessed tier or score sorting', async () => {
+    featureGate.enabled = true;
+    const legacy = {
+      id64,
+      name: 'Older candidate',
+      pinned_at: '2026-09-01T12:00:00Z',
+      archetype_score: 99,
+      primary_archetype: 'refinery_industrial',
+      distance: 0,
+    };
+    localStorage.setItem(PERSISTENCE_KEYS.pins, JSON.stringify([legacy]));
+    services.pins.hydrate();
+    render(WatchlistTestHost);
+    const table = await screen.findByRole('table', { name: 'Pinned systems' });
+    expect(within(table).getByText(/Stored score 99/)).toHaveTextContent(
+      'Older save',
+    );
+    expect(within(table).getByText('refinery industrial')).toBeInTheDocument();
+    expect(within(table).getByText('Reference unknown')).toBeInTheDocument();
+    expect(within(table).queryByText('0.00 LY')).not.toBeInTheDocument();
+    expect(within(table).queryByText(/Tier [SABCD]/)).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole('combobox', { name: 'Sort pins' })).getByRole(
+        'option',
+        { name: /Best Colony Potential/ },
+      ),
+    ).toBeDisabled();
+    expect(JSON.parse(localStorage.getItem(PERSISTENCE_KEYS.pins)!)).toEqual([
+      legacy,
+    ]);
+  });
+
+  it('sorts F4 pins on overall potential across modes and generations, never selected-fit score', async () => {
+    featureGate.enabled = true;
+    const second = f4Pin('43', {
+      score_kind: 'overall_potential',
+      selected_archetype: null,
+      ranking_score: 90,
+      ranking_tier: 'A',
+      overall_development_potential: 90,
+    });
+    second.ranking_provenance = {
+      ...second.ranking_provenance!,
+      derived_generation_id: 'generation-2',
+      publication_sequence: 2,
+      archetype_manifest_sha256: 'd'.repeat(64),
+    };
+    services.pins.set([f4Pin('42'), second]);
+    render(WatchlistTestHost);
+    const table = await screen.findByRole('table', { name: 'Pinned systems' });
+    const sort = screen.getByRole('combobox', { name: 'Sort pins' });
+    expect(
+      within(sort).getByRole('option', { name: /Best Colony Potential/ }),
+    ).not.toBeDisabled();
+    await fireEvent.change(sort, { target: { value: 'development' } });
+    expect(within(table).getAllByRole('rowheader')[0]).toHaveTextContent(
+      'Candidate 43',
+    );
+    services.pins.set([f4Pin('42'), { ...second, ranking_provenance: null }]);
+    await waitFor(() =>
+      expect(
+        within(sort).getByRole('option', { name: /Best Colony Potential/ }),
+      ).toBeDisabled(),
+    );
+    expect(sort).toHaveValue('recent');
+    expect(within(table).getAllByRole('rowheader')[0]).toHaveTextContent(
+      'Candidate 42',
+    );
+  });
+
+  it('treats server watchlist scores as unknown provenance in F4 and preserves that when saved', async () => {
+    featureGate.enabled = true;
+    getMock.mockResolvedValue({
+      sync_key: 'commander-a-key-1234',
+      watchlist: [{ ...entry, primary_archetype: 'flexible' }],
+    });
+    render(WatchlistTestHost);
+    const table = await screen.findByRole('table', { name: 'Watched systems' });
+    expect(within(table).getByText(/Stored score 72/)).toHaveTextContent(
+      'Older save',
+    );
+    expect(
+      within(table).getByText('Flexible Multi-Role Colony'),
+    ).toBeInTheDocument();
+    expect(within(table).queryByText(/Tier [SABCD]/)).not.toBeInTheDocument();
+    expect(
+      within(
+        screen.getByRole('combobox', { name: 'Sort watchlist' }),
+      ).getByRole('option', { name: /Best Colony Potential/ }),
+    ).toBeDisabled();
+    await fireEvent.click(
+      within(table).getByRole('button', { name: 'Compare Far Reach' }),
+    );
+    expect(services.compare.read().value[0]).toMatchObject({
+      archetype_score: 72,
+      score_kind: 'unknown',
+      distance_reference: null,
+      ranking_provenance: null,
+    });
+  });
+
   it.each(['Pinned systems', 'Watched systems'])(
     'retains Finder query and anchor through the %s Inspect round trip',
     async (tableName) => {
