@@ -1636,43 +1636,63 @@ async def local_db_system(id64: int, pool: asyncpg.Pool) -> Optional[dict]:
 # ---------------------------------------------------------------------------
 # Autocomplete
 # ---------------------------------------------------------------------------
-async def local_db_autocomplete(q: str, pool: asyncpg.Pool) -> list:
-    """Fast trigram-based prefix search for system names.
+AUTOCOMPLETE_CANDIDATE_LIMIT = 100
+AUTOCOMPLETE_RESULT_LIMIT = 10
+AUTOCOMPLETE_SQL = f"""
+    SELECT system_id64 AS id64, name,
+           public.cube_ll_coord(position_ly, 1) AS x,
+           public.cube_ll_coord(position_ly, 2) AS y,
+           public.cube_ll_coord(position_ly, 3) AS z,
+           galaxy_region_id
+    FROM v3_derived.system_search
+    WHERE derived_generation_id = $1 AND lower(name) LIKE $2
+    LIMIT {AUTOCOMPLETE_CANDIDATE_LIMIT}
+"""
 
-    The prefix path uses a functional `(lower(name) text_pattern_ops)`
-    btree index (idx_sys_name_lower_pattern, sql/011_*). The previous
-    `WHERE name ILIKE $1` was unindexable on the existing
-    `idx_sys_name` (default text_ops) and forced the planner onto the
-    GIN trigram, which on 3-char queries like 'Sol' walks millions of
-    candidates and times out at 300s. The new index reduces the
-    `lower(name) LIKE 'sol%'` lookup to a sub-ms btree range scan.
+
+def _autocomplete_prefix_pattern(q: str) -> str:
+    """A literal, case-insensitive prefix using PostgreSQL's LIKE escape."""
+    return q.lower().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+
+
+async def local_db_autocomplete(
+    q: str,
+    pool: asyncpg.Pool,
+    *,
+    generation_row: dict[str, Any] | None = None,
+) -> list:
+    """Read a bounded prefix window from the published V3 search projection.
+
+    Migration 023's generation + text_pattern_ops index supports this LIKE
+    range even under en_US.utf8. Sort only the bounded candidates in Python:
+    an SQL ORDER BY name would sort every matching prefix before the LIMIT.
+    The route may supply its resolved generation to keep a cache entry tied
+    to the same immutable rows when a publication lands during the request.
     """
     if len(q) < 2:
         return []
 
     async with pool.acquire() as conn:
-        rows = await conn.fetch("""
-            SELECT id64, name, x, y, z, galaxy_region_id
-            FROM systems
-            WHERE lower(name) LIKE $1
-            ORDER BY name
-            LIMIT 10
-        """, q.lower() + "%")
-
-        if len(rows) < 5 and len(q) >= 3:
-            trgm_rows = await conn.fetch("""
-                SELECT id64, name, x, y, z, galaxy_region_id
-                FROM systems
-                WHERE name % $1
-                  AND lower(name) NOT LIKE $2
-                ORDER BY similarity(name, $1) DESC
-                LIMIT $3
-            """, q, q.lower() + "%", 10 - len(rows))
-            seen_ids = {r["id64"] for r in rows}
-            rows = list(rows) + [r for r in trgm_rows if r["id64"] not in seen_ids]
+        async with conn.transaction(isolation='repeatable_read', readonly=True):
+            if generation_row is None:
+                try:
+                    generation_row = await _current_derived_generation(conn)
+                except HTTPException as exc:
+                    if exc.status_code == 404:
+                        raise HTTPException(503, 'No published Ratings V4 generation') from exc
+                    raise
+            # A generic prepared plan cannot derive LIKE bounds from $2. The
+            # API disables its statement cache, but enforce a custom plan here
+            # too so alternate pools keep the same bounded index read.
+            await conn.execute('SET LOCAL plan_cache_mode = force_custom_plan')
+            rows = await conn.fetch(
+                AUTOCOMPLETE_SQL,
+                generation_row['derived_generation_id'],
+                _autocomplete_prefix_pattern(q),
+            )
 
     results = []
-    for r in rows[:10]:
+    for r in sorted(rows, key=lambda row: row['name'])[:AUTOCOMPLETE_RESULT_LIMIT]:
         coords = _safe_coords(r)
         results.append({
             "name":              r["name"],

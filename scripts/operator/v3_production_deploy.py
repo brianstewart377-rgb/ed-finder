@@ -302,6 +302,7 @@ def terminate_and_reap(process: subprocess.Popen[str]) -> None:
 
 def run_command(
     argv: list[str], *, env: dict[str, str] | None = None, input_text: str | None = None,
+    timeout_seconds: int | None = None,
 ) -> subprocess.CompletedProcess[str]:
     process: subprocess.Popen[str] | None = None
     try:
@@ -318,7 +319,8 @@ def run_command(
                 start_new_session=True,
             )
         stdout, stderr = process.communicate(
-            input=input_text, timeout=COMMAND_TIMEOUT
+            input=input_text,
+            timeout=COMMAND_TIMEOUT if timeout_seconds is None else timeout_seconds,
         )
     except OperationCancelled:
         if process is not None:

@@ -85,6 +85,14 @@
 #                                 deletes no payload row. It is applied with no copy
 #                                 staged or swapped. Registration is not application.
 
+#   023_v3_system_search_name_prefix_index.sql is declared after 022. It adds
+#                                 the generation-scoped text_pattern_ops name
+#                                 index for V3 prefix autocomplete. Existing indexes
+#                                 and payload remain unchanged. The non-concurrent
+#                                 build permits reads and blocks derived writers
+#                                 inside the governed transaction. Registration is
+#                                 not application.
+
 ee08c17eb3f87f614468db5a038d2f23273ce2b72906226c9aa1f669e724cd2e  001_v3_baseline.sql  v3/migrations/001_v3_baseline.sql
 e7a2f404b7d8194d74ba4e807ae450c7520a1c8a186ca77e41377307e7b12b07  002_v3_accounts_identity.sql  v3/migrations/002_v3_accounts_identity.sql
 1a2d15c2db5cff7714a01a5d0c710a22326ed57d90d9a20e362495714ad97a40  r1_v3/001_structural_shell.sql  r1_v3/001_structural_shell.sql
@@ -105,3 +113,4 @@ a042ccd1544d95cf47407a0722497321a544f15c62ac07dc83c914a19d7acbdf  010_v3_system_
 73f9bf7bf3b9d603046374f82239791fbcc78b139f0c33c46a3947fa64c0b23a  020_v3_purge_swap_lock_order.sql  v3/migrations/020_v3_purge_swap_lock_order.sql
 bdc73a55c13872343c116f8c5846e6989b0b2ffc583d397334ae05a157cbfd64  021_v3_purge_long_phase_bounds.sql  v3/migrations/021_v3_purge_long_phase_bounds.sql
 c69b2bf5eaef8c4deb0c18c562c18cd336159030b6f45bc46c913ef6809061ef  022_v3_purge_keyset_start.sql  v3/migrations/022_v3_purge_keyset_start.sql
+05763b796617cf6e063273ae119d37453d3a4d3956f1c98a849c723a8099eaab  023_v3_system_search_name_prefix_index.sql  v3/migrations/023_v3_system_search_name_prefix_index.sql

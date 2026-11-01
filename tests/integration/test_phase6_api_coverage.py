@@ -65,11 +65,24 @@ async def test_autocomplete_short_query_returns_empty(client):
     assert r.json()['results'] == []
 
 
-async def test_autocomplete_real_query(client):
-    """Seed has Sol, Achenar, Lave, Procyon — pick a recognisable prefix."""
+async def test_autocomplete_real_query(client, v3_derived_ready):
+    """Autocomplete reads the published V3 `v3_derived.system_search` rows
+    (migration 023 name-prefix index), so it skips in the V2-only lane."""
     r = await client.get('/api/local/autocomplete?q=ach')
     assert r.status_code == 200
     assert isinstance(r.json()['results'], list)
+
+
+async def test_autocomplete_fails_closed_without_a_v3_publication(client, pool):
+    async with pool.acquire() as conn:
+        published = await conn.fetchval(
+            "SELECT to_regclass('v3_meta.current_derived_generation') IS NOT NULL"
+        )
+    if published:
+        pytest.skip('V3 derived schema present; covered by the PG18 V3 suite')
+    r = await client.get('/api/local/autocomplete?q=ach')
+    assert r.status_code == 503, r.text
+    assert r.headers['content-type'].startswith('application/problem+json')
 
 
 # --- System detail ---------------------------------------------------------

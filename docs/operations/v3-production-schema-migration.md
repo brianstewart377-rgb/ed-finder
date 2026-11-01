@@ -94,6 +94,41 @@ and explicit `database_writes_performed` / `migrations_performed` flags.
 5. Merge the change through exact-head acceptance. Dispatch `plan`, review its
    retained receipt, then separately dispatch `apply` with that plan run ID.
 
+## Applying 023: Search prefix autocomplete
+
+Migration `023_v3_system_search_name_prefix_index.sql` adds
+`v3_derived.system_search_name_prefix` on
+`(derived_generation_id, lower(name) text_pattern_ops)` and preserves
+`system_search_name_lower`. The installed prefix is through `022` (apply run
+41180459540, 2026-10-31). The new exact-head governed **plan must list pending
+exactly `[023]`**; stop and review any other pending set before a separate apply.
+This registration does not claim that 023 has been applied. Apply 023 before
+promoting the autocomplete application fix.
+
+The runner inserts the ledger row before the migration's terminal `COMMIT`, so
+the ordinary, non-concurrent `CREATE INDEX` and ledger advance atomically. Its
+SHARE table lock permits ordinary reads throughout the build but blocks derived
+generation builds/purges until commit; schedule outside those operations. It
+does not lock or change canonical `systems`. `lock_timeout = '5s'` bounds lock
+acquisition and `statement_timeout = '4h'` bounds the build. The runner grants
+**only 023** a 245-minute child timeout, with a 270-minute apply workflow
+envelope (plan remains 30 minutes), allowing SQL to stop before either wrapper.
+Timeout rolls back the transaction; review the stopped receipt before retrying.
+
+For ~198.5 million published rows, budget **1–3 hours**, **12–20 GiB** for the
+new index and **60 GiB additional free disk** for the index plus temporary sort
+and WAL headroom. These are planning estimates, not a benchmark or a measured
+current capacity claim: the retained
+[2026-10-10 inventory](evidence/2026-10-10-v3-derived-lifecycle-status-receipt.json)
+reported the same-key default-opclass index at 15,531,458,560 bytes (14.5 GiB)
+for approximately 198.5 million Search rows. The new index includes **all rows
+from every retained generation**, so scale the disk estimate by total Search
+rows / 198.5 million; build duration also depends on row count, I/O and sort
+memory. Review current free space, retained generations and WAL/archive health
+with the plan; unexpected capacity or an estimate beyond the four-hour bound
+requires a separately reviewed adjustment. This coding change performs no
+production operation.
+
 ## Governed delivery
 
 The workflow sends only the bounded operator, verifier, authority and migration

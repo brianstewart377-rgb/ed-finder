@@ -35,7 +35,8 @@ jobs:
     if: github.repository == 'brianstewart377-rgb/ed-finder' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     environment: v3-production
-    timeout-minutes: 30
+    # 023's CREATE INDEX is bounded by SQL at 240 minutes and its child at 245.
+    timeout-minutes: ${{ inputs.operation == 'apply' && 270 || 30 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
