@@ -19,10 +19,10 @@
 - **Live Colony Planner `/plan`:** through S5b, with S3b surface slot predictions,
   Raven layout import and the floating facility picker ([current programme](../CLAUDE.md#current-programme)).
 - **Live system-name search (autocomplete) is down:** it returns 503 because
-  `v3_derived.system_search` has no index for a name-prefix match. The fix (PR #978:
-  migration `023` plus the V3 autocomplete route) needs the governed migration
-  plan and apply, then an application release; until then, pick systems from the map
-  or open a shared link.
+  `v3_derived.system_search` has no index for a name-prefix match. The fix (merged
+  in PR #978: migration `023` plus the V3 autocomplete route) needs the governed
+  migration plan and apply, then an application release; until then, pick systems
+  from the map or open a shared link.
 - **Finder next:** [body-count filters](#programme-status--2026-09-26) and a
   refresh-safe search anchor are implemented on a branch and in review; anchored
   picked-archetype filters still need a probe and re-attestation.
