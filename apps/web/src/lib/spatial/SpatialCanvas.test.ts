@@ -1,10 +1,22 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/svelte';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/svelte';
+import axe from 'axe-core';
+import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import SpatialCanvas from './SpatialCanvas.svelte';
 import { buildGalaxyReviewFixtureScene } from './galaxy-review-fixture';
+import * as galaxyLabels from './galaxy-labels';
 import type {
   CameraState,
+  GalaxySceneContract,
+  GalaxySystemPoint,
   RuntimeEventListener,
   SpatialSceneContract,
 } from './contracts';
@@ -43,6 +55,72 @@ class ResizeObserverMock {
   observe = observe;
   disconnect = disconnect;
   unobserve = vi.fn();
+}
+
+const catalogueStar: GalaxySystemPoint = {
+  systemId64: '9007199254740993',
+  name: 'Catalogue Vega',
+  positionLy: { x: 0, y: 0, z: 0 },
+  primaryStar: { type: 'G2' },
+};
+const overlappingStar: GalaxySystemPoint = {
+  systemId64: '9007199254740994',
+  name: 'Nearby companion',
+  positionLy: { x: 2, y: 0, z: 0 },
+  primaryStar: { type: 'M4' },
+};
+const finderStar: GalaxySystemPoint = {
+  systemId64: '41',
+  name: 'Finder Reach',
+  positionLy: { x: -180, y: 0, z: 0 },
+};
+
+function nearbyScene(): GalaxySceneContract {
+  return {
+    kind: 'galaxy',
+    revision: 1,
+    camera: {
+      focusLy: { x: 0, y: 0, z: 0 },
+      distanceLy: 500,
+      bearingRad: 0,
+      pitchRad: 0.55,
+      projection: 'perspective',
+      revision: 1,
+    },
+    selection: [],
+    contributions: [
+      {
+        id: 'nearby-catalogue',
+        owner: 'CATALOGUE',
+        revision: 1,
+        layers: [
+          {
+            id: 'catalogue-systems',
+            version: 1,
+            representation: 'AUTHORITATIVE',
+            payload: { systems: [catalogueStar, overlappingStar] },
+            targetCount: 2,
+            truncated: false,
+          },
+        ],
+      },
+      {
+        id: 'nearby-finder',
+        owner: 'FINDER',
+        revision: 1,
+        layers: [
+          {
+            id: 'finder-systems',
+            version: 1,
+            representation: 'AUTHORITATIVE',
+            payload: { systems: [finderStar] },
+            targetCount: 1,
+            truncated: false,
+          },
+        ],
+      },
+    ],
+  };
 }
 
 describe('SpatialCanvas', () => {
@@ -85,6 +163,7 @@ describe('SpatialCanvas', () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -479,22 +558,297 @@ describe('SpatialCanvas', () => {
     });
   });
 
-  it('projects accepted system labels into a collision-managed visual overlay', async () => {
+  it('projects named Finder buttons with selected emphasis and preserved identities', async () => {
     const scene = buildGalaxyReviewFixtureScene();
     const view = render(SpatialCanvas, { props: { scene } });
     await waitFor(() =>
       expect(
         view.container.querySelector('[data-visible-label-count]'),
-      ).toHaveAttribute('data-visible-label-count', '1'),
+      ).toHaveAttribute('data-visible-label-count', '3'),
     );
     const systemLabels = view.container.querySelectorAll(
       '[data-map-label-kind="system"]',
     );
-    expect(systemLabels).toHaveLength(1);
+    expect(systemLabels).toHaveLength(3);
     expect(
       view.container.querySelector('[data-map-label-selected="true"]'),
     ).toHaveTextContent('Fixture Core');
-    expect(systemLabels[0]?.closest('[aria-hidden="true"]')).toBeTruthy();
+    for (const label of systemLabels) {
+      expect(label.tagName).toBe('BUTTON');
+      expect(label).toHaveAttribute('data-system-id64');
+      expect(label.closest('[aria-hidden="true"]')).toBeNull();
+    }
+  });
+
+  it('keeps Nearby systems collapsed and exposes overlapping candidates for keyboard selection and focus', async () => {
+    const onRuntimeEvent = vi.fn();
+    const view = render(SpatialCanvas, {
+      scene: nearbyScene(),
+      onRuntimeEvent,
+    });
+    const summary = await screen.findByText('Nearby systems (3)');
+    const disclosure = summary.closest('details')!;
+    expect(disclosure).not.toHaveAttribute('open');
+    summary.focus();
+    expect(summary).toHaveFocus();
+    // Native summary/button keyboard activation dispatches a detail: 0 click.
+    await fireEvent.click(summary, { detail: 0 });
+    expect(disclosure).toHaveAttribute('open');
+    const list = await screen.findByRole('list', { name: 'Nearby systems' });
+    expect(
+      within(list)
+        .getAllByRole('button')
+        .map((button) => button.dataset.systemId64),
+    ).toEqual([
+      catalogueStar.systemId64,
+      finderStar.systemId64,
+      overlappingStar.systemId64,
+    ]);
+    expect(
+      view.container.querySelector(
+        `[data-map-label-key="system:${overlappingStar.systemId64}"]`,
+      ),
+    ).toBeNull();
+
+    const button = within(list).getByRole('button', {
+      name: overlappingStar.name,
+    });
+    button.focus();
+    await tick();
+    expect(button).toHaveFocus();
+    const tooltip = screen.getByRole('tooltip', {
+      name: `System ${overlappingStar.name}`,
+    });
+    expect(button.getAttribute('aria-describedby')?.split(/\s+/u)).toContain(
+      tooltip.id,
+    );
+    expect(tooltip).toHaveAttribute(
+      'data-system-id64',
+      overlappingStar.systemId64,
+    );
+    expect(onRuntimeEvent).toHaveBeenCalledWith({
+      type: 'TARGET_HOVERED',
+      target: {
+        kind: 'system',
+        systemId64: overlappingStar.systemId64,
+        name: overlappingStar.name,
+      },
+    });
+    expect(onRuntimeEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'TARGET_PICKED' }),
+    );
+    await fireEvent.keyDown(button, { key: 'Enter' });
+    await fireEvent.click(button, { detail: 0 });
+    const target = { kind: 'system', systemId64: overlappingStar.systemId64 };
+    expect(onRuntimeEvent).toHaveBeenCalledWith({
+      type: 'TARGET_PICKED',
+      target,
+    });
+    expect(adapter.runtimes[0]?.dispatch).toHaveBeenCalledWith({
+      type: 'FLY_TO',
+      target,
+      reducedMotion: true,
+    });
+    expect(view.container.querySelector('.spatial-canvas')).toHaveAttribute(
+      'tabindex',
+      '0',
+    );
+  });
+
+  it('keeps list focus and order through hover ranking and returns from the card on Escape', async () => {
+    render(SpatialCanvas, { scene: nearbyScene() });
+    await fireEvent.click(await screen.findByText('Nearby systems (3)'));
+    const list = await screen.findByRole('list', { name: 'Nearby systems' });
+    const originalOrder = within(list).getAllByRole('button');
+    const opener = within(list).getByRole('button', {
+      name: overlappingStar.name,
+    });
+    expect(originalOrder.at(-1)).toBe(opener);
+    vi.useFakeTimers();
+    opener.focus();
+    await tick();
+    await vi.advanceTimersByTimeAsync(250);
+    await tick();
+    expect(opener).toHaveFocus();
+    expect(within(list).getAllByRole('button')).toEqual(originalOrder);
+
+    await fireEvent.keyDown(opener, { key: 'ArrowRight' });
+    await tick();
+    const tooltip = screen.getByRole('tooltip', {
+      name: `System ${overlappingStar.name}`,
+    });
+    const select = within(tooltip).getByRole('button', { name: 'Select' });
+    expect(select).toHaveFocus();
+    // Native Tab navigation remains available inside and outside the card.
+    expect(await fireEvent.keyDown(select, { key: 'Tab' })).toBe(true);
+    await fireEvent.keyDown(select, { key: 'Escape' });
+    await tick();
+    expect(opener).toHaveFocus();
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    await vi.advanceTimersByTimeAsync(250);
+    await tick();
+    expect(opener).toHaveFocus();
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    expect(within(list).getAllByRole('button')).toEqual(originalOrder);
+  });
+
+  it('preserves the newer region hover when the preceding system card is dismissed', async () => {
+    const onRuntimeEvent = vi.fn();
+    const view = render(SpatialCanvas, {
+      scene: nearbyScene(),
+      onRuntimeEvent,
+    });
+    await screen.findByText('Nearby systems (3)');
+    const runtime = adapter.runtimes[0]!;
+    runtime.emit({
+      type: 'TARGET_HOVERED',
+      target: {
+        kind: 'system',
+        systemId64: catalogueStar.systemId64,
+        name: catalogueStar.name,
+      },
+      screenX: 100,
+      screenY: 80,
+    });
+    await screen.findByRole('tooltip', {
+      name: `System ${catalogueStar.name}`,
+    });
+    vi.useFakeTimers();
+    const regionHover = {
+      type: 'TARGET_HOVERED',
+      target: { kind: 'region', id: '18' },
+    } as const;
+    onRuntimeEvent.mockClear();
+    runtime.emit(regionHover);
+    await tick();
+    await vi.advanceTimersByTimeAsync(220);
+    await tick();
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    expect(onRuntimeEvent).toHaveBeenLastCalledWith(regionHover);
+    expect(view.container.querySelector('.spatial-canvas')).toHaveAttribute(
+      'data-last-hovered-region-id',
+      '18',
+    );
+  });
+
+  it('preserves catalogue identity on label hover and click without triggering a canvas pick', async () => {
+    const onSystemSelect = vi.fn();
+    const onRuntimeEvent = vi.fn();
+    const view = render(SpatialCanvas, {
+      scene: nearbyScene(),
+      onSystemSelect,
+      onRuntimeEvent,
+    });
+    const label = await screen.findByRole('button', {
+      name: `Select ${catalogueStar.name}`,
+    });
+    const runtime = adapter.runtimes[0]!;
+    runtime.dispatch.mockClear();
+    await fireEvent.pointerEnter(label, {
+      clientX: 100,
+      clientY: 80,
+      pointerType: 'mouse',
+    });
+    const tooltip = screen.getByRole('tooltip', {
+      name: `System ${catalogueStar.name}`,
+    });
+    expect(label).toHaveAttribute('data-system-id64', catalogueStar.systemId64);
+    expect(label.getAttribute('aria-describedby')?.split(/\s+/u)).toContain(
+      tooltip.id,
+    );
+    expect(onRuntimeEvent).toHaveBeenCalledWith({
+      type: 'TARGET_HOVERED',
+      target: {
+        kind: 'system',
+        systemId64: catalogueStar.systemId64,
+        name: catalogueStar.name,
+      },
+    });
+    expect(within(tooltip).getByText('G2', { exact: true })).toBeVisible();
+    expect(within(tooltip).queryByText('G class star')).toBeNull();
+    await fireEvent.pointerDown(label, { button: 0, pointerId: 1 });
+    await fireEvent.pointerUp(label, { button: 0, pointerId: 1 });
+    await fireEvent.click(label);
+    expect(onSystemSelect).toHaveBeenCalledExactlyOnceWith(catalogueStar);
+    expect(
+      runtime.dispatch.mock.calls.some(([command]) => command.type === 'PICK'),
+    ).toBe(false);
+    expect(view.container.querySelector('.spatial-canvas')).toHaveAttribute(
+      'data-last-hovered-system-id',
+      catalogueStar.systemId64,
+    );
+  });
+
+  it('shows renderer hover cards near the pointer and passes axe with the expanded list', async () => {
+    const view = render(SpatialCanvas, {
+      scene: nearbyScene(),
+      anchorPoint: finderStar,
+    });
+    const summary = await screen.findByText('Nearby systems (3)');
+    await fireEvent.click(summary);
+    expect(
+      await screen.findByRole('list', { name: 'Nearby systems' }),
+    ).toBeVisible();
+    adapter.runtimes[0]!.emit({
+      type: 'TARGET_HOVERED',
+      target: {
+        kind: 'system',
+        systemId64: catalogueStar.systemId64,
+        name: catalogueStar.name,
+      },
+      screenX: 100,
+      screenY: 80,
+    });
+    const tooltip = await screen.findByRole('tooltip', {
+      name: `System ${catalogueStar.name}`,
+    });
+    expect(tooltip.parentElement).toHaveStyle({ left: '114px', top: '94px' });
+    expect(within(tooltip).getByText('G2', { exact: true })).toBeVisible();
+    expect(
+      within(tooltip).getByText('Distance from Finder Reach'),
+    ).toBeVisible();
+    expect(within(tooltip).getByText('180.0 LY')).toBeVisible();
+    expect(
+      within(tooltip).getByRole('link', { name: 'Inspect' }),
+    ).toHaveAttribute('href', `/inspect?system=${catalogueStar.systemId64}`);
+    const result = await axe.run(view.container, {
+      rules: { 'color-contrast': { enabled: false } },
+    });
+    expect(result.violations).toEqual([]);
+  });
+
+  it('ranks candidates and resolves overlap only after camera changes settle', async () => {
+    const candidates = vi.spyOn(galaxyLabels, 'galaxyLabelCandidates');
+    const layout = vi.spyOn(galaxyLabels, 'layoutGalaxyLabels');
+    const scene = nearbyScene();
+    render(SpatialCanvas, { scene });
+    await screen.findByText('Nearby systems (3)');
+    candidates.mockClear();
+    layout.mockClear();
+    vi.useFakeTimers();
+    const runtime = adapter.runtimes[0]!;
+    for (let revision = 2; revision <= 4; revision += 1) {
+      runtime.emit({
+        type: 'CAMERA_CHANGED',
+        camera: { ...scene.camera, bearingRad: revision / 10, revision },
+      });
+      await tick();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(candidates).not.toHaveBeenCalled();
+      expect(layout).not.toHaveBeenCalled();
+    }
+    await vi.advanceTimersByTimeAsync(79);
+    expect(candidates).not.toHaveBeenCalled();
+    expect(layout).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await tick();
+    expect(candidates).toHaveBeenCalledOnce();
+    expect(layout).toHaveBeenCalledOnce();
+    expect(candidates.mock.calls[0]?.[0].camera.revision).toBe(4);
+    expect(layout.mock.calls[0]?.[0]).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(candidates).toHaveBeenCalledOnce();
+    expect(layout).toHaveBeenCalledOnce();
   });
 
   it('distinguishes a click from a pan and cancels interrupted gestures without picking', async () => {
@@ -690,11 +1044,13 @@ describe('SpatialCanvas', () => {
         'data-system-target-count',
         '4',
       );
-      expect(
-        view.container.querySelector(
-          '[data-map-label-key="system:9007199254740994"]',
-        ),
-      ).toHaveTextContent('Fixture Core');
+      await waitFor(() =>
+        expect(
+          view.container.querySelector(
+            '[data-map-label-key="system:9007199254740994"]',
+          ),
+        ).toHaveTextContent('Fixture Core'),
+      );
     },
   );
 

@@ -39,7 +39,7 @@ export type FacilityRef = Readonly<{
 }>;
 
 export type SpatialTarget =
-  | Readonly<{ kind: 'system'; systemId64: string }>
+  | Readonly<{ kind: 'system'; systemId64: string; name?: string }>
   | Readonly<{ kind: 'body'; ref: BodyRef }>
   | Readonly<{ kind: 'facility'; ref: FacilityRef }>
   | Readonly<{ kind: 'region' | 'route' | 'cluster'; id: string }>;
@@ -218,7 +218,13 @@ export type RuntimeEvent =
       type: 'CAMERA_CHANGED';
       camera: CameraState | SystemCameraState;
     }>
-  | Readonly<{ type: 'TARGET_HOVERED'; target?: SpatialTarget }>
+  | Readonly<{
+      type: 'TARGET_HOVERED';
+      target?: SpatialTarget;
+      /** Pointer position in canvas-local CSS pixels, when pointer initiated. */
+      screenX?: number;
+      screenY?: number;
+    }>
   | Readonly<{ type: 'TARGET_PICKED'; target?: SpatialTarget }>
   | Readonly<{ type: 'TRANSITION_FINISHED'; target?: SpatialTarget }>
   | Readonly<{

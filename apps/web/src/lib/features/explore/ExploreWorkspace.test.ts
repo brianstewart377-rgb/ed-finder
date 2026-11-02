@@ -2202,6 +2202,109 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
     expect(mockedPage.state.anchor).toEqual(anchorA);
   });
 
+  it('shows raw catalogue hover facts and selects the same known system from its card', async () => {
+    const star = {
+      ...catalogueFixture.systems[0],
+      id64: parseId64('9007199254741200'),
+      name: 'Nearby G2 catalogue star',
+      x: 13,
+      y: 24,
+      z: 42,
+      mainStarClass: 'G2',
+    };
+    vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue({
+      systems: [star],
+      truncated: false,
+    });
+    renderEnabled('page_size=1&view=cards', { anchor: anchorA });
+    await screen.findByText('Ranked 1');
+    await waitFor(() => expect(scenePointIds()).toContain(star.id64));
+
+    emitRuntime({
+      type: 'TARGET_HOVERED',
+      target: { kind: 'system', systemId64: star.id64, name: star.name },
+    });
+    const tooltip = await screen.findByRole('tooltip', {
+      name: `System ${star.name}`,
+    });
+    expect(
+      screen.getByRole('region', { name: 'Spatial results' }),
+    ).toHaveAttribute('data-hovered-system-id', star.id64);
+    expect(
+      within(tooltip).getByText('G2', { exact: true }),
+    ).toBeInTheDocument();
+    expect(within(tooltip).queryByText('G class star')).not.toBeInTheDocument();
+    expect(
+      within(tooltip).getByText('Distance from Anchor A'),
+    ).toBeInTheDocument();
+    expect(within(tooltip).getByText('13.0 LY')).toBeInTheDocument();
+
+    await fireEvent.click(
+      within(tooltip).getByRole('button', { name: 'Select' }),
+    );
+    await waitFor(() =>
+      expect(mockedPage.url.searchParams.get('selected')).toBe(star.id64),
+    );
+    expect(mockedPage.url.searchParams.has('system')).toBe(false);
+    expect(mockedPage.state.anchor).toEqual(anchorA);
+    await waitFor(() =>
+      expect(currentScene().selection).toEqual([
+        { kind: 'system', systemId64: star.id64 },
+      ]),
+    );
+    const selection = document.querySelector(
+      `[data-selected-system-card="${star.id64}"]`,
+    ) as HTMLElement;
+    expect(
+      within(selection).getByRole('heading', { name: star.name }),
+    ).toBeInTheDocument();
+    expect(
+      within(selection).getByText('G2', { exact: true }),
+    ).toBeInTheDocument();
+    expect(api.getSystem).not.toHaveBeenCalled();
+  });
+
+  it('carries catalogue identity, Finder query and committed anchor on hover-card Inspect navigation', async () => {
+    const star = {
+      ...catalogueFixture.systems[0],
+      id64: parseId64('9007199254741200'),
+      name: 'Nearby G2 catalogue star',
+      x: 13,
+      y: 24,
+      z: 42,
+      mainStarClass: 'G2',
+    };
+    vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue({
+      systems: [star],
+      truncated: false,
+    });
+    renderEnabled('page_size=1&view=cards', { anchor: anchorA });
+    await screen.findByText('Ranked 1');
+    await waitFor(() => expect(scenePointIds()).toContain(star.id64));
+    const origin = mockedPage.url.searchParams.toString();
+    emitRuntime({
+      type: 'TARGET_HOVERED',
+      target: { kind: 'system', systemId64: star.id64, name: star.name },
+    });
+    const tooltip = await screen.findByRole('tooltip', {
+      name: `System ${star.name}`,
+    });
+    const inspect = within(tooltip).getByRole('link', { name: 'Inspect' });
+    const href = new URL(inspect.getAttribute('href')!, mockedPage.url);
+    expect(href.pathname).toBe('/inspect');
+    expect(href.searchParams.get('system')).toBe(star.id64);
+    mockedGoto.mockClear();
+    mockedGoto.mockResolvedValueOnce(undefined);
+
+    await fireEvent.click(inspect);
+    await waitFor(() => expect(mockedGoto).toHaveBeenCalledOnce());
+    const destination = new URL(mockedGoto.mock.calls[0][0], mockedPage.url);
+    expect(destination.pathname).toBe('/inspect');
+    expect(destination.searchParams.get('from')).toBe(origin);
+    expect(destination.searchParams.get('system')).toBe(star.id64);
+    expect(mockedGoto.mock.calls[0][1].state.anchor).toEqual(anchorA);
+  });
+
   it('keeps a selected page point once across pagination without refetching its known coordinates', async () => {
     renderEnabled('page_size=1');
     await expectPage(0);
@@ -2857,11 +2960,14 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
       'data-camera-distance',
       '60',
     );
-    expect(
-      document.querySelector(
-        `[data-map-label-key="system:${target.systemId64}"]`,
-      ),
-    ).toHaveTextContent('Ranked 1');
+    // Label layout deliberately follows the settled camera debounce.
+    await waitFor(() =>
+      expect(
+        document.querySelector(
+          `[data-map-label-key="system:${target.systemId64}"]`,
+        ),
+      ).toHaveTextContent('Ranked 1'),
+    );
   });
 
   it('cancels pending anchor autofocus when the user changes archetype before the anchored response', async () => {

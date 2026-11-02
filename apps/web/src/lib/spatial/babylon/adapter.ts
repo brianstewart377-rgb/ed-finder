@@ -1346,7 +1346,10 @@ function pickGalaxyTarget(
   product: BabylonGalaxyProduct,
   screenX: number,
   screenY: number,
-  allowNearestStar = false,
+  options: Readonly<{
+    allowNearestStar?: boolean;
+    includeSystemName?: boolean;
+  }> = {},
 ): SpatialTarget | undefined {
   const canvas = engine.getRenderingCanvas();
   const scaleX = canvas?.clientWidth
@@ -1359,7 +1362,9 @@ function pickGalaxyTarget(
   // capture picks; treat it as non-interactive so clicks reach region planes.
   const starMat = product.starMesh?.material as StandardMaterial | undefined;
   const starsInteractive =
-    (product.starMesh?.isEnabled() ?? false) && (starMat?.alpha ?? 1) > 1e-3;
+    (product.starMesh?.isEnabled() ?? false) &&
+    product.starMesh.isPickable &&
+    (starMat?.alpha ?? 1) > 1e-3;
   // Translucent region planes must not intercept a visible system target. A
   // supplied predicate bypasses Babylon's own `isPickable` gate, so exclude
   // the star mesh here whenever it is not interactive.
@@ -1376,7 +1381,12 @@ function pickGalaxyTarget(
         new Vector3(point.positionLy.x, point.positionLy.y, point.positionLy.z),
       ),
     );
-    if (selected) return { kind: 'system', systemId64: selected.systemId64 };
+    if (selected)
+      return {
+        kind: 'system',
+        systemId64: selected.systemId64,
+        ...(options.includeSystemName ? { name: selected.name } : {}),
+      };
   }
   if (
     systemHit?.hit &&
@@ -1385,13 +1395,18 @@ function pickGalaxyTarget(
     systemHit.thinInstanceIndex >= 0
   ) {
     const point = product.points[systemHit.thinInstanceIndex];
-    if (point) return { kind: 'system', systemId64: point.systemId64 };
+    if (point)
+      return {
+        kind: 'system',
+        systemId64: point.systemId64,
+        ...(options.includeSystemName ? { name: point.name } : {}),
+      };
   }
   // Stars render only a few pixels wide, so an exact ray can narrowly miss.
   // Fall back to the nearest projected star within a small screen tolerance
   // before considering a region plane, keeping individual stars clickable.
   const nearestStar =
-    allowNearestStar && starsInteractive
+    options.allowNearestStar && starsInteractive
       ? nearestStarTargetByScreen(
           engine,
           product,
@@ -2395,7 +2410,12 @@ export const createBabylonSession = (
           const nextKey = targetKey(target);
           if (nextKey !== hoveredTargetKey) {
             hoveredTargetKey = nextKey;
-            emit({ type: 'TARGET_HOVERED', target });
+            emit({
+              type: 'TARGET_HOVERED',
+              target,
+              screenX: command.screenX,
+              screenY: command.screenY,
+            });
           }
           return { status: 'executed' };
         }
@@ -2405,6 +2425,7 @@ export const createBabylonSession = (
           product,
           command.screenX,
           command.screenY,
+          { includeSystemName: true },
         );
         const nextKey = targetKey(target);
         warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
@@ -2415,7 +2436,12 @@ export const createBabylonSession = (
         );
         if (nextKey !== hoveredTargetKey) {
           hoveredTargetKey = nextKey;
-          emit({ type: 'TARGET_HOVERED', target });
+          emit({
+            type: 'TARGET_HOVERED',
+            target,
+            screenX: command.screenX,
+            screenY: command.screenY,
+          });
         }
         return { status: 'executed' };
       }
@@ -2456,7 +2482,7 @@ export const createBabylonSession = (
           product,
           command.screenX,
           command.screenY,
-          true,
+          { allowNearestStar: true },
         );
         emit({
           type: 'TARGET_PICKED',
