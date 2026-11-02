@@ -17,8 +17,14 @@ Adds a shared orange, midnight navy and neon-blue design kit in `apps/web`,
 with compatibility aliases, unchanged tier colours, self-hosted Saira Semi
 Condensed HUD headings (OFL licence), glossy rounded panels, pill actions,
 tabs, filter chips, fields and pop-outs. The home, workspace, Finder, Inspect,
-Plan and map toolbar styles adopt the tokens without changing markup or
-behaviour. A Vitest contract guards token values and component colour adoption.
+Plan and map toolbar styles adopt the tokens without changing behaviour.
+Pill skins explicitly target short actions, toolbars, filter controls, tabs and
+pop-out triggers; catalogue, autocomplete, Inspect body and Compare selection
+rows keep their feature-owned layout and paint. Result-row Inspect links are
+compact, vertically centred secondary pills with a neon outline. Watchlist
+actions also opt in explicitly. Vitest contracts guard token values, component
+colour adoption and rendered result/autocomplete controls against blanket
+button styling.
 
 This is a global visual change that needs visual validation (Product E2E
 screenshots) before production promotion. It is **not deployed**.

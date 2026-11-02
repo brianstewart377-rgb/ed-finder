@@ -768,6 +768,7 @@ footer {
   padding: 0.8rem 1rem;
   border: 0;
   border-bottom: 1px solid var(--line);
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text);
   text-align: left;
@@ -832,6 +833,7 @@ footer {
   min-width: 0;
   padding: 1rem 0.8rem 1rem 1.15rem;
   border: 0;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text);
   text-align: left;
@@ -857,15 +859,16 @@ footer {
   color: var(--muted);
   font-size: 0.78rem;
 }
-.inspect-link {
+.result-list .inspect-link {
   min-width: 5.2rem;
   display: flex;
   align-items: center;
   justify-content: center;
+  align-self: center;
+  height: auto;
   gap: 0.25rem;
-  padding: 0.75rem;
-  border-left: 1px solid var(--line);
-  color: var(--text);
+  margin: 0.5rem 0.65rem 0.5rem 0.15rem;
+  padding: 0.45rem 0.65rem;
   font-size: 0.8rem;
   text-decoration: none;
 }
@@ -1600,13 +1603,35 @@ footer {
   border-color: var(--line-strong);
   box-shadow: var(--shadow-panel), var(--line-glow);
 }
-:where(#main-content, .overlay, .context-chip)
+/* Pill skins are opt-in actions. List selection, map labels and arbitrary
+   data-map-interactive controls retain their feature-owned shape and paint. */
+:where(#main-content, .overlay, .context-chip, .account-controls)
   :is(
-    button,
+    .kit-pill,
     .primary-button,
     .secondary-button,
     .quiet-button,
-    .inspect-link,
+    .apply,
+    .add-build,
+    .dialog-close,
+    .rating-why,
+    button:where([aria-haspopup='dialog'], [role='tab']),
+    :where(
+        .camera-toolbar,
+        .product-region-actions,
+        .map-layer-controls,
+        .plan-header-actions,
+        .plan-view,
+        .pane-heading,
+        .picker-heading,
+        .body-filters-dialog > header,
+        .body-filters-dialog .footer-actions,
+        .applied-filters,
+        .filter-chip,
+        .slot-editor .stepper,
+        .slot-editor .editor-actions
+      )
+      > button,
     :where(.map-system-card__actions) a
   ) {
   border: 1px solid var(--line);
@@ -1615,13 +1640,33 @@ footer {
   color: var(--text);
   cursor: pointer;
 }
-:where(#main-content, .overlay, .context-chip)
+:where(#main-content, .overlay, .context-chip, .account-controls)
   :is(
-    button,
+    .kit-pill,
     .primary-button,
     .secondary-button,
     .quiet-button,
-    .inspect-link,
+    .apply,
+    .add-build,
+    .dialog-close,
+    .rating-why,
+    button:where([aria-haspopup='dialog'], [role='tab']),
+    :where(
+        .camera-toolbar,
+        .product-region-actions,
+        .map-layer-controls,
+        .plan-header-actions,
+        .plan-view,
+        .pane-heading,
+        .picker-heading,
+        .body-filters-dialog > header,
+        .body-filters-dialog .footer-actions,
+        .applied-filters,
+        .filter-chip,
+        .slot-editor .stepper,
+        .slot-editor .editor-actions
+      )
+      > button,
     :where(.map-system-card__actions) a
   ):where(:not(:disabled):not([aria-disabled='true'])):is(
     :hover,
@@ -1630,12 +1675,11 @@ footer {
   border-color: var(--line-strong);
   box-shadow: var(--line-glow);
 }
-:where(#main-content, .overlay)
+:where(#main-content, .overlay, .account-controls)
   :is(
     .primary,
     .primary-button,
     .apply,
-    .inspect-link,
     .add-build,
     .facility-picker button[data-facility-id],
     .why-drawer .payers button,
@@ -1645,12 +1689,11 @@ footer {
   background: linear-gradient(135deg, var(--accent), var(--accent-hi));
   color: var(--accent-text);
 }
-:where(#main-content, .overlay)
+:where(#main-content, .overlay, .account-controls)
   :is(
     .primary,
     .primary-button,
     .apply,
-    .inspect-link,
     .add-build,
     .facility-picker button[data-facility-id],
     .why-drawer .payers button,
@@ -1659,19 +1702,20 @@ footer {
   border-color: var(--accent-hi);
   box-shadow: var(--accent-glow);
 }
-:where(#main-content, .overlay) :is(.secondary-button, .quiet-button) {
+:where(#main-content, .overlay, .account-controls)
+  :is(.secondary-button, .quiet-button) {
   border-color: var(--neon);
   background: transparent;
   color: var(--neon-hi);
 }
-:where(#main-content, .overlay)
+:where(#main-content, .overlay, .account-controls)
   :is(.secondary-button, .quiet-button):not(:disabled):not(
     [aria-disabled='true']
   ):is(:hover, :focus-visible) {
   border-color: var(--neon-hi);
   background: var(--neon-soft);
 }
-:where(#main-content, .overlay, .context-chip)
+:where(#main-content, .overlay, .context-chip, .account-controls)
   :is(button, a):is(:disabled, [aria-disabled='true']) {
   opacity: 0.55;
   box-shadow: none;
@@ -1682,7 +1726,7 @@ footer {
 }
 :where(#main-content, .overlay) [role='tab'] {
   border-color: transparent;
-  border-radius: 0;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--text-muted);
   box-shadow: none;

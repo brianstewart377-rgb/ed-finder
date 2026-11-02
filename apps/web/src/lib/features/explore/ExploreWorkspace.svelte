@@ -1790,7 +1790,7 @@
               </button>
               <!-- eslint-disable svelte/no-navigation-without-resolve -- inspectHref resolves the Inspect route -->
               <a
-                class="inspect-link"
+                class="inspect-link secondary-button"
                 href={FINDER_F4_ENABLED
                   ? inspectHref(system.id64, page.url)
                   : resolve(`/inspect?system=${system.id64}`)}

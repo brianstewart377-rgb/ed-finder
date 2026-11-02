@@ -1,7 +1,54 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/svelte';
 import { parse, parseCss, type AST } from 'svelte/compiler';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as api from '$lib/api/client';
+import { queryClient } from '$lib/api/query';
+import { auth } from '$lib/auth/auth';
+import { parseId64 } from '$lib/domain/id64';
+import ExploreWorkspaceTestHost from '$lib/features/explore/ExploreWorkspaceTestHost.svelte';
+
+const { mockedPage } = vi.hoisted(() => ({
+  mockedPage: {
+    url: new URL('http://localhost/explore'),
+    state: {} as App.PageState,
+  },
+}));
+
+vi.mock('$app/state', () => ({ page: mockedPage }));
+vi.mock('$app/navigation', () => ({
+  goto: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('$lib/config', () => ({ FINDER_F4_ENABLED: false }));
+vi.mock('$lib/api/client', async (loadOriginal) => ({
+  ...(await loadOriginal<typeof import('$lib/api/client')>()),
+  autocompleteSystems: vi.fn(),
+  searchExploreSystems: vi.fn(),
+  getCatalogueViewportSystems: vi.fn(),
+  getAuthSession: vi.fn(),
+  getMapHeatmap: vi.fn(),
+}));
+// This contract exercises the real list DOM; GPU rendering has its own lane.
+vi.mock('$lib/spatial/SpatialCanvas.svelte', () => ({ default: () => {} }));
+vi.mock('$lib/spatial/galaxy-regions', async (loadOriginal) => ({
+  ...(await loadOriginal<typeof import('$lib/spatial/galaxy-regions')>()),
+  fetchAuthoritativeGalaxyRegions: vi
+    .fn()
+    .mockRejectedValue(new Error('No map asset in style contract')),
+}));
+vi.mock('$lib/spatial/galaxy-nebulae', async (loadOriginal) => ({
+  ...(await loadOriginal<typeof import('$lib/spatial/galaxy-nebulae')>()),
+  fetchGalaxyNebulae: vi
+    .fn()
+    .mockRejectedValue(new Error('No map asset in style contract')),
+}));
 
 const sourceRoot = resolve(process.cwd(), 'src');
 const appCss = readFileSync(resolve(sourceRoot, 'app.css'), 'utf8');
@@ -193,4 +240,226 @@ describe('shared design kit', () => {
   it('uses shared colors outside the global token definitions', () => {
     expect(hardCodedColors(stylesheet.children, appCss, true)).toEqual([]);
   });
+});
+
+describe('design-kit action opt-in', () => {
+  let main: HTMLElement;
+  let style: HTMLStyleElement;
+
+  beforeEach(() => {
+    queryClient.clear();
+    localStorage.clear();
+    style = document.createElement('style');
+    // jsdom does not resolve custom properties. Resolve the real token values
+    // while keeping the application's selectors, declarations and source order.
+    // These are the non-media rules; responsive layout remains a browser check.
+    style.textContent = stylesheet.children
+      .filter((rule) => rule.type === 'Rule')
+      .map((rule) => appCss.slice(rule.start, rule.end))
+      .join('\n')
+      .replace(/var\((--[\w-]+)\)/g, (expression, name: string) =>
+        rootDeclarations.has(name) ? resolveToken(name) : expression,
+      );
+    document.head.append(style);
+    main = document.createElement('main');
+    main.id = 'main-content';
+    document.body.append(main);
+  });
+
+  afterEach(() => {
+    cleanup();
+    queryClient.clear();
+    main.remove();
+    style.remove();
+    vi.clearAllMocks();
+  });
+
+  it('keeps catalogue rows and autocomplete options soft while Inspect is a compact secondary pill', async () => {
+    const anchor = {
+      id64: parseId64('9007199254740993'),
+      name: 'Achenar',
+      x: 10,
+      y: 20,
+      z: 30,
+    };
+    mockedPage.url = new URL(`http://localhost/explore?near=${anchor.id64}`);
+    mockedPage.state = { anchor };
+    vi.mocked(api.getAuthSession).mockResolvedValue({
+      authenticated: false,
+      user: null,
+    });
+    await auth.bootstrap();
+    vi.mocked(api.autocompleteSystems).mockResolvedValue({ results: [anchor] });
+    vi.mocked(api.searchExploreSystems).mockResolvedValue({
+      results: [
+        {
+          id64: parseId64('9007199254740994'),
+          name: 'Nearby catalogue system',
+          coords: { x: 11, y: 21, z: 31 },
+          distance: 1.73,
+          main_star_type: 'G',
+        },
+      ],
+      page: {
+        page_size: 24,
+        count: 1,
+        total: 1,
+        navigable_total: 1,
+        offset: 0,
+        navigation_limit: 10_000,
+        truncation: { source: 'local-search', total_is_capped: false },
+      },
+      ranking: {
+        ranking_version: 'v3-colony-potential-2',
+        ranking_sha256: 'ranking-sha',
+        derived_generation_id: 'generation-id',
+        publication_sequence: 1,
+        archetype_version: 'archetype-version',
+        archetype_manifest_sha256: 'manifest-sha',
+        archetype_model_sha256: 'model-sha',
+      },
+    });
+    vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue({
+      systems: [],
+      truncated: false,
+    });
+    vi.mocked(api.getMapHeatmap).mockResolvedValue({
+      source: 'legacy-fallback',
+    });
+
+    render(ExploreWorkspaceTestHost, { target: main });
+    const results = await screen.findByRole('list', { name: 'System results' });
+    const row = results.querySelector<HTMLButtonElement>('.result-select')!;
+    expect(row).toHaveTextContent('Nearby catalogue system');
+    expect(row).toHaveTextContent('G star');
+
+    await fireEvent.input(
+      screen.getByRole('combobox', { name: 'System name' }),
+      {
+        target: { value: 'Ach' },
+      },
+    );
+    const suggestion = await screen.findByRole('option', { name: /Achenar/ });
+    expect(suggestion.matches('.suggestions > button')).toBe(true);
+    for (const selection of [row, suggestion]) {
+      const computed = getComputedStyle(selection);
+      expect(computed.borderRadius).toBe(resolveToken('--radius-sm'));
+      expect(computed.borderRadius).not.toBe(resolveToken('--radius-pill'));
+      expect(computed.backgroundColor).toBe('rgba(0, 0, 0, 0)');
+    }
+
+    const inspect = within(results).getByRole('link', {
+      name: 'Inspect Nearby catalogue system',
+    });
+    expect(inspect).toHaveClass('inspect-link', 'secondary-button');
+    const inspectStyle = getComputedStyle(inspect);
+    expect(inspectStyle.borderRadius).toBe(resolveToken('--radius-pill'));
+    expect(inspectStyle.alignSelf).toBe('center');
+    expect(inspectStyle.height).toBe('auto');
+    expect(inspectStyle.backgroundColor).toBe('rgba(0, 0, 0, 0)');
+    expect(inspectStyle.backgroundImage).toBe('none');
+    expect(inspectStyle.borderTopColor).toBe('rgb(61, 165, 255)');
+    // Positive control: an opted-in action really receives the mounted kit CSS.
+    expect(
+      getComputedStyle(
+        within(results).getByRole('button', {
+          name: 'Pin Nearby catalogue system',
+        }),
+      ).borderRadius,
+    ).toBe(resolveToken('--radius-pill'));
+  });
+
+  it.each([
+    ['home CTA', '<a class="primary-button" href="/explore">Explore</a>'],
+    ['Plan CTA', '<button class="primary-button">Start a plan</button>'],
+    [
+      'header Sign in',
+      '<header><div class="account-controls"><button class="primary-button">Sign in</button></div></header>',
+    ],
+    [
+      'camera toolbar',
+      '<div class="camera-toolbar"><button data-map-interactive>Reset camera</button></div>',
+    ],
+    ['pop-out trigger', '<button aria-haspopup="dialog">Filters</button>'],
+    [
+      'tab',
+      '<div role="tablist"><button role="tab" aria-selected="true">Details</button></div>',
+    ],
+    [
+      'watchlist action',
+      '<section class="saved-systems"><button class="kit-pill">Watch</button></section>',
+    ],
+  ])('retains the pill skin for an opted-in %s', (name, markup) => {
+    main.innerHTML = markup;
+    // The application header is outside #main-content in the live layout.
+    if (name === 'header Sign in') main.removeAttribute('id');
+    const action = main.querySelector('button, a')!;
+    expect(getComputedStyle(action).borderRadius).toBe(
+      resolveToken('--radius-pill'),
+    );
+    if (action.classList.contains('primary-button')) {
+      expect(getComputedStyle(action).backgroundImage).toContain(
+        'linear-gradient',
+      );
+      expect(getComputedStyle(action).color).toBe('rgb(26, 13, 2)');
+    }
+  });
+
+  it.each([
+    ['bare button', '<button>Unclassified control</button>'],
+    [
+      'Inspect body row',
+      '<div class="system-map-browser"><ol><li><button>Body</button></li></ol></div>',
+    ],
+    [
+      'watchlist row',
+      '<section class="saved-systems"><div class="row-actions"><button>Saved system</button></div></section>',
+    ],
+    [
+      'compare system name',
+      '<section class="compare-panel"><button class="system-name">Compared system</button></section>',
+    ],
+    [
+      'nearby system row',
+      '<div class="nearby-systems"><button>Nearby system</button></div>',
+    ],
+    [
+      'map label',
+      '<button class="galaxy-label--system" data-map-interactive>Map system</button>',
+    ],
+    [
+      'unclassified map control',
+      '<button data-map-interactive>Map control</button>',
+    ],
+  ])(
+    'does not apply global pill or raised-panel skins to a %s',
+    (_name, markup) => {
+      main.innerHTML = markup;
+      const button = main.querySelector('button')!;
+      const matchingSkins = stylesheet.children.flatMap((rule) => {
+        if (rule.type !== 'Rule') return [];
+        const paintsAction = rule.block.children.some(
+          (declaration) =>
+            declaration.type === 'Declaration' &&
+            ((declaration.property === 'border-radius' &&
+              declaration.value.includes('var(--radius-pill)')) ||
+              (/^background(?:-color)?$/.test(declaration.property) &&
+                declaration.value.includes('var(--panel-raised)'))),
+        );
+        if (!paintsAction) return [];
+        return rule.prelude.children.flatMap((part) => {
+          const ruleSelector = appCss.slice(part.start, part.end);
+          // Pseudo-elements cannot style the button itself; jsdom also rejects
+          // Firefox's range-track pseudo-element in Element.matches().
+          return !ruleSelector.includes('::') && button.matches(ruleSelector)
+            ? [ruleSelector]
+            : [];
+        });
+      });
+      expect(matchingSkins).toEqual([]);
+      expect(getComputedStyle(button).borderRadius).not.toBe(
+        resolveToken('--radius-pill'),
+      );
+    },
+  );
 });
