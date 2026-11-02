@@ -11,6 +11,32 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-02 — Soft Galaxy nebula clouds and persistent landmarks (M03)
+
+Diffuse nebulae now separate a small marker at the catalogue position from
+three soft, irregular cloud billboards. A deterministic procedural alpha atlas
+and additive, depth-tested blending replace the dark-edged spheres. Clouds fade
+on approach with distinct exit/re-entry thresholds; their markers persist at
+close zoom. Cloud radii are bounded to 600–1,800 LY as **schematic extent** only:
+no authorised source supplies measured nebula extents. The layer status and
+renderer metadata expose that distinction.
+
+M02 catalogue inventory, landmark selection, deduplication and cap remain
+unchanged. Visible counts and receipts count each enabled landmark marker once;
+decorative cloud quads are reported separately and never inflate target counts.
+Planetary nebulae retain their existing markers and zoom fade. Clouds and diffuse
+markers each use one instanced draw with no new assets or dependencies.
+
+Validation passed on Node 24 / pnpm 11.25.0: web typecheck, lint, formatting,
+all 1,719 Vitest tests, and static build. Local Cypress diagnostics on
+SwiftShader/ANGLE compiled both shaders and captured overview, regional
+perspective/orthographic and close-range frames; isolated nebula rendering used
+two draws with clouds and one after they faded. These diagnostic screenshots
+are not Product E2E acceptance evidence.
+
+Product E2E screenshots and visual validation are required before any production
+promotion. This change is **not deployed**.
+
 ## 2026-11-02 — Inspect source freshness and saved comparison capture times (A04)
 
 Inspect adds a compact, non-modal **Sources & freshness** pop-out beside the
