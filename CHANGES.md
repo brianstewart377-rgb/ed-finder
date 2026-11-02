@@ -11,6 +11,17 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-02 — Galaxy Finder markers stay visible independently of catalogue density
+
+Splits `apps/web` Galaxy stars into separate catalogue and Finder/selected
+thin-instance batches. Density cross-fading now changes only catalogue stars
+and their stellar accents; Finder and selected markers remain opaque and
+pickable. Both picking paths preserve system id64 and prefer Finder markers
+on ties. Existing layer receipts retain their fields with additive batch counts.
+
+This is a visible rendering change that needs Product E2E/visual validation
+before production promotion. It is not deployed.
+
 ## 2026-11-02 — Migration 023 applied; eighth F2d release `a8d1b794` accepted: system-name search restored
 
 Owner-approved. The governed plan run 41449585823 listed pending exactly `[023]`
@@ -420,7 +431,6 @@ requires a reviewed code change. Withdrawal still supersedes lineage batches,
 and all consent and export reads remain available. Database-free route tests
 cover the refusals and withdrawal; PostgreSQL integration coverage preserves
 the export-builder and consent flows with the pause explicitly disabled.
-
 
 ## 2026-10-31 — Finder: ranking rows carry their best rival archetype (F4b fit label)
 
