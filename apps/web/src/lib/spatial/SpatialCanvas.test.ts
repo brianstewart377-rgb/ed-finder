@@ -134,6 +134,7 @@ function nearbyScene(): GalaxySceneContract {
       },
     ],
   };
+}
 
 function pointer(
   target: EventTarget,

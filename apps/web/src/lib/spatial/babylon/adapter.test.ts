@@ -1077,7 +1077,13 @@ describe('Babylon spatial adapter boundary', () => {
         );
         expect(events).toHaveBeenLastCalledWith({
           type: 'TARGET_HOVERED',
-          target: { kind: 'system', systemId64: selectedPoint.systemId64 },
+          target: {
+            kind: 'system',
+            systemId64: selectedPoint.systemId64,
+            name: selectedPoint.name,
+          },
+          screenX: engine.getRenderWidth() / 2,
+          screenY: engine.getRenderHeight() / 2,
         });
       }
       session.execute?.(
@@ -1133,10 +1139,26 @@ describe('Babylon spatial adapter boundary', () => {
         },
         events,
       );
-      expect(events).toHaveBeenLastCalledWith({
-        type: path === 'exact' ? 'TARGET_HOVERED' : 'TARGET_PICKED',
-        target: { kind: 'system', systemId64: batchFinderPoint.systemId64 },
-      });
+      expect(events).toHaveBeenLastCalledWith(
+        path === 'exact'
+          ? {
+              type: 'TARGET_HOVERED',
+              target: {
+                kind: 'system',
+                systemId64: batchFinderPoint.systemId64,
+                name: batchFinderPoint.name,
+              },
+              screenX: 320,
+              screenY: 180,
+            }
+          : {
+              type: 'TARGET_PICKED',
+              target: {
+                kind: 'system',
+                systemId64: batchFinderPoint.systemId64,
+              },
+            },
+      );
       pick.mockRestore();
 
       // Move the Finder target well outside the click tolerance: catalogue

@@ -171,6 +171,7 @@
       scene.systemId64 !== lastHoveredBodyRef?.systemId64
     )
       lastHoveredBodyRef = undefined;
+  });
   let cameraTransitionActive = $state(false);
   let hoveredSystemId64 = $state<string | undefined>();
   let hoverPosition = $state({ x: 16, y: 16 });
