@@ -586,6 +586,9 @@ describe('shared system detail', () => {
       'Reference System Star · G2 V',
       'Reference System 3 Planet',
     ]);
+    expect(
+      screen.getByRole('list', { name: 'Bodies without a map identity' }),
+    ).toHaveTextContent('Reference System 3 a');
     await fireEvent.click(buttons[1] as HTMLElement);
     const card = await screen.findByRole('article');
     expect(card).toHaveAttribute('data-selected-body-id', '3');
@@ -604,6 +607,94 @@ describe('shared system detail', () => {
     expect(within(star).getByText('Star · G2 V')).toBeInTheDocument();
     expect(within(star).getByText('Belts')).toBeInTheDocument();
     expect(within(star).getAllByText('None recorded')).toHaveLength(2);
+  });
+
+  it('explains the hierarchy schematic and lists unknown positions without changing selection', async () => {
+    mockedGetSystem.mockResolvedValue(
+      systemDetailFromV3(
+        v3System(),
+        [
+          v3Body(),
+          v3Body({
+            body_id: '10',
+            frontier_body_id: '1',
+            direct_parent_body_id: '36028797018963968',
+            name: 'Known planet',
+            body_type: 'planet',
+            is_main_star: false,
+            spectral_class: null,
+            luminosity_class: null,
+            semi_major_axis_km: 150_000_000,
+            distance_from_arrival_ls: 500,
+          }),
+          v3Body({
+            body_id: '11',
+            frontier_body_id: '2',
+            direct_parent_body_id: '10',
+            name: 'Moon without distance',
+            body_type: 'planet',
+            is_main_star: false,
+            spectral_class: null,
+            luminosity_class: null,
+            semi_major_axis_km: null,
+            distance_from_arrival_ls: null,
+          }),
+          v3Body({
+            body_id: '12',
+            frontier_body_id: '3',
+            direct_parent_body_id: '999',
+            name: 'Body without parent',
+            body_type: 'planet',
+            is_main_star: false,
+            spectral_class: null,
+            luminosity_class: null,
+            semi_major_axis_km: 50_000,
+            distance_from_arrival_ls: 750,
+          }),
+        ],
+        [],
+        [],
+      ),
+    );
+    const { container } = render(SystemDetailTestHost, {
+      props: { id64: parseId64('10477373803') },
+    });
+
+    const legend = await screen.findByRole('complementary', {
+      name: 'System map legend',
+    });
+    expect(container.querySelector('.system-map-truth-note')).toHaveTextContent(
+      'schematic; order by known orbital distance; moons grouped by known parent',
+    );
+    const unplaced = within(legend).getByRole('list', {
+      name: 'Unplaced bodies',
+    });
+    const entries = within(unplaced).getAllByRole('listitem');
+    expect(entries).toHaveLength(2);
+    expect(unplaced).toHaveTextContent('Moon without distance');
+    expect(unplaced).toHaveTextContent('Body without parent');
+    expect(unplaced).not.toHaveTextContent('Known planet');
+    expect(unplaced).not.toHaveTextContent('Reference System');
+    for (const entry of entries) {
+      expect(entry).toHaveTextContent('position unknown');
+    }
+    expect(
+      container.querySelector('[data-unplaced-body-id="3"]'),
+    ).toHaveTextContent('Unattached group');
+    expect(
+      container.querySelector('[data-unplaced-body-id="2"]'),
+    ).not.toHaveTextContent('Unattached group');
+
+    const bodies = screen.getByRole('list', { name: 'System bodies' });
+    await fireEvent.click(
+      within(bodies).getByRole('button', {
+        name: 'Body without parent Planet',
+      }),
+    );
+    expect(await screen.findByRole('article')).toHaveAttribute(
+      'data-selected-body-id',
+      '3',
+    );
   });
 
   it('clears the selected body and every scene input when the next system is cached', async () => {
@@ -863,8 +954,8 @@ describe('shared system detail', () => {
   });
 
   it('hides the selection announcement visually through a global rule', () => {
-    // SystemDetail has no scoped styles; a class missing from app.css would
-    // render the announcement as visible page text.
+    // The announcement uses a global style; a class missing from app.css
+    // would render the announcement as visible page text.
     const css = readFileSync(resolve(process.cwd(), 'src/app.css'), 'utf8');
     const rule = /\.system-detail-announcement\s*\{([^}]*)\}/.exec(css)?.[1];
     expect(rule).toBeDefined();
