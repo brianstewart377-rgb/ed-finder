@@ -275,8 +275,10 @@ export function stellarFamilyFromCatalogue(
   if (!value) return 'unknown';
 
   // Subclasses and luminosity are suffixes, not part of the family token.
+  // Luminosity classes carry optional sub-letters in the catalogue
+  // (`Vab`, `IVb`, `IIIab`, `IIa`, `Ia0`, `Iab`).
   const catalogue = value.match(
-    /^([A-Z]+)(?:\d+(?:\.\d+)?)?(?: (?:IA0|IAB|IA|IB|III|II|IV|I|VII|VI|V[ABZ]?))?$/u,
+    /^([A-Z]+)(?:\d+(?:\.\d+)?)?(?: (?:IA0|VII|VI|IV|III|II|I|V)(?:AB|A|B|Z)?)?$/u,
   );
   const token = catalogue?.[1] ?? '';
   if (Object.hasOwn(spectralGlyphs, token))
@@ -378,7 +380,7 @@ export function stellarPresentation(
     .toUpperCase()
     .replace(/[()/_-]+/gu, ' ');
   const giant =
-    /(?:^|\s)(?:IA0|IAB|IA|IB|III|II|IV|I|GIANT|SUPERGIANT)(?:\s|$)/u.test(
+    /(?:^|\s)(?:(?:IA0|IV|III|II|I)(?:AB|A|B|Z)?|GIANT|SUPERGIANT)(?:\s|$)/u.test(
       value,
     );
   if (giant) {

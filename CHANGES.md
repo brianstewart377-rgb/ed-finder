@@ -16,7 +16,8 @@ Pre-cutover history remains available in Git history and dated/archive documents
 Fixed numeric catalogue subclasses rendering as unknown blue stars. Galaxy and
 System Map now share a pure classifier covering bare, numeric and decimal
 classes, white dwarfs, neutron stars, black holes, Wolf-Rayet, carbon/S-type,
-T Tauri/Herbig, luminosity suffixes and existing descriptive forms. Raw catalogue
+T Tauri/Herbig, luminosity suffixes (including catalogue sub-letters such as
+`Vab`, `IVb` and `IIIab`) and existing descriptive forms. Raw catalogue
 labels and the palette remain unchanged. Added catalogue table, unknown-input,
 Galaxy/System parity and catalogue-to-renderer regression tests; existing test
 expectations remain unchanged.
