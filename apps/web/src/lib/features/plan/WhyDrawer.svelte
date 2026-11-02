@@ -2,29 +2,32 @@
   import type { PlanEvaluationV1, PlanFacilityV1, PlanStepV1 } from '$lib/api';
 
   type Props = {
-    step: PlanStepV1;
-    index: number;
+    step?: PlanStepV1;
+    index?: number;
     name: string;
+    economy?: { name: string; ruleIds: string[] };
     evaluation: PlanEvaluationV1;
-    facilities: PlanFacilityV1[];
+    facilities?: PlanFacilityV1[];
     onclose: () => void;
-    oninsert: (facilityId: string) => void;
+    oninsert?: (facilityId: string) => void;
     canInsert?: boolean;
     stale?: boolean;
   };
   let {
     step,
-    index,
+    index = 0,
     name,
+    economy,
     evaluation,
-    facilities,
+    facilities = [],
     onclose,
-    oninsert,
+    oninsert = () => {},
     canInsert = true,
     stale = false,
   }: Props = $props();
 
   const id = $props.id();
+  const ruleIds = $derived(economy?.ruleIds ?? step?.rule_ids ?? []);
   let dialog: HTMLDivElement;
   let returnFocus: HTMLElement | null = null;
   const labels: Record<PlanStepV1['result'], string> = {
@@ -139,8 +142,12 @@
   >
     <header>
       <div>
-        <p class="eyebrow">Why this step?</p>
-        <h2 id={`${id}-title`}>Step {index + 1}: {name}</h2>
+        <p class="eyebrow">
+          {economy ? 'Why this economy?' : 'Why this step?'}
+        </p>
+        <h2 id={`${id}-title`}>
+          {#if economy}{name} · {economy.name}{:else}Step {index + 1}: {name}{/if}
+        </h2>
       </div>
       <button type="button" aria-label="Close why panel" onclick={close}
         >Close</button
@@ -149,88 +156,92 @@
     {#if stale}<p class="muted">
         Last good evaluation — awaiting a valid current result.
       </p>{/if}
-    <p class="result" class:stale class:blocked={step.result === 'BLOCKED'}>
-      {labels[step.result]}
-    </p>
-    {#if step.reasons.length > 0}
-      <ul class="reasons" class:stale aria-label="Reasons">
-        {#each step.reasons as reason, reasonIndex (reasonIndex)}
-          <li>{reasonText(reason)}</li>
-        {/each}
-      </ul>
-    {/if}
-    <table class:stale aria-label="Construction points for this step">
-      <thead>
-        <tr
-          ><th scope="col">Points</th><th scope="col">Tier 2</th><th scope="col"
-            >Tier 3</th
-          ></tr
-        >
-      </thead>
-      <tbody>
-        <tr
-          ><th scope="row">Before</th><td>{step.t2_before}</td><td
-            >{step.t3_before}</td
-          ></tr
-        >
-        <tr
-          ><th scope="row">Cost</th><td>{step.cost_t2}</td><td
-            >{step.cost_t3}</td
-          ></tr
-        >
-        <tr
-          ><th scope="row">After</th><td>{step.t2_after}</td><td
-            >{step.t3_after}</td
-          ></tr
-        >
-        <tr
-          ><th scope="row">Earns</th><td>{step.reward_t2}</td><td
-            >{step.reward_t3}</td
-          ></tr
-        >
-      </tbody>
-    </table>
-    {#if step.counted_port_number !== null}
-      <p class:stale>Port #{step.counted_port_number}</p>
-    {/if}
-
-    {#if step.payers.length > 0}
-      <section class:stale aria-labelledby={`${id}-payers`}>
-        <h3 id={`${id}-payers`}>Payer suggestions</h3>
-        <p class="muted">
-          These suggestions come from the evaluation. A new build uses a free
-          suitable slot, or stays unplaced until you choose a location.
-        </p>
-        <ul class="payers">
-          {#each step.payers as facilityId (facilityId)}
-            {@const facilityName =
-              facilities.find((facility) => facility.id === facilityId)?.name ??
-              facilityId}
-            <li>
-              <span>{facilityName}</span>
-              <button
-                type="button"
-                disabled={!canInsert}
-                aria-label={`Add ${facilityName} before this step`}
-                onclick={() => oninsert(facilityId)}
-                >Add before this step</button
-              >
-            </li>
+    {#if step && !economy}
+      <p class="result" class:stale class:blocked={step.result === 'BLOCKED'}>
+        {labels[step.result]}
+      </p>
+      {#if step.reasons.length > 0}
+        <ul class="reasons" class:stale aria-label="Reasons">
+          {#each step.reasons as reason, reasonIndex (reasonIndex)}
+            <li>{reasonText(reason)}</li>
           {/each}
         </ul>
-        {#if !canInsert}
+      {/if}
+      <table class:stale aria-label="Construction points for this step">
+        <thead>
+          <tr
+            ><th scope="col">Points</th><th scope="col">Tier 2</th><th
+              scope="col">Tier 3</th
+            ></tr
+          >
+        </thead>
+        <tbody>
+          <tr
+            ><th scope="row">Before</th><td>{step.t2_before}</td><td
+              >{step.t3_before}</td
+            ></tr
+          >
+          <tr
+            ><th scope="row">Cost</th><td>{step.cost_t2}</td><td
+              >{step.cost_t3}</td
+            ></tr
+          >
+          <tr
+            ><th scope="row">After</th><td>{step.t2_after}</td><td
+              >{step.t3_after}</td
+            ></tr
+          >
+          <tr
+            ><th scope="row">Earns</th><td>{step.reward_t2}</td><td
+              >{step.reward_t3}</td
+            ></tr
+          >
+        </tbody>
+      </table>
+      {#if step.counted_port_number !== null}
+        <p class:stale>Port #{step.counted_port_number}</p>
+      {/if}
+
+      {#if step.payers.length > 0}
+        <section class:stale aria-labelledby={`${id}-payers`}>
+          <h3 id={`${id}-payers`}>Payer suggestions</h3>
           <p class="muted">
-            Adding a payer is unavailable while the evaluation is out of date,
-            before the Primary Port, or when the plan has 300 sites.
+            These suggestions come from the evaluation. A new build uses a free
+            suitable slot, or stays unplaced until you choose a location.
           </p>
-        {/if}
-      </section>
+          <ul class="payers">
+            {#each step.payers as facilityId (facilityId)}
+              {@const facilityName =
+                facilities.find((facility) => facility.id === facilityId)
+                  ?.name ?? facilityId}
+              <li>
+                <span>{facilityName}</span>
+                <button
+                  type="button"
+                  disabled={!canInsert}
+                  aria-label={`Add ${facilityName} before this step`}
+                  onclick={() => oninsert(facilityId)}
+                  >Add before this step</button
+                >
+              </li>
+            {/each}
+          </ul>
+          {#if !canInsert}
+            <p class="muted">
+              Adding a payer is unavailable while the evaluation is out of date,
+              before the Primary Port, or when the plan has 300 sites.
+            </p>
+          {/if}
+        </section>
+      {/if}
     {/if}
 
     <section class:stale aria-labelledby={`${id}-rules`}>
-      <h3 id={`${id}-rules`}>Rules behind this step</h3>
+      <h3 id={`${id}-rules`}>
+        Rules behind this {economy ? 'economy' : 'step'}
+      </h3>
       <p class="muted">Rulebook: {evaluation.rulebook_release}</p>
-      {#each step.rule_ids as ruleId (ruleId)}
+      {#each ruleIds as ruleId (ruleId)}
         {@const rule = evaluation.explanations[ruleId]}
         {#if rule}
           <article class="rule">
@@ -246,8 +257,12 @@
           <p>{ruleId}: explanation not supplied by the evaluation.</p>
         {/if}
       {/each}
-      {#if step.rule_ids.length === 0}
-        <p class="muted">No rule explanations were returned for this step.</p>
+      {#if ruleIds.length === 0}
+        <p class="muted">
+          No rule explanations were returned for this {economy
+            ? 'economy'
+            : 'step'}.
+        </p>
       {/if}
     </section>
   </div>

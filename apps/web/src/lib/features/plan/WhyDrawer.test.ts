@@ -91,6 +91,50 @@ afterEach(() => {
 });
 
 describe('plan step Why drawer', () => {
+  it('filters an economy disclosure to returned rule IDs without step details', () => {
+    render(WhyDrawer, {
+      name: 'Primary port',
+      economy: { name: 'Extraction', ruleIds: ['RB-0009', 'RB-0027'] },
+      evaluation: {
+        ...evaluation,
+        explanations: {
+          ...evaluation.explanations,
+          'RB-0009': {
+            id: 'RB-0009',
+            title: 'Port economies',
+            status: 'confirmed',
+            statement: 'Returned economy rule statement.',
+            quote: 'Returned economy rule quotation.',
+            page: 9,
+          },
+        },
+      },
+      onclose: vi.fn(),
+    });
+    const dialog = screen.getByRole('dialog', {
+      name: 'Primary port · Extraction',
+    });
+    expect(within(dialog).getByText('Why this economy?')).toBeInTheDocument();
+    expect(
+      within(dialog).getByText('RB-0009 · Port economies'),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText('Returned economy rule quotation.'),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        'RB-0027: explanation not supplied by the evaluation.',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).queryByText('RB-0003 · Port construction costs'),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('table')).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByText('Payer suggestions'),
+    ).not.toBeInTheDocument();
+  });
+
   it('moves focus into the drawer and contains forward and reverse Tab', async () => {
     render(WhyDrawer, props());
     const dialog = screen.getByRole('dialog', { name: 'Step 2: Second port' });
