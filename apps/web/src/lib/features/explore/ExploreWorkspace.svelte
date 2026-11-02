@@ -262,22 +262,19 @@
     )
       return 'Preparing nebula landmarks…';
     const visibility = galaxyNebulaVisibility(nebulaCameraDistanceLy);
-    const diffuseFaded = nebulaKinds.diffuse && visibility.nebula === 0;
     const count = renderedNebulaReceipt.renderedTargetCount;
     if (count === 0) {
-      if (diffuseFaded)
-        return 'No landmarks at this zoom · diffuse landmarks faded out';
       if (nebulaKinds.planetary && visibility['planetary-nebula'] === 0)
         return 'No landmarks at this zoom · planetary nebulae appear at close range';
       return 'No landmarks at this zoom';
     }
     const kinds = [
-      nebulaKinds.diffuse && visibility.nebula > 0 ? 'diffuse' : null,
+      nebulaKinds.diffuse ? 'diffuse' : null,
       nebulaKinds.planetary && visibility['planetary-nebula'] > 0
         ? 'planetary'
         : null,
     ].filter(Boolean);
-    return `${count.toLocaleString()} ${count === 1 ? 'landmark' : 'landmarks'} shown (${kinds.join(' and ')} nebulae)${diffuseFaded ? ' · diffuse landmarks faded out' : ''}`;
+    return `${count.toLocaleString()} ${count === 1 ? 'landmark' : 'landmarks'} shown (${kinds.join(' and ')} nebulae)${nebulaKinds.diffuse ? ' · schematic extent (clouds fade on approach)' : ''}`;
   });
 
   const normalizedQuery = $derived(query.trim());

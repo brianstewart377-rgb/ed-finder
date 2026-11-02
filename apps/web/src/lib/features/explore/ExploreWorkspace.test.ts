@@ -1470,7 +1470,7 @@ describe('ExploreWorkspace nebula inventory status', () => {
     expect(status()).toHaveTextContent(publishedNebulae.rightsNotice);
   });
 
-  it('shows current planetary counts and the diffuse fade after zooming in', async () => {
+  it('shows current planetary counts and persistent diffuse landmarks after zooming in', async () => {
     await loadNebulaInventory([diffuse, ...planetary]);
     emitNebulaRendering(1, 118_000);
     await waitFor(() =>
@@ -1479,10 +1479,10 @@ describe('ExploreWorkspace nebula inventory status', () => {
       ),
     );
 
-    emitNebulaRendering(3, 2_000, 'CONTRIBUTION_APPLIED');
+    emitNebulaRendering(4, 2_000, 'CONTRIBUTION_APPLIED');
     await waitFor(() =>
       expect(status()).toHaveTextContent(
-        '4 catalogue records · 3 landmarks shown (planetary nebulae) · diffuse landmarks faded out',
+        '4 catalogue records · 4 landmarks shown (diffuse and planetary nebulae) · schematic extent (clouds fade on approach)',
       ),
     );
     await fireEvent.click(screen.getByRole('switch', { name: 'Nebulae' }));
@@ -1512,15 +1512,15 @@ describe('ExploreWorkspace nebula inventory status', () => {
     );
   });
 
-  it('reports diffuse landmarks as faded out when none are shown', async () => {
+  it('keeps the diffuse landmark count when decorative clouds fade out', async () => {
     await loadNebulaInventory([diffuse]);
-    emitNebulaRendering(0, 2_000);
+    emitNebulaRendering(1, 400);
     await waitFor(() =>
       expect(status()).toHaveTextContent(
-        '1 catalogue record · No landmarks at this zoom · diffuse landmarks faded out',
+        '1 catalogue record · 1 landmark shown (diffuse nebulae) · schematic extent (clouds fade on approach)',
       ),
     );
-    expect(status()).not.toHaveTextContent(/landmarks? shown/);
+    expect(status()).not.toHaveTextContent('landmarks faded out');
   });
 
   it('makes an empty inventory explicit', async () => {
