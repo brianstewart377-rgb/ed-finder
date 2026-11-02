@@ -24,13 +24,18 @@ for anchored Any searches. Its bounded `radius` URL parameter survives reloads
 alongside `near` and `bodies`; invalid or duplicate values are cleared with the
 existing notice. Each change resets pagination and commits one search through
 the body-filter navigation path. The control is disabled with an explanation
-outside anchored Any. No local-storage preference, API change, ranking change,
-archetype request change or page-size change is introduced.
+outside anchored Any. Because the API caps an anchored search that carries body
+filters at 500 LY, the wider options are disabled while filters are active and
+a wider URL radius is applied as 500 LY with an explanation; the chosen radius
+stays in the URL and resumes when the filters are cleared. No local-storage
+preference, API change, ranking change, archetype request change or page-size
+change is introduced.
 
 Vitest covers URL/request bounds, scope, control availability, pagination reset
-and reloads. The existing Cypress body-filter journey now checks scope and a
-1,000-LY request; `tests/test_v3_product_journey_contract.py` pins the new text
-and journey assertions. This user-visible change requires Product E2E/visual
+and reloads. The existing Cypress body-filter journey now checks scope, a
+1,000-LY unfiltered request and the 500-LY filtered cap;
+`tests/test_v3_product_journey_contract.py` pins the new text and journey
+assertions. This user-visible change requires Product E2E/visual
 validation before production promotion and is **not deployed**.
 
 ## 2026-11-02 — Soft Galaxy nebula clouds and persistent landmarks (M03)

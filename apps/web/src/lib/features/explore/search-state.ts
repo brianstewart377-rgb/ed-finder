@@ -37,6 +37,23 @@ function boundedNear(value: unknown): Id64 | null {
   }
 }
 
+/**
+ * The API caps an anchored search that carries body filters at 500 LY
+ * (`LOCAL_SEARCH_FILTERED_ANCHORED_RADIUS_CAP_LY`); only the unfiltered
+ * nearest-first path may use the wider radii. The URL keeps the chosen radius
+ * so it resumes when the filters are cleared.
+ */
+export const FILTERED_SEARCH_RADIUS_CAP_LY: SearchRadius = 500;
+
+export function effectiveSearchRadius(
+  radius: SearchRadius,
+  bodyFilters: BodyFilterValues,
+): SearchRadius {
+  return Object.keys(bodyFilters).length
+    ? (Math.min(radius, FILTERED_SEARCH_RADIUS_CAP_LY) as SearchRadius)
+    : radius;
+}
+
 export function normalizeSearchRadius(value: unknown): SearchRadius {
   return (
     SEARCH_RADIUS_OPTIONS.find((radius) => radius === value) ??

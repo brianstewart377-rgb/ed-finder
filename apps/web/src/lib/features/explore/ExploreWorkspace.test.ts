@@ -3641,7 +3641,7 @@ describe.each([false, true])(
 
     it('commits one radius search, resets pagination and restores its URL on reload', async () => {
       renderEnabled(
-        `${enabled ? 'page_size=1&offset=1&' : ''}selected=${anchorA.id64}&view=cards&near=${anchorA.id64}&bodies=elw_count%3A1-`,
+        `${enabled ? 'page_size=1&offset=1&' : ''}selected=${anchorA.id64}&view=cards&near=${anchorA.id64}`,
         { anchor: anchorA },
       );
       await screen.findByText(enabled ? 'Ranked 2' : 'Ranked 1');
@@ -3660,13 +3660,11 @@ describe.each([false, true])(
       expect(mockedPage.url.searchParams.get('radius')).toBe('1000');
       expect(mockedPage.url.searchParams.has('offset')).toBe(false);
       expect(mockedPage.url.searchParams.get('near')).toBe(anchorA.id64);
-      expect(mockedPage.url.searchParams.get('bodies')).toBe('elw_count:1-');
       expect(mockedPage.url.searchParams.get('selected')).toBe(anchorA.id64);
       expect(mockedPage.url.searchParams.get('view')).toBe('cards');
       expect(vi.mocked(api.searchExploreSystems).mock.lastCall?.[0]).toEqual({
         reference_coords: { x: 10, y: 20, z: 30 },
         filters: { distance: { min: 0, max: 1000 }, economy: 'any' },
-        body_filters: { elw_count: { min: 1 } },
         sort_by: 'distance',
         size: enabled ? 1 : 24,
         from: 0,
@@ -3695,6 +3693,53 @@ describe.each([false, true])(
           ?.distance,
       ).toEqual({ min: 0, max: 1000 });
       expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+    });
+
+    it('caps a filtered search at the API radius and resumes the chosen radius once filters clear', async () => {
+      // The API rejects anchored searches with body filters beyond 500 LY, so
+      // the wider options are disabled and a wider URL radius is applied as 500.
+      renderEnabled(
+        `${enabled ? 'page_size=1&' : ''}near=${anchorA.id64}&bodies=elw_count%3A1-&radius=1000`,
+        { anchor: anchorA },
+      );
+      await screen.findByText('Ranked 1');
+      expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(api.searchExploreSystems).mock.lastCall?.[0]).toEqual({
+        reference_coords: { x: 10, y: 20, z: 30 },
+        filters: { distance: { min: 0, max: 500 }, economy: 'any' },
+        body_filters: { elw_count: { min: 1 } },
+        sort_by: 'distance',
+        size: enabled ? 1 : 24,
+        from: 0,
+      });
+      const radius = screen.getByRole('combobox', { name: 'Within' });
+      expect(radius).toHaveValue('500');
+      expect(radius).toHaveAccessibleDescription(
+        'Body filters limit the search to 500 LY; your 1,000 LY radius resumes when the filters are cleared.',
+      );
+      expect(
+        within(radius)
+          .getAllByRole('option')
+          .map((option) => (option as HTMLOptionElement).disabled),
+      ).toEqual([false, false, false, true, true]);
+      expect(document.getElementById('results-scope')).toHaveTextContent(
+        'Within 500 LY of Anchor A · sorted by distance',
+      );
+      // The URL still records the commander's choice.
+      expect(mockedPage.url.searchParams.get('radius')).toBe('1000');
+
+      await fireEvent.change(radius, { target: { value: '250' } });
+      await waitFor(() =>
+        expect(api.searchExploreSystems).toHaveBeenCalledTimes(2),
+      );
+      expect(
+        vi.mocked(api.searchExploreSystems).mock.lastCall?.[0].filters
+          ?.distance,
+      ).toEqual({ min: 0, max: 250 });
+      expect(mockedPage.url.searchParams.get('radius')).toBe('250');
+      expect(radius).toHaveAccessibleDescription(
+        'Body filters limit the search to 500 LY.',
+      );
     });
 
     it('keeps each card distance tied to its response radius while the next radius is loading', async () => {

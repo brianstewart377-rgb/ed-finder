@@ -430,6 +430,25 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       'Within 500 LY of Achenar · sorted by distance',
     );
     cy.get('#search-radius').should('be.enabled').and('have.value', '500');
+    // An unfiltered anchored search may use the wider radii.
+    cy.get('#search-radius').select('1000');
+    cy.wait('@search', { requestTimeout }).then(({ request, response }) => {
+      expect(request.body).to.deep.equal({
+        ...anchoredRequest,
+        filters: { distance: { min: 0, max: 1000 }, economy: 'any' },
+      });
+      expect(response?.statusCode).to.equal(200);
+    });
+    waitForExploreSettled();
+    cy.get('@search.all').should('have.length', 2);
+    cy.get('#results-scope').should(
+      'have.text',
+      'Within 1,000 LY of Achenar · sorted by distance',
+    );
+    cy.location('search', { timeout: 15_000 }).should((search) => {
+      const params = new URLSearchParams(search);
+      expect(params.getAll('radius')).to.deep.equal(['1000']);
+    });
     cy.contains('button', /^Body filters$/).click();
     cy.get(dialog).should('be.visible').and('have.attr', 'aria-modal', 'false');
     cy.get(`${dialog} [aria-label="Earth-like minimum slider"]`)
@@ -491,31 +510,36 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.get(dialog).should('not.exist');
     cy.contains('button', /^Body filters$/).should('be.focused');
     waitForExploreSettled();
-    cy.get('@search.all').should('have.length', 2);
+    cy.get('@search.all').should('have.length', 3);
     cy.contains('Earth-like ≥ 1').should('be.visible');
+    // Body filters cap the anchored search at the API's 500 LY; the chosen
+    // 1,000 LY stays in the URL and resumes when the filters are cleared.
+    cy.get('@search.all')
+      .its('2')
+      .then(({ request, response }) => {
+        expect(request.body).to.deep.equal({
+          ...anchoredRequest,
+          filters: { distance: { min: 0, max: 500 }, economy: 'any' },
+          body_filters: { elw_count: { min: 1 } },
+        });
+        expect(response?.statusCode).to.equal(200);
+        radiusRequest = request.body;
+      });
+    cy.get('#results-scope').should(
+      'have.text',
+      'Within 500 LY of Achenar · sorted by distance',
+    );
+    cy.get('#search-radius').should('have.value', '500');
+    cy.get('#search-radius option[value="1000"]').should('be.disabled');
+    cy.get('#search-radius option[value="2000"]').should('be.disabled');
+    cy.get('#search-radius-capped').should(
+      'contain.text',
+      'Body filters limit the search to 500 LY; your 1,000 LY radius resumes when the filters are cleared.',
+    );
     cy.location('search', { timeout: 15_000 }).should((search) => {
       const params = new URLSearchParams(search);
       expect(params.getAll('near')).to.deep.equal([anchorId]);
       expect(params.getAll('bodies')).to.deep.equal(['elw_count:1-']);
-    });
-    cy.get('#search-radius').select('1000');
-    cy.wait('@search', { requestTimeout }).then(({ request, response }) => {
-      expect(request.body).to.deep.equal({
-        ...anchoredRequest,
-        filters: { distance: { min: 0, max: 1000 }, economy: 'any' },
-        body_filters: { elw_count: { min: 1 } },
-      });
-      expect(response?.statusCode).to.equal(200);
-      radiusRequest = request.body;
-    });
-    waitForExploreSettled();
-    cy.get('@search.all').should('have.length', 3);
-    cy.get('#results-scope').should(
-      'have.text',
-      'Within 1,000 LY of Achenar · sorted by distance',
-    );
-    cy.location('search', { timeout: 15_000 }).should((search) => {
-      const params = new URLSearchParams(search);
       expect(params.getAll('radius')).to.deep.equal(['1000']);
     });
     // Clear persisted state and SvelteKit's history payload so restoration can
@@ -540,9 +564,10 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.get('#results-title').should('contain.text', 'Near Achenar');
     cy.get('#results-scope').should(
       'have.text',
-      'Within 1,000 LY of Achenar · sorted by distance',
+      'Within 500 LY of Achenar · sorted by distance',
     );
-    cy.get('#search-radius').should('be.enabled').and('have.value', '1000');
+    cy.get('#search-radius').should('be.enabled').and('have.value', '500');
+    cy.get('#search-radius-capped').should('be.visible');
     cy.get('[data-system-result]').should('have.length.greaterThan', 0);
     cy.contains('Earth-like ≥ 1').should('be.visible');
     cy.get('[aria-label="Remove Earth-like filter"]').should('be.visible');

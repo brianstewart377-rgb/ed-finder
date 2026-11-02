@@ -54,6 +54,8 @@
     type BodyFilterValues,
   } from './body-filters';
   import {
+    effectiveSearchRadius,
+    FILTERED_SEARCH_RADIUS_CAP_LY,
     normalizeSearchRadius,
     parseExploreSearchParams,
     SEARCH_RADIUS_OPTIONS,
@@ -179,6 +181,9 @@
   });
   const bodyFilters = $derived(parsedSearch.bodyFilters);
   const radius = $derived(parsedSearch.radius);
+  // Body filters cap the anchored search at the API's filtered radius; the
+  // URL keeps the chosen radius so it resumes when the filters are cleared.
+  const effectiveRadius = $derived(effectiveSearchRadius(radius, bodyFilters));
   const mapAnchorPoint = $derived<GalaxySystemPoint | null>(
     anchor &&
       typeof anchor.x === 'number' &&
@@ -293,6 +298,9 @@
   const bodyFiltersPaused = $derived(
     !anchor || rankingState.archetype !== 'any',
   );
+  const radiusCappedByFilters = $derived(
+    !bodyFiltersPaused && effectiveRadius !== radius,
+  );
   const urlSelection = $derived.by((): Id64 | null => {
     if (!FINDER_F4_ENABLED) return null;
     const values = page.url.searchParams.getAll('selected');
@@ -347,7 +355,7 @@
     const selected = selectFinderRequest(
       rankingState,
       anchor ? { x: anchor.x, y: anchor.y, z: anchor.z } : null,
-      { enabled: FINDER_F4_ENABLED, radius },
+      { enabled: FINDER_F4_ENABLED, radius: effectiveRadius },
     );
     if (
       selected.kind === 'any' &&
@@ -402,7 +410,8 @@
     const reference = anchorReference;
     const state = rankingState;
     const identity = finderIdentity;
-    const searchRadius = request.kind === 'any' && reference ? radius : null;
+    const searchRadius =
+      request.kind === 'any' && reference ? effectiveRadius : null;
     return {
       queryKey: finderQueryKey,
       queryFn: async ({ signal }: { signal: AbortSignal }) => ({
@@ -441,7 +450,11 @@
   // Only F4 retains previous rows while a new query loads. The default-off
   // path replaces its list with a loading state until the current query arrives.
   const displayedSearchRadius = $derived(
-    FINDER_F4_ENABLED ? displayedResults?.searchRadius : anchor ? radius : null,
+    FINDER_F4_ENABLED
+      ? displayedResults?.searchRadius
+      : anchor
+        ? effectiveRadius
+        : null,
   );
   const currentResponse = $derived(
     FINDER_F4_ENABLED &&
@@ -467,7 +480,7 @@
     rankingState.archetype !== 'any'
       ? `Galaxy-wide · ranked by ${activeArchetypeLabel} fit · minimum tier ${rankingState.minimumTier}`
       : anchor
-        ? `Within ${radius.toLocaleString('en-US')} LY of ${anchor.name} · sorted by distance`
+        ? `Within ${effectiveRadius.toLocaleString('en-US')} LY of ${anchor.name} · sorted by distance`
         : 'Galaxy-wide · best colony potential',
   );
   const rankingDataNotReady = $derived.by(() => {
@@ -683,7 +696,7 @@
     if (!bodyFiltersPaused) {
       const next = selectFinderRequest({ ...rankingState, offset: 0 }, anchor, {
         enabled: FINDER_F4_ENABLED,
-        radius: nextRadius,
+        radius: effectiveSearchRadius(nextRadius, committed),
       });
       if (next.kind === 'any') {
         const request = Object.keys(committed).length
@@ -1794,16 +1807,23 @@
           Within
           <select
             id="search-radius"
-            value={radius}
+            value={effectiveRadius}
             disabled={bodyFiltersPaused}
             aria-describedby={bodyFiltersPaused
               ? 'search-radius-disabled'
-              : undefined}
+              : Object.keys(bodyFilters).length > 0
+                ? 'search-radius-capped'
+                : undefined}
             onchange={(event) =>
               commitRadius(Number(event.currentTarget.value))}
           >
             {#each SEARCH_RADIUS_OPTIONS as option (option)}
-              <option value={option}>{option.toLocaleString('en-US')} LY</option
+              <option
+                value={option}
+                disabled={!bodyFiltersPaused &&
+                  Object.keys(bodyFilters).length > 0 &&
+                  option > FILTERED_SEARCH_RADIUS_CAP_LY}
+                >{option.toLocaleString('en-US')} LY</option
               >
             {/each}
           </select>
@@ -1811,6 +1831,12 @@
         {#if bodyFiltersPaused}
           <p id="search-radius-disabled" class="radius-hint">
             Search radius works when you search near a system with Any selected.
+          </p>
+        {:else if Object.keys(bodyFilters).length > 0}
+          <p id="search-radius-capped" class="radius-hint">
+            Body filters limit the search to {FILTERED_SEARCH_RADIUS_CAP_LY} LY{radiusCappedByFilters
+              ? `; your ${radius.toLocaleString('en-US')} LY radius resumes when the filters are cleared`
+              : ''}.
           </p>
         {/if}
       </div>

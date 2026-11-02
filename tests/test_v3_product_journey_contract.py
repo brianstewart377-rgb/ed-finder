@@ -41,6 +41,9 @@ def test_first_checkpoint_product_journey_keeps_real_v3_browser_coverage():
         'Within 1,000 LY of Achenar · sorted by distance',
         "cy.get('#search-radius').select('1000')",
         "filters: { distance: { min: 0, max: 1000 }, economy: 'any' }",
+        "filters: { distance: { min: 0, max: 500 }, economy: 'any' }",
+        "cy.get('#search-radius option[value=\"1000\"]').should('be.disabled')",
+        "cy.get('#search-radius-capped')",
         "expect(params.getAll('radius')).to.deep.equal(['1000'])",
     ):
         assert contract in journey
