@@ -1116,9 +1116,9 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.focused().should('have.prop', 'tagName', 'H1');
     cy.contains('dt', 'Main star').next('dd').should('have.text', 'G2 V');
     cy.contains('dt', 'Bodies returned').next('dd').should('have.text', '41');
-    cy.get('[data-unavailable-fields]')
+    cy.get('[data-unavailable-fields][data-availability="not-integrated"]')
       .should('have.length', 2)
-      .each(($row) => expect($row).to.contain.text('Not available yet'));
+      .each(($row) => expect($row).to.contain.text('Not integrated yet'));
     cy.get('[aria-label="System bodies"] button')
       .first()
       .should('contain.text', 'Star · G2 V');
@@ -1141,11 +1141,40 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     );
     cy.injectAxe();
     cy.checkA11y();
+    cy.contains('button', 'Sources & freshness').click();
+    cy.get('[role="dialog"][aria-modal="false"]')
+      .should('be.visible')
+      .and('contain.text', 'Canonical catalogue')
+      .and('contain.text', 'Ratings V4 potentials')
+      .and('contain.text', 'Commander data');
+    cy.checkA11y('[role="dialog"][aria-modal="false"]');
+    // Viewport capture: the pop-out can extend past the viewport edge, and an
+    // element crop then fails on Firefox with a negative buffer size.
+    cy.get('[role="dialog"][aria-modal="false"]').scrollIntoView();
+    cy.screenshot(`product/inspect-sources-freshness-${Cypress.browser.name}`, {
+      capture: 'viewport',
+      overwrite: true,
+    });
+    cy.get('[role="dialog"][aria-modal="false"]')
+      .contains('button', 'Close')
+      .click();
     cy.viewport(375, 812);
     cy.get('.system-ratings').screenshot(
       `product/inspect-achenar-ratings-${Cypress.browser.name}-375w`,
       { overwrite: true },
     );
+    cy.contains('button', 'Sources & freshness').click();
+    cy.checkA11y('[role="dialog"][aria-modal="false"]');
+    // Viewport capture: the pop-out can extend past the viewport edge, and an
+    // element crop then fails on Firefox with a negative buffer size.
+    cy.get('[role="dialog"][aria-modal="false"]').scrollIntoView();
+    cy.screenshot(
+      `product/inspect-sources-freshness-${Cypress.browser.name}-375w`,
+      { capture: 'viewport', overwrite: true },
+    );
+    cy.get('[role="dialog"][aria-modal="false"]')
+      .contains('button', 'Close')
+      .click();
     cy.viewport(
       Cypress.config('viewportWidth'),
       Cypress.config('viewportHeight'),

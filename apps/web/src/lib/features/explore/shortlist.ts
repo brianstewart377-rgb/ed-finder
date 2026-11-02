@@ -53,6 +53,8 @@ export function snapshotFromExplore(system: ExploreSystem): CompareEntry {
 export function snapshotFromPin(pin: PinnedEntry): CompareEntry {
   return withSavedRankingIdentity({
     ...pin,
+    captured_at:
+      pin.captured_at === undefined ? pin.pinned_at : pin.captured_at,
     coords: pin.coords ?? {
       x: pin.x ?? null,
       y: pin.y ?? null,
@@ -95,7 +97,16 @@ export function toggleComparison(
   const saved = store.set(
     exists
       ? entries.filter((entry) => entry.id64 !== snapshot.id64)
-      : [...entries, snapshot],
+      : [
+          ...entries,
+          {
+            ...snapshot,
+            captured_at:
+              snapshot.captured_at === undefined
+                ? new Date().toISOString()
+                : snapshot.captured_at,
+          },
+        ],
   );
   return {
     selected: get(store).value.some((entry) => entry.id64 === snapshot.id64),
@@ -115,6 +126,10 @@ export function togglePin(
       : {};
   const pin: PinnedEntry = {
     ...snapshot,
+    captured_at:
+      snapshot.captured_at === undefined
+        ? new Date().toISOString()
+        : snapshot.captured_at,
     x: coords.x ?? null,
     y: coords.y ?? null,
     z: coords.z ?? null,
