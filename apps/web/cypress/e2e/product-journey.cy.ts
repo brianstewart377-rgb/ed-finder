@@ -543,7 +543,8 @@ describe('V3 Explore to Inspect product checkpoint', () => {
         },
       );
     }
-    cy.get('@search.all').should('have.length', 1);
+    // The anchor search and the 1,000 LY radius search have run.
+    cy.get('@search.all').should('have.length', 2);
     cy.contains(`${dialog} button`, /^Apply$/).click({
       scrollBehavior: false,
     });
