@@ -2579,6 +2579,14 @@ are kept verbatim; these answers govern where they differ from earlier text.
 - **Questions 2, 3 and 4 — still open.** None of them blocks F4b: question 2
   concerns custom weights after slice 2 (F4d), question 3 the later governed
   enablement build, and question 4 an Any-mode tier control (slice 1d).
+- **Question 2 — answered 2026-11-01 (owner): URL-only.** Any future custom
+  weights (F4d) live only in the shareable URL. They are not remembered as a
+  local preference, in browser storage or on the server; reloading or sharing
+  the link carries them, and clearing the URL clears them. This supersedes the
+  "still open" line above for question 2.
+- **Question 3 — answered 2026-11-01 (owner):** see the "owner enablement
+  decision (question 3)" status update at the top of this document. Only
+  **question 4** (Any-mode tier semantics, slice 1d) remains open.
 
 ### Review dispositions (2026-10-10)
 
