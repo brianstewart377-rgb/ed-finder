@@ -19,7 +19,6 @@ import {
   panGalaxyCamera,
 } from './galaxy-camera';
 import { projectGalaxyLabel } from './galaxy-labels';
-import { buildGalaxyReviewFixtureScene } from './galaxy-review-fixture';
 import { systemDetailFromV3 } from '$lib/api/client';
 import { v3Body, v3System } from '$lib/api/v3-system-fixtures';
 import { buildSystemScene } from './system-scene';
