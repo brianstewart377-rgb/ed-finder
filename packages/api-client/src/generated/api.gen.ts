@@ -1494,6 +1494,11 @@ export interface paths {
          *     has ever been published -- instead uses the legacy rated-MV/live-
          *     aggregate lane this endpoint has always served, tagged explicitly
          *     `"source": "legacy-fallback"` so callers can tell them apart.
+         *
+         *     With `coverage=complete`, count matching cells first and walk the registered
+         *     ladder toward coarser cell sizes until the whole requested view fits. An
+         *     unavailable pyramid or a budget that even the coarsest level cannot meet
+         *     returns 503; this mode never drops sparse cells or uses the rated fallback.
          */
         get: operations["map_heatmap_api_map_heatmap_get"];
         put?: never;
@@ -4799,6 +4804,111 @@ export interface components {
              * @default false
              */
             galaxy_wide: boolean;
+        };
+        /** MapHeatmapBounds */
+        MapHeatmapBounds: {
+            /** Min X */
+            min_x: number | null;
+            /** Max X */
+            max_x: number | null;
+            /** Min Y */
+            min_y: number | null;
+            /** Max Y */
+            max_y: number | null;
+            /** Min Z */
+            min_z: number | null;
+            /** Max Z */
+            max_z: number | null;
+        };
+        /** MapHeatmapLegacyResponse */
+        MapHeatmapLegacyResponse: {
+            /**
+             * Source
+             * @constant
+             */
+            source: "legacy-fallback";
+            /** Voxel Size */
+            voxel_size: number;
+            /** Voxel Bucket */
+            voxel_bucket: number;
+            /** Economy */
+            economy: string | null;
+            /** Cells */
+            cells: {
+                [key: string]: number | null;
+            }[];
+            /** Count */
+            count: number;
+            /** Max Cells */
+            max_cells: number;
+            /** Truncated */
+            truncated: boolean;
+        };
+        /** MapHeatmapPyramidCell */
+        MapHeatmapPyramidCell: {
+            /** Origin X Ly */
+            origin_x_ly: number;
+            /** Origin Y Ly */
+            origin_y_ly: number;
+            /** Origin Z Ly */
+            origin_z_ly: number;
+            /** Centroid X Ly */
+            centroid_x_ly: number;
+            /** Centroid Y Ly */
+            centroid_y_ly: number;
+            /** Centroid Z Ly */
+            centroid_z_ly: number;
+            /** System Count */
+            system_count: number;
+            /** Representative System Id64 */
+            representative_system_id64?: number | null;
+        };
+        /** MapHeatmapPyramidResponse */
+        MapHeatmapPyramidResponse: {
+            /**
+             * Source
+             * @constant
+             */
+            source: "pyramid";
+            /** Generation Id */
+            generation_id: string;
+            /** Spatial Generation Id */
+            spatial_generation_id: string;
+            /** Spatial Pyramid Version */
+            spatial_pyramid_version: string;
+            /** Source System Count */
+            source_system_count: number;
+            /** Coverage At */
+            coverage_at: string | null;
+            /** Level */
+            level: number;
+            /** Requested Level */
+            requested_level: number;
+            /** Served Level */
+            served_level: number;
+            /**
+             * Level Cell Count
+             * @description Exact matching cell count at the served level; unknown for truncated legacy requests.
+             */
+            level_cell_count: number | null;
+            /**
+             * Coverage
+             * @enum {string}
+             */
+            coverage: "complete" | "truncated";
+            /** Cell Size Ly */
+            cell_size_ly: number;
+            /** Voxel Size */
+            voxel_size: number;
+            bounds: components["schemas"]["MapHeatmapBounds"];
+            /** Cells */
+            cells: components["schemas"]["MapHeatmapPyramidCell"][];
+            /** Count */
+            count: number;
+            /** Max Cells */
+            max_cells: number;
+            /** Truncated */
+            truncated: boolean;
         };
         /**
          * MapViewportResponse
@@ -11054,6 +11164,8 @@ export interface operations {
                 min_systems?: number;
                 /** @description Maximum heatmap cells returned */
                 max_cells?: number;
+                /** @description Complete chooses a coarser published level that fits; truncated preserves the legacy popularity cap. */
+                coverage?: "complete" | "truncated";
                 /** @description Filter to a specific economy score */
                 economy?: string | null;
                 /** @description Bounds min X (LY); omitted = whole galaxy */
@@ -11081,7 +11193,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MapHeatmapPyramidResponse"] | components["schemas"]["MapHeatmapLegacyResponse"];
                 };
             };
             /** @description Validation Error */

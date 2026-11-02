@@ -29,6 +29,197 @@ button styling.
 This is a global visual change that needs visual validation (Product E2E
 screenshots) before production promotion. It is **not deployed**.
 
+## 2026-11-02 — Hierarchy-aware schematic System Map (M13)
+
+The System Map now builds a deterministic forest from canonical parent keys:
+stars, barycentres, planets and nested moons have their own schematic regions.
+Sibling bands reserve complete descendant and display-ring footprints so moons
+do not overlap their planet or cross a sibling planet's band. Known semi-major
+axes determine order, with arrival distance and then name as fallbacks and body
+keys breaking ties. Placed children span a full circle with a stable per-parent
+phase, and compact bands add only modest logarithmic spacing. Unknown-distance
+children occupy a separate shelf beyond the known bands. The overview scales
+planet/star glyphs to preserve their earlier angular sizes through semantic
+range 60; compact moons retain a visible size floor and a six-CSS-pixel picking
+radius. Two-body systems retain range 38 and their earlier glyph sizes.
+Frontier BodyID picking identities are preserved. The frontend mapper now
+retains the parent key and semi-major axis already present on the wire; no API
+change is included.
+
+Each placed child has a faint guide at its own schematic orbit radius around
+its parent; unknown distances claim no guide. Barycentres use crosses, and links
+appear only for selected or hovered bodies. Missing parents stay in an explicit
+unattached group; missing distances, cyclic links and pathological layout ranges
+are visibly unplaced instead of being stacked at the star. The truth note and
+legend explain the schematic and unknown-position markers. Catalogue bodies
+without a usable Frontier BodyID remain listed outside the map; resolved station
+body labels and the station list retain their existing catalogue associations.
+
+The former flat-spiral scene assertions now test parent membership and local
+regions. Vitest coverage includes a 41-body Sol-like overview bounded to range
+60, full-circle sibling distribution, readable planet sizes, binary hierarchies,
+nested moon and ring bounds, fallback ordering, shuffled-input determinism,
+malformed links, NullEngine guides/picking/selection/hover, and the component
+truth note. M12 class colours, giant bands and unknown-class dimming remain. This
+visible change needs Product E2E/visual validation before production promotion
+and is not deployed.
+
+## 2026-11-02 — Complete known-system density follows the camera (M06)
+
+Explore requests known-system density inside an overscanned, bucketed camera
+box with `coverage=complete`. The API counts matching cells at the requested
+published pyramid level and walks only its registered coarser levels until the
+whole view fits the cell budget, preserving sparse geography. Complete requests
+fail closed when no published pyramid or fitting registered level is available.
+The default popularity-limited mode and legacy rated fallback remain available
+to existing callers, with separate cache entries.
+
+Pyramid responses identify the requested and served levels, complete/truncated
+coverage and the served level's cell count (unknown for a truncated legacy
+request). Layers reports “Complete at … LY” with the cell count, generation and
+view scope. Camera debouncing and discrete request buckets keep cache keys
+stable; complete viewport coverage no longer claims whole-catalogue coverage.
+The viewport box now projects the canvas corners and edge midpoints through
+the renderer's camera/FOV and actual aspect ratio, with 15% plus one requested
+cell of overscan and outward bucket snapping. Shallow horizon rays extend the
+affected sides to navigation bounds; Y retains the elevation/radius policy.
+Resize updates the query bounds, so regional views include the far visible
+plane strip that the earlier focus-centred cube omitted. Projection, horizon,
+overview, small-movement cache reuse and resize regressions cover the correction.
+API, web and generated OpenAPI contracts cover the new mode. No migration,
+pyramid rebuild, new level or production operation is part of this change.
+
+## 2026-11-02 — Soft Galaxy nebula clouds and persistent landmarks (M03)
+
+Diffuse nebulae now separate a small marker at the catalogue position from
+three soft, irregular cloud billboards. A deterministic procedural alpha atlas
+and additive, depth-tested blending replace the dark-edged spheres. Clouds fade
+on approach with distinct exit/re-entry thresholds; their markers persist at
+close zoom. Cloud radii are bounded to 600–1,800 LY as **schematic extent** only:
+no authorised source supplies measured nebula extents. The layer status and
+renderer metadata expose that distinction.
+
+M02 catalogue inventory, landmark selection, deduplication and cap remain
+unchanged. Visible counts and receipts count each enabled landmark marker once;
+decorative cloud quads are reported separately and never inflate target counts.
+Planetary nebulae retain their existing markers and zoom fade. Clouds and diffuse
+markers each use one instanced draw with no new assets or dependencies.
+
+Validation passed on Node 24 / pnpm 11.25.0: web typecheck, lint, formatting,
+all 1,719 Vitest tests, and static build. Local Cypress diagnostics on
+SwiftShader/ANGLE compiled both shaders and captured overview, regional
+perspective/orthographic and close-range frames; isolated nebula rendering used
+two draws with clouds and one after they faded. These diagnostic screenshots
+are not Product E2E acceptance evidence.
+
+Product E2E screenshots and visual validation are required before any production
+promotion. This change is **not deployed**.
+
+## 2026-11-02 — Inspect source freshness and saved comparison capture times (A04)
+
+Inspect adds a compact, non-modal **Sources & freshness** pop-out beside the
+catalogue date. It identifies the canonical catalogue, Ratings V4 potentials,
+station economies when displayed, and the Commander data/development-fit
+integration gap. Canonical generation labels and rating generation/scorer
+identities come from the requests already used by the page. The current
+responses do not supply a ratings publication date or a station observation
+timestamp; the UI states those limits instead of reusing the catalogue date.
+
+Missing values, product gaps and failed requests now use **Unknown**, **Not
+integrated yet** and **Temporarily unavailable**, with Retry for failed reads.
+The `data-unavailable-fields` hook remains and carries `data-availability`.
+Pins and comparison expose capture times; comparison Refresh explicitly
+refetches the saved systems. Saved reference distances retain their own capture
+time when the existing response cannot refresh that reference.
+
+Component/facade tests cover source identities, availability, retries, capture
+times, explicit refresh and accessibility of the open pop-out. Existing
+SystemDetail/compare assertions and the Product E2E assertion that pinned
+“Not available yet” are updated for the new wording and capture rows. The
+Product E2E spec includes desktop/mobile source-panel screenshots and axe
+checks; that browser lane has not been run for this change. This user-visible
+change needs Product E2E/visual validation before production
+promotion and is **not deployed**. Changes are confined to `apps/web` and this
+entry; no backend API changes.
+
+## 2026-11-02 — Galaxy system hover cards and nearby labels (M10)
+
+Catalogue stars and Finder markers now expose hover/focus cards with their
+names, raw catalogue star classes, distance from the current anchor, and
+Select/Inspect actions. Nearby labels prioritize selected, hovered, anchor and
+Finder systems before a range-bounded set of catalogue stars nearest the screen
+centre. Overlap handling preserves system id64, and a collapsed Nearby systems
+list provides keyboard selection and focus for the same candidate set.
+
+Label ranking and overlap resolution wait for the camera to settle; source
+indexes and nearest-candidate retrieval are cached across hover changes. Star
+geometry, materials, streaming thresholds and detail policy are unchanged.
+Vitest coverage includes catalogue hover through Babylon NullEngine, ranking,
+overlap, range bounds, keyboard actions, raw facts, navigation and axe checks.
+This visible change needs Product E2E/visual validation before production
+promotion and is not deployed.
+
+## 2026-11-02 — Explore Layers separates catalogue density, journeys and nebulae
+
+Explore now has a non-modal **Layers** pop-out with independent Known-system
+density (default on), My journeys (default off) and Nebulae switches, separate
+descriptions, legends and status/retry lines. The button counts enabled layers.
+Density off stops its requests and removes retained density cells without
+changing exact stars, selection or camera; switching it back on fetches at the
+current zoom. Density and journey switch positions persist in browser storage;
+journal content is never persisted. The existing account journal summary
+distinguishes no imported journals from no travel in the current viewport.
+Nebula inventory, rendered-landmark status and attribution are preserved.
+There is no colony-potential switch, API change, renderer change or density
+request/detail-policy change.
+
+ExploreWorkspace component assertions and Product Cypress assertions now open
+Layers before using the retained data selectors and check switch `aria-checked`
+instead of the old inline buttons' `aria-pressed`. Coverage includes query and
+scene independence, preference recovery/storage failures, viewport clamping,
+keyboard/outside dismissal, focus return and axe on the open pop-out.
+
+Local validation passed: frozen pnpm install, `pnpm check` (no errors or
+warnings), lint, formatting, all 1,568 Vitest tests across 78 files, and the
+production build. The Product Cypress assertions were updated but not run.
+
+This user-visible change needs **Product E2E/visual validation before production
+promotion** and is **not deployed**.
+
+## 2026-11-02 — Ninth F2d release `9ff456e0` accepted: body filters and map fixes live
+
+Owner-approved, app-only. Release run 41502217984 (source `9ff456e0`) passed
+preflight run 41502956031 and was accepted by promotion run 41503170717 at
+2026-11-02T18:43:49Z to slot green; no migration, no database writes. Live
+checks: health reports `9ff456e0`; autocomplete answers within a second; the
+Sol bodies route reports factual planet classes; the Ratings V4 public smoke
+passed 8/8. The `a8d1b794` backend is the recorded rollback artifact. Receipts
+under `docs/operations/evidence/2026-11-02-*-4150*`. Records the accepted
+attestation and observed runtime and updates the status lines.
+
+## 2026-11-02 — Galaxy vertical travel and anchored touch navigation (M11)
+
+Galaxy navigation adds Alt/Option-drag elevation and accessible Up/Down controls
+that step galactic Y with the current range. The range/grid strip now shows
+rounded X/Y/Z focus coordinates in LY. Wheel zoom holds the focus-plane point
+under the cursor; two fingers zoom around their midpoint and pan together.
+One-finger/default drag still pans, Shift-drag still orbits, and toolbar zoom
+remains centred. Reset preserves the initial anchored Y; Top down and Tilted
+presets remain available.
+
+Camera and gesture maths stay in pure camera helpers. Navigation uses complete
+catalogue density bounds when available, with a finite camera-range safety
+envelope before complete bounds arrive; partial samples do not narrow travel.
+Existing distance and pitch clamps remain. Pointer cancellation and capture loss
+release the gesture. Vitest covers plane-point projection, elevation bounds,
+pinch ratios, pointer lifecycle, controls and the coordinate readout.
+
+Validation passed with Node 24 and pnpm 11.25.0: frozen dependency install, web
+check, lint, formatting, all 1,517 Vitest tests across 75 files, and static build.
+
+This is a user-visible interaction change that needs Product E2E/visual
+validation before production promotion. It is **not deployed**.
+
 ## 2026-11-02 — System Map factual planet classes and body families (M12)
 
 The bodies API now exposes the recorded planet class and its

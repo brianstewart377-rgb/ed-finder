@@ -39,7 +39,7 @@ export type FacilityRef = Readonly<{
 }>;
 
 export type SpatialTarget =
-  | Readonly<{ kind: 'system'; systemId64: string }>
+  | Readonly<{ kind: 'system'; systemId64: string; name?: string }>
   | Readonly<{ kind: 'body'; ref: BodyRef }>
   | Readonly<{ kind: 'facility'; ref: FacilityRef }>
   | Readonly<{ kind: 'region' | 'route' | 'cluster'; id: string }>;
@@ -113,6 +113,7 @@ export type GalaxySystemsPayload = Readonly<{
 
 export type OrbitalDescriptor = Readonly<{
   periodDays?: Truth<number>;
+  semiMajorAxisKm?: Truth<number>;
   semiMajorAxisAu?: Truth<number>;
   eccentricity?: Truth<number>;
   inclinationDeg?: Truth<number>;
@@ -157,6 +158,10 @@ export type BodyFamily =
 export type BodyVisualDescriptor = Readonly<{
   ref: BodyRef;
   name: string;
+  /** Canonical keys resolve hierarchy without changing the picking identity. */
+  bodyKey?: string;
+  directParentBodyKey?: string | null;
+  isMainStar?: boolean;
   parent?: BodyRef;
   class?: Truth<string>;
   subtype?: Truth<string>;
@@ -239,7 +244,13 @@ export type RuntimeEvent =
       type: 'CAMERA_CHANGED';
       camera: CameraState | SystemCameraState;
     }>
-  | Readonly<{ type: 'TARGET_HOVERED'; target?: SpatialTarget }>
+  | Readonly<{
+      type: 'TARGET_HOVERED';
+      target?: SpatialTarget;
+      /** Pointer position in canvas-local CSS pixels, when pointer initiated. */
+      screenX?: number;
+      screenY?: number;
+    }>
   | Readonly<{ type: 'TARGET_PICKED'; target?: SpatialTarget }>
   | Readonly<{ type: 'TRANSITION_FINISHED'; target?: SpatialTarget }>
   | Readonly<{

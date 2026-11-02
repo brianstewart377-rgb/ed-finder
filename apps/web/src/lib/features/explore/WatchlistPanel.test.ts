@@ -222,6 +222,13 @@ describe('saved systems panel', () => {
     expect(within(table).getByText(/Stored score 99/)).toHaveTextContent(
       'Older save',
     );
+    expect(
+      within(table).getByRole('columnheader', { name: 'Captured at' }),
+    ).toBeInTheDocument();
+    expect(within(table).getByText('2026-09-01 12:00:00 UTC')).toHaveAttribute(
+      'datetime',
+      '2026-09-01T12:00:00.000Z',
+    );
     expect(within(table).getByText('refinery industrial')).toBeInTheDocument();
     expect(within(table).getByText('Reference unknown')).toBeInTheDocument();
     expect(within(table).queryByText('0.00 LY')).not.toBeInTheDocument();

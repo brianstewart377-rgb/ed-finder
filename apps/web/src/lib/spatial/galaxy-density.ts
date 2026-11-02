@@ -26,6 +26,8 @@ export type CatalogueDensityPayload = Readonly<{
   sourceSystemCount: number;
   coveredSystemCount: number;
   coverageAsOf: string;
+  /** Completeness applies to the queried viewport, or the whole generation. */
+  coverageScope?: 'generation' | 'viewport';
   complete: boolean;
   cells: readonly CatalogueDensityCell[];
 }>;
@@ -204,6 +206,12 @@ export function validateCatalogueDensityPayload(
   if (typeof value.complete !== 'boolean') {
     throw new Error('Catalogue density complete must be boolean');
   }
+  const coverageScope = value.coverageScope ?? 'generation';
+  if (coverageScope !== 'generation' && coverageScope !== 'viewport') {
+    throw new Error(
+      'Catalogue density coverageScope must be generation or viewport',
+    );
+  }
   if (!Array.isArray(value.cells)) {
     throw new Error('Catalogue density cells must be an array');
   }
@@ -241,7 +249,11 @@ export function validateCatalogueDensityPayload(
       'Catalogue density coveredSystemCount cannot exceed sourceSystemCount',
     );
   }
-  if (value.complete && value.coveredSystemCount !== value.sourceSystemCount) {
+  if (
+    value.complete &&
+    coverageScope === 'generation' &&
+    value.coveredSystemCount !== value.sourceSystemCount
+  ) {
     throw new Error(
       'Complete catalogue density must reconcile exactly to sourceSystemCount',
     );
@@ -258,6 +270,7 @@ export function validateCatalogueDensityPayload(
     sourceSystemCount: value.sourceSystemCount,
     coveredSystemCount: value.coveredSystemCount,
     coverageAsOf,
+    coverageScope,
     complete: value.complete,
     cells,
   } as CatalogueDensityPayload;

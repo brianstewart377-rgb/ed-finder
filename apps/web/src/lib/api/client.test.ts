@@ -40,6 +40,7 @@ import {
   getGalaxyImpact,
   getHealth,
   getCommanderTravelHeatmap,
+  getCommanderJournalSummary,
   getMapHeatmap,
   getSystem,
   searchExploreSystems,
@@ -281,6 +282,30 @@ describe('typed V3 API facade over the generated Hey API SDK', () => {
     expect((failure as ApiError).status).toBe(404);
   });
 
+  it('reads account-wide journal import metadata with session credentials', async () => {
+    const summary = {
+      imported_files: 0,
+      events_stored: 0,
+      systems_observed: 0,
+      unique_bodies: 0,
+      unique_bio_observations: 0,
+      last_imported_at: null,
+      event_counts: {},
+    };
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse(summary));
+    const controller = new AbortController();
+    expect(await getCommanderJournalSummary(controller.signal)).toEqual(
+      summary,
+    );
+    const request = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(new URL(request.url).pathname).toBe('/api/v1/journal/summary');
+    expect(request.credentials).toBe('include');
+    controller.abort();
+    expect(request.signal.aborted).toBe(true);
+  });
+
   it('reads the signed-in travel heatmap from the V3 journal route', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       jsonResponse({
@@ -498,6 +523,28 @@ describe('getMapHeatmap', () => {
         throwOnError: true,
       }),
     );
+  });
+
+  it('forwards complete coverage and the bounded viewport through the facade', async () => {
+    const query = {
+      coverage: 'complete' as const,
+      voxel_size: 640,
+      min_systems: 1,
+      max_cells: 40_000,
+      min_x: -4_000,
+      max_x: 4_000,
+      min_y: -2_000,
+      max_y: 2_000,
+      min_z: 12_000,
+      max_z: 20_000,
+    };
+    const signal = new AbortController().signal;
+    await getMapHeatmap(query, signal);
+    expect(vi.mocked(sdk.mapHeatmapApiMapHeatmapGet)).toHaveBeenLastCalledWith({
+      query,
+      signal,
+      throwOnError: true,
+    });
   });
 });
 
