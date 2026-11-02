@@ -52,6 +52,7 @@ import {
   getProfileSyncApiProfileSyncSyncKeyGet,
   getV3CurrentGeneration,
   getV3JournalTravelHeatmap,
+  getV3JournalSummary,
   getV3System,
   getV3PlanCatalogue as getPlanCatalogueSdk,
   listV3PlanBodies as listPlanBodiesSdk,
@@ -182,6 +183,10 @@ export const getPlanSystem = async (systemId: string, signal?: AbortSignal) =>
 
 export const getVerifiedCommanders = async (signal?: AbortSignal) =>
   (await listVerifiedCommanders({ throwOnError: true, signal })).data;
+
+/** Account-wide import metadata distinguishes no journals from an empty viewport. */
+export const getCommanderJournalSummary = async (signal?: AbortSignal) =>
+  (await getV3JournalSummary({ throwOnError: true, signal })).data;
 
 export const getGalaxyImpact = async (signal?: AbortSignal) =>
   (await getJournalGalaxyImpact({ throwOnError: true, signal })).data;
