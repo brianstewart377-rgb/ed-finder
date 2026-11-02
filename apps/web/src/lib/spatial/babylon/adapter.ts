@@ -71,6 +71,10 @@ import {
 import { createCatalogueDensityMesh } from './catalogue-density';
 import { densityCrossfadeT } from '../galaxy-density-crossfade';
 import {
+  DENSITY_CROSSFADE_NEAR_LY,
+  DENSITY_CROSSFADE_FAR_LY,
+} from '../galaxy-detail-policy';
+import {
   buildGalaxyRegionFillGeometry,
   findGalaxyRegionAt,
   galaxyRegionsSceneLayer,
@@ -601,7 +605,11 @@ function applyDensityCrossfade(product: BabylonGalaxyProduct): void {
     setStarPickable(product, true);
     return;
   }
-  const crossfadeT = densityCrossfadeT(product.cameraState.distanceLy);
+  const crossfadeT = densityCrossfadeT(
+    product.cameraState.distanceLy,
+    DENSITY_CROSSFADE_NEAR_LY,
+    DENSITY_CROSSFADE_FAR_LY,
+  );
   // Density tops out at 0.9 (its material base alpha), not 1.0 — intentional.
   (product.densityMesh.material as StandardMaterial).alpha = 0.9 * crossfadeT;
   // `starMesh` merges FINDER results with CATALOGUE viewport stars, but only
