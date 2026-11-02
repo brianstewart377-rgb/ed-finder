@@ -11,6 +11,30 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-02 — Viewport-aware Galaxy catalogue streaming (M08)
+
+The Galaxy star sample now follows the actual camera aspect, bearing and pitch:
+its frustum intersects the existing galactic Y band, with a 15% footprint
+margin clipped to the catalogue and 15,000 LY window. Explore filters by that
+polygon instead of the old local circle. Whole spatial cells reuse TanStack
+queries across small camera moves; at most 16 cells are active, with a 64-cell
+cache evicting distant inactive cells first and least-recently-used ties.
+Downloads have bounded concurrency and respect the existing map request rate.
+Each cached cell retains a deterministic share of its band's budget (up to
+5,000 rows), so the cache cannot accumulate 64 full 40,000-row responses.
+
+Selected systems, the search reference, Finder results and known pin/watchlist
+positions reserve catalogue slots before deterministic background sampling and
+receive picking preference. Missing positions, population and stellar facts
+remain unknown. API request shape and per-band limits, detail thresholds and
+materials are unchanged. The exact-star count reports the assembled visible
+contribution, including reserved systems.
+
+Vitest coverage replaces old fixed-box and single-request-count expectations
+with frustum, cell reuse/eviction, reserved-slot, request-lifecycle and workspace
+contracts. This visible map change requires Product E2E/visual validation before
+production promotion. **Not deployed.**
+
 ## 2026-11-02 — Migration 023 applied; eighth F2d release `a8d1b794` accepted: system-name search restored
 
 Owner-approved. The governed plan run 41449585823 listed pending exactly `[023]`

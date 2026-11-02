@@ -9,7 +9,6 @@
   import {
     ApiError,
     autocompleteSystems,
-    getCatalogueViewportSystems,
     getCommanderTravelHeatmap,
     getMapHeatmap,
     getArchetypeRankings,
@@ -78,6 +77,7 @@
   import {
     fitGalaxyPlaneCamera,
     focusGalaxyCamera,
+    type GalaxyCameraViewport,
   } from '$lib/spatial/galaxy-camera';
   import {
     createGalaxyRegionsContribution,
@@ -96,6 +96,8 @@
   import SystemActions from './SystemActions.svelte';
   import WatchlistPanel from './WatchlistPanel.svelte';
   import ComparePanel from './ComparePanel.svelte';
+  import { createWatchlistQuery } from './watchlist-query.svelte';
+  import { reservedExploreGalaxyPoints } from './reserved-galaxy-points';
 
   import { createCommanderHistoryContribution } from '$lib/spatial/commander-history';
   import {
@@ -104,8 +106,11 @@
     withinGalaxyDisk,
     type GalaxyStarViewport,
   } from '$lib/spatial/galaxy-star-stream';
+  import { withinGalaxyStarFootprint } from '$lib/spatial/galaxy-star-footprint';
+  import { createGalaxyStarQuery } from '$lib/spatial/galaxy-star-query.svelte';
 
   const { selectedSystem, pins, compare } = usePersistenceContext();
+  const watchedSystems = createWatchlistQuery();
   const session = fromStore(auth);
   // The travel heatmap is the signed-in account's own V3 journal travel; the
   // cache key carries the account so a sign-out/switch never reuses rows.
@@ -158,6 +163,7 @@
   });
   let streamRevision = $state(0);
   let starDetailMode = $state<GalaxyDetailMode>('wide');
+  let starViewportSize = $state<GalaxyCameraViewport | null>(null);
   let viewportCameraTimeout: number | null = null;
   let pendingViewportCamera: CameraState | null = null;
   let appliedCataloguePacket = $state.raw<CatalogueViewportResponse | null>(
@@ -165,6 +171,7 @@
   );
   let appliedCatalogueViewport = $state.raw<GalaxyStarViewport | null>(null);
   let appliedCatalogueRevision = $state(0);
+  let appliedFootprintKey = '';
   let layerToggleRevision = $state(0);
   let showTravelHeatmap = $state(false);
   let showNebulae = $state(true);
@@ -543,7 +550,9 @@
   });
 
   const starViewport = $derived(
-    galaxyStarViewport(streamCamera, starDetailMode),
+    starViewportSize
+      ? galaxyStarViewport(streamCamera, starDetailMode, starViewportSize)
+      : null,
   );
   const viewportRequest = $derived(
     starViewport
@@ -558,38 +567,22 @@
         }
       : null,
   );
-  const catalogueStars = createQuery(() => ({
-    queryKey: queryKeys.catalogueViewport(
-      viewportRequest ?? {
-        minX: 0,
-        maxX: 0,
-        minY: 0,
-        maxY: 0,
-        minZ: 0,
-        maxZ: 0,
-        limit: 1,
-      },
-    ),
-    queryFn: ({ signal }) => {
-      if (!viewportRequest) throw new Error('No exact-star viewport requested');
-      return getCatalogueViewportSystems(viewportRequest, signal);
-    },
-    enabled: viewportRequest !== null,
-    staleTime: 20_000,
-    // Keep the previous star sample on screen while the next viewport loads so
-    // the layer does not blink out and back in on every pan/zoom settle.
-    placeholderData: (previousData) => previousData,
-  }));
+  const catalogueStars = createGalaxyStarQuery(
+    () => starViewport,
+    () => streamCamera?.focusLy ?? { x: 0, y: 0, z: 0 },
+  );
+  const footprintKey = $derived(JSON.stringify(starViewport));
   $effect(() => {
     if (
       catalogueStars.data &&
-      !catalogueStars.isPlaceholderData &&
+      starViewport &&
       (catalogueStars.data !== appliedCataloguePacket ||
-        catalogueStars.dataUpdatedAt !== appliedCatalogueRevision)
+        footprintKey !== appliedFootprintKey)
     ) {
       appliedCataloguePacket = catalogueStars.data;
       appliedCatalogueViewport = starViewport;
-      appliedCatalogueRevision = catalogueStars.dataUpdatedAt;
+      appliedFootprintKey = footprintKey;
+      appliedCatalogueRevision = untrack(() => appliedCatalogueRevision) + 1;
     }
   });
   const commanderVisits = createQuery(() => ({
@@ -746,31 +739,33 @@
   );
   const densityCellCount = $derived(lastGoodDensity?.payload.cells.length ?? 0);
   const densityTruncated = $derived(lastGoodDensity?.area === 'truncated');
-  const filteredCatalogueSystems = $derived(
-    (appliedCataloguePacket?.systems ?? []).filter((system) => {
-      // Keep the accepted packet's visibility mask until its replacement is
-      // ready. Applying the next viewport's mask to placeholder stars would
-      // reveal wide-sample corners or remove local stars during the hand-off.
-      const viewport = appliedCatalogueViewport;
-      if (!viewport) return true;
-      // Wide galaxy scale: shape the axis-aligned API sample into the
-      // canonical galactic disk so it reads as a swirling star field rather
-      // than a rectangular slab, and feather the rim so nothing clips square.
-      if (viewport.wide) return withinGalaxyDisk(system.x, system.z);
-      const focus = {
-        x: (viewport.minX + viewport.maxX) / 2,
-        y: (viewport.minY + viewport.maxY) / 2,
-        z: (viewport.minZ + viewport.maxZ) / 2,
-      };
-      const horizontalRadius = (viewport.maxX - viewport.minX) / 2;
-      const verticalRadius = (viewport.maxY - viewport.minY) / 2;
-      if (horizontalRadius <= 0 || verticalRadius <= 0) return true;
-      const dx = (system.x - focus.x) / horizontalRadius;
-      const dz = (system.z - focus.z) / horizontalRadius;
-      const dy = (system.y - focus.y) / verticalRadius;
-      return dx * dx + dz * dz <= 1 && Math.abs(dy) <= 1;
-    }),
-  );
+  let previousFilteredSystems: CatalogueViewportResponse['systems'] = [];
+  const filteredCatalogueSystems = $derived.by(() => {
+    const filtered = (appliedCataloguePacket?.systems ?? []).filter(
+      (system) => {
+        // Keep the accepted packet's visibility mask until its replacement is
+        // ready. Applying the next viewport's mask to placeholder stars would
+        // reveal wide-sample corners or remove local stars during the hand-off.
+        const viewport = appliedCatalogueViewport;
+        if (!viewport) return true;
+        return (
+          system.y >= viewport.minY &&
+          system.y <= viewport.maxY &&
+          withinGalaxyStarFootprint(viewport.footprint, system.x, system.z) &&
+          (!viewport.wide || withinGalaxyDisk(system.x, system.z))
+        );
+      },
+    );
+    if (
+      filtered.length === previousFilteredSystems.length &&
+      filtered.every(
+        (system, index) => system === previousFilteredSystems[index],
+      )
+    )
+      return previousFilteredSystems;
+    previousFilteredSystems = filtered;
+    return filtered;
+  });
   const viewportSystems = $derived(
     filteredCatalogueSystems.map((system): ExploreSystem => ({
       id64: system.id64,
@@ -795,15 +790,6 @@
   });
   const finderContribution = $derived(
     createExploreFinderContribution(systems, finderRevision),
-  );
-  const catalogueStarsContribution = $derived(
-    appliedCataloguePacket
-      ? createCatalogueStarsContribution(
-          filteredCatalogueSystems,
-          appliedCatalogueRevision,
-          appliedCataloguePacket.truncated,
-        )
-      : null,
   );
   const commanderHistoryContribution = $derived(
     // Never render cached private travel once the query is failing (an expired
@@ -893,6 +879,7 @@
       return {
         id64: finder.id64,
         name: finder.name,
+        coords: finder.coords,
         main_star_type: finder.main_star_type,
         main_star_subtype: finder.main_star_subtype,
         distance: finder.distance,
@@ -901,13 +888,14 @@
         allegiance: finder.allegiance,
         security: finder.security,
       };
-    const catalogue = catalogueStars.data?.systems.find(
+    const catalogue = appliedCataloguePacket?.systems.find(
       (system) => system.id64 === $selectedSystem.value,
     );
     return catalogue
       ? {
           id64: catalogue.id64,
           name: catalogue.name,
+          coords: { x: catalogue.x, y: catalogue.y, z: catalogue.z },
           main_star_type: catalogue.mainStarClass,
           main_star_subtype: null,
           distance: null,
@@ -916,7 +904,9 @@
           allegiance: null,
           security: null,
         }
-      : null;
+      : retainedSelectedSystem?.id64 === selectedId
+        ? retainedSelectedSystem
+        : null;
   });
   const selectedPoint = $derived(
     FINDER_F4_ENABLED && selectedMapSystem
@@ -929,6 +919,51 @@
             : null))
       : null,
   );
+  const reservedPoints = $derived(
+    reservedExploreGalaxyPoints({
+      selected:
+        selectedPoint ??
+        (selectedMapSystem
+          ? mapExploreSelectedSystemPoint(selectedMapSystem)
+          : null),
+      anchor,
+      // Only actual Finder rows are reserved, never the catalogue fallback.
+      systems: hasResultsIntent ? (displayedResults?.results ?? []) : [],
+      pins: $pins.value,
+      watched:
+        watchedSystems.ready && !watchedSystems.query.isError
+          ? (watchedSystems.query.data?.watchlist ?? [])
+          : [],
+    }),
+  );
+  let catalogueSequence = 0;
+  let previousCatalogueContribution: SpatialContribution | null = null;
+  const catalogueLimit = $derived(
+    appliedCatalogueViewport?.limit ?? starViewport?.limit ?? 0,
+  );
+  const catalogueTruncated = $derived(
+    appliedCataloguePacket?.truncated ?? false,
+  );
+  const catalogueAvailable = $derived(
+    filteredCatalogueSystems.length > 0 || reservedPoints.length > 0,
+  );
+  const catalogueStarsContribution = $derived.by(() => {
+    previousCatalogueContribution = catalogueAvailable
+      ? createCatalogueStarsContribution(
+          filteredCatalogueSystems,
+          ++catalogueSequence,
+          catalogueTruncated,
+          reservedPoints,
+          catalogueLimit,
+          previousCatalogueContribution,
+        )
+      : null;
+    return previousCatalogueContribution;
+  });
+  $effect(() => {
+    if (!FINDER_F4_ENABLED && selectedMapSystem?.coords)
+      retainedSelectedSystem = selectedMapSystem;
+  });
   let selectionSequence = 0;
   const selectionContribution = $derived(
     FINDER_F4_ENABLED
@@ -993,6 +1028,7 @@
         streamRevision +
         layerToggleRevision +
         appliedCatalogueRevision +
+        (catalogueStarsContribution?.revision ?? 0) +
         commanderVisits.dataUpdatedAt +
         nebulaResourceRevision +
         densityRevision,
@@ -1874,18 +1910,20 @@
           </span>
         {/if}
         <span
-          data-catalogue-star-count={appliedCataloguePacket?.systems.length ??
-            0}
+          data-catalogue-star-count={catalogueStarsContribution?.layers[0]
+            ?.targetCount ?? 0}
         >
           {#if !starViewport}
             Known-system density · zoom in for individual stars
-          {:else if catalogueStars.isPending}
+          {:else if catalogueStars.isPending && !appliedCataloguePacket}
             Loading exact catalogue stars…
           {:else if catalogueStars.isError}
             Exact-star layer unavailable
           {:else}
-            {(catalogueStars.data?.systems.length ?? 0).toLocaleString()} exact stars{catalogueStars
-              .data?.truncated
+            {(
+              catalogueStarsContribution?.layers[0]?.targetCount ?? 0
+            ).toLocaleString()} exact stars{catalogueStarsContribution
+              ?.layers[0]?.truncated
               ? ' · bounded view'
               : ''}
           {/if}
@@ -1926,6 +1964,13 @@
           </span>{/if}
       </div>
       <SpatialCanvas
+        onViewportChange={(viewport) => {
+          if (
+            starViewportSize?.width !== viewport.width ||
+            starViewportSize?.height !== viewport.height
+          )
+            starViewportSize = viewport;
+        }}
         {scene}
         {cameraRequest}
         {cameraRequestRevision}

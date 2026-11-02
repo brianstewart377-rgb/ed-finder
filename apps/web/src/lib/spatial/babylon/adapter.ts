@@ -332,7 +332,11 @@ function uniqueGalaxySystemPoints(
     for (const point of layer.points) {
       // Finder results carry the richer summary and are intentionally ordered
       // before the viewport catalogue layer.
-      if (!points.has(point.systemId64)) points.set(point.systemId64, point);
+      const existing = points.get(point.systemId64);
+      if (!existing) points.set(point.systemId64, point);
+      else if (point.reserved && !existing.reserved) {
+        points.set(point.systemId64, { ...existing, reserved: true });
+      }
     }
   }
   return [...points.values()];
@@ -1299,13 +1303,13 @@ function createGalaxyVisualFinish(
   return glow;
 }
 
-function nearestStarTargetByScreen(
+function nearestStarPointByScreen(
   engine: AbstractEngine,
   product: BabylonGalaxyProduct,
   deviceX: number,
   deviceY: number,
   tolerancePx: number,
-): SpatialTarget | undefined {
+): GalaxySystemPoint | undefined {
   if (product.points.length === 0) return undefined;
   const scene = product.scene;
   const transform = scene.getTransformMatrix();
@@ -1319,6 +1323,7 @@ function nearestStarTargetByScreen(
   const projected = Vector3.Zero();
   let bestIndex = -1;
   let bestDistanceSq = tolerancePx * tolerancePx;
+  let bestReserved = false;
   for (let index = 0; index < product.points.length; index += 1) {
     const point = product.points[index]!;
     Vector3.ProjectToRef(
@@ -1332,13 +1337,19 @@ function nearestStarTargetByScreen(
     const dx = projected.x - deviceX;
     const dy = projected.y - deviceY;
     const distanceSq = dx * dx + dy * dy;
-    if (distanceSq <= bestDistanceSq) {
+    if (distanceSq > tolerancePx * tolerancePx) continue;
+    const reserved = point.reserved === true;
+    if (
+      (reserved && !bestReserved) ||
+      (reserved === bestReserved && distanceSq <= bestDistanceSq)
+    ) {
       bestDistanceSq = distanceSq;
       bestIndex = index;
+      bestReserved = reserved;
     }
   }
   if (bestIndex < 0) return undefined;
-  return { kind: 'system', systemId64: product.points[bestIndex]!.systemId64 };
+  return product.points[bestIndex];
 }
 
 function pickGalaxyTarget(
@@ -1378,21 +1389,19 @@ function pickGalaxyTarget(
     );
     if (selected) return { kind: 'system', systemId64: selected.systemId64 };
   }
-  if (
+  const exactPoint =
     systemHit?.hit &&
     systemHit.pickedMesh === product.starMesh &&
     typeof systemHit.thinInstanceIndex === 'number' &&
     systemHit.thinInstanceIndex >= 0
-  ) {
-    const point = product.points[systemHit.thinInstanceIndex];
-    if (point) return { kind: 'system', systemId64: point.systemId64 };
-  }
+      ? product.points[systemHit.thinInstanceIndex]
+      : undefined;
   // Stars render only a few pixels wide, so an exact ray can narrowly miss.
   // Fall back to the nearest projected star within a small screen tolerance
   // before considering a region plane, keeping individual stars clickable.
   const nearestStar =
     allowNearestStar && starsInteractive
-      ? nearestStarTargetByScreen(
+      ? nearestStarPointByScreen(
           engine,
           product,
           screenX * scaleX,
@@ -1400,7 +1409,13 @@ function pickGalaxyTarget(
           12 * Math.max(scaleX, scaleY),
         )
       : undefined;
-  if (nearestStar) return nearestStar;
+  // Known application targets win an overlapping catalogue click, within the
+  // same screen tolerance already used for star picking. Exact selected
+  // markers above retain precedence and hover still uses exact rays only.
+  const point = nearestStar?.reserved
+    ? nearestStar
+    : (exactPoint ?? nearestStar);
+  if (point) return { kind: 'system', systemId64: point.systemId64 };
   const hit = product.scene.pick(screenX * scaleX, screenY * scaleY, (mesh) =>
     product.regionFillMeshes.some((fill) => fill.mesh === mesh),
   );

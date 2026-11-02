@@ -422,6 +422,21 @@ describe('Explore load and interaction work budget', () => {
         await tick();
       }
       expect(work()).toEqual(interacted);
+      const catalogueQueries = queryClient
+        .getQueryCache()
+        .getAll()
+        .filter((query) => query.queryKey[2] === 'catalogue-stars');
+      expect(catalogueQueries.length).toBeLessThanOrEqual(64);
+      expect(
+        catalogueQueries.filter((query) => query.getObserversCount() > 0)
+          .length,
+      ).toBeLessThanOrEqual(16);
+      for (const [request] of vi.mocked(api.getCatalogueViewportSystems).mock
+        .calls) {
+        expect(request.maxX - request.minX).toBeLessThanOrEqual(15_000);
+        expect(request.maxY - request.minY).toBeLessThanOrEqual(15_000);
+        expect(request.maxZ - request.minZ).toBeLessThanOrEqual(15_000);
+      }
       expect(
         regionsSource.fetchAuthoritativeGalaxyRegions,
       ).toHaveBeenCalledTimes(1);
@@ -434,30 +449,31 @@ describe('Explore load and interaction work budget', () => {
         auth: 0,
       };
       expect(loaded).toEqual({
-        builds: enabled ? 6 : 21,
-        rendererScenes: enabled ? 5 : 6,
-        loads: enabled ? 5 : 6,
+        builds: enabled ? 3 : 18,
+        rendererScenes: enabled ? 3 : 4,
+        loads: enabled ? 3 : 7,
         patches: enabled ? 1 : 0,
-        activeQueries: enabled ? 7 : 6,
+        activeQueries: enabled ? 15 : 14,
         transitions: 1,
-        api: { ...idleApi, finder: 0, catalogue: 3, density: 2 },
+        api: { ...idleApi, finder: 0, catalogue: 25, density: 2 },
       });
-      // The explicit anchor adds autocomplete, a fly-to and its local viewport
-      // work before the original result-selection and overview interactions.
-      // Retained viewport masks and accepted-density revisions now avoid
-      // placeholder-driven scene rebuilds in the non-F4 path.
+      // Whole-cell queries replace the old one-box request counts. Reserved
+      // anchor positions are available immediately, avoiding repeated flights
+      // while the local cell sample arrives. Empty samples add no layer and
+      // equal reserved contributions retain their identity, reducing builds.
+      // Pending/equal responses below must still avoid scene reconstruction.
       expect(interacted).toEqual({
-        builds: enabled ? 14 : 39,
-        rendererScenes: enabled ? 12 : 11,
-        loads: enabled ? 13 : 12,
+        builds: enabled ? 7 : 36,
+        rendererScenes: enabled ? 6 : 7,
+        loads: enabled ? 7 : 13,
         patches: enabled ? 1 : 0,
-        activeQueries: enabled ? 7 : 6,
-        transitions: enabled ? 6 : 5,
+        activeQueries: enabled ? 15 : 14,
+        transitions: 4,
         api: {
           ...idleApi,
           autocomplete: 1,
           finder: 2,
-          catalogue: enabled ? 5 : 4,
+          catalogue: enabled ? 37 : 29,
           density: enabled ? 4 : 5,
         },
       });
@@ -541,18 +557,18 @@ describe('Explore load and interaction work budget', () => {
       await settle();
       expect(visualWork()).toEqual(returned);
       expect(work()).toEqual({
-        builds: 17,
-        rendererScenes: 15,
-        loads: 16,
+        builds: 10,
+        rendererScenes: 9,
+        loads: 10,
         patches: 1,
-        activeQueries: 7,
-        transitions: 6,
+        activeQueries: 15,
+        transitions: 4,
         api: {
           ...idleApi,
           autocomplete: 1,
           finder: 6,
           rankings: 1,
-          catalogue: 5,
+          catalogue: 37,
           density: 4,
         },
       });

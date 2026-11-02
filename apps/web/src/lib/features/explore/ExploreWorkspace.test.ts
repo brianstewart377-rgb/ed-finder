@@ -16,12 +16,14 @@ import { queryClient, queryKeys } from '$lib/api/query';
 import { auth } from '$lib/auth/auth';
 import { FINDER_F4_ENABLED } from '$lib/config';
 import { parseId64 } from '$lib/domain/id64';
+import { pins, syncKey } from '$lib/persistence/stores';
 import { createHeadlessEngine } from '$lib/spatial/babylon/test-support';
 import type {
   RuntimeEvent,
   RuntimeCommand,
   SpatialRuntimeStatus,
   GalaxySceneContract,
+  GalaxySystemsPayload,
 } from '$lib/spatial/contracts';
 import type { ExploreAnchor } from './navigation';
 import * as galaxyRegions from '$lib/spatial/galaxy-regions';
@@ -64,6 +66,7 @@ vi.mock('$lib/api/client', async (loadOriginal) => {
     getCommanderTravelHeatmap: vi.fn(),
     getAuthSession: vi.fn(),
     getMapHeatmap: vi.fn(),
+    getWatchlist: vi.fn(),
   };
 });
 
@@ -153,6 +156,27 @@ function exactStarStatus(): HTMLElement {
   return document.querySelector<HTMLElement>('[data-catalogue-star-count]')!;
 }
 
+async function waitForCatalogueCells(): Promise<void> {
+  await vi.waitFor(
+    () => {
+      const cells = queryClient
+        .getQueryCache()
+        .getAll()
+        .filter(
+          (query) =>
+            query.queryKey[2] === 'catalogue-stars' &&
+            query.getObserversCount() > 0,
+        );
+      expect(cells.length).toBeGreaterThan(0);
+      expect(cells.every((query) => query.state.status === 'success')).toBe(
+        true,
+      );
+    },
+    { interval: 1 },
+  );
+  await tick();
+}
+
 function stubRuntime(): void {
   vi.stubGlobal(
     'ResizeObserver',
@@ -234,6 +258,10 @@ function mockFacadeDefaults(): void {
     systems: [],
     truncated: false,
   });
+  vi.mocked(api.getWatchlist).mockImplementation(async (key) => ({
+    sync_key: key,
+    watchlist: [],
+  }));
   vi.mocked(api.getCommanderTravelHeatmap).mockResolvedValue({
     mode: 'markers',
     visits: [],
@@ -268,6 +296,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
 
     await waitFor(() => expect(api.getMapHeatmap).toHaveBeenCalled());
     expect(await screen.findByText(/2 density cells/)).toBeInTheDocument();
+    await waitForCatalogueCells();
     expect(densityStatus()).toHaveAttribute('data-density-state', 'ready');
     expect(exactStarStatus()).toHaveTextContent('0 exact stars');
     expect(
@@ -301,7 +330,9 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
       within(densityStatus()).queryByRole('button'),
     ).not.toBeInTheDocument();
     expect(screen.queryByText(/density cells/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(
+      within(densityStatus()).queryByRole('alert'),
+    ).not.toBeInTheDocument();
   });
 
   it('shows density loading independently while exact stars are ready', async () => {
@@ -344,11 +375,14 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
           ),
         { timeout: 3_000 },
       );
+      await waitForCatalogueCells();
       expect(exactStarStatus()).toHaveTextContent('1 exact stars');
       expect(
         screen.queryByText('Exact-star layer unavailable'),
       ).not.toBeInTheDocument();
       const calls = vi.mocked(api.getMapHeatmap).mock.calls.length;
+      const starCalls = vi.mocked(api.getCatalogueViewportSystems).mock.calls
+        .length;
       vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
       await fireEvent.click(
         within(densityStatus()).getByRole('button', { name: 'Retry' }),
@@ -362,7 +396,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
       expect(
         within(densityStatus()).queryByRole('button'),
       ).not.toBeInTheDocument();
-      expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(1);
+      expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(starCalls);
       expect(exactStarStatus()).toHaveTextContent('1 exact stars');
     },
   );
@@ -380,6 +414,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     await waitFor(() =>
       expect(densityStatus()).toHaveAttribute('data-density-state', 'invalid'),
     );
+    await waitForCatalogueCells();
     expect(exactStarStatus()).toHaveTextContent('1 exact stars');
     vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
     await fireEvent.click(
@@ -406,6 +441,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
       await waitFor(() =>
         expect(densityStatus()).toHaveAttribute('data-density-state', state),
       );
+      await waitForCatalogueCells();
       expect(
         within(densityStatus()).queryByRole('button'),
       ).not.toBeInTheDocument();
@@ -453,6 +489,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
       render(ExploreWorkspaceTestHost);
       await screen.findByText('2 density cells');
       await waitFor(() => expect(currentScene()).toBeDefined());
+      await waitForCatalogueCells();
       const loads = runtimeCommands().filter(
         (command) => command.type === 'LOAD_SCENE',
       ).length;
@@ -562,6 +599,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
       },
       { interval: 1 },
     );
+    await waitForCatalogueCells();
     const initialLoads = runtimeCommands().filter(
       (command) => command.type === 'LOAD_SCENE',
     ).length;
@@ -616,6 +654,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     render(ExploreWorkspaceTestHost);
     await screen.findByText(/2 density cells/);
     await waitFor(() => expect(currentScene()).toBeDefined());
+    await waitForCatalogueCells();
     const initialLoads = runtimeCommands().filter(
       (command) => command.type === 'LOAD_SCENE',
     ).length;
@@ -658,7 +697,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     };
     vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue(wideFixture);
     render(ExploreWorkspaceTestHost);
-    await screen.findByText('2 exact stars');
+    await screen.findByText('1 exact stars');
     await screen.findByText('2 density cells');
     await waitFor(() =>
       expect(scenePointIds()).toEqual([catalogueFixture.systems[0].id64]),
@@ -701,8 +740,8 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     await waitFor(() =>
       expect(densityStatus()).toHaveAttribute('data-density-state', 'ready'),
     );
-    expect(exactStarStatus()).toHaveTextContent('2 exact stars');
-    expect(exactStarStatus()).toHaveAttribute('data-catalogue-star-count', '2');
+    expect(exactStarStatus()).toHaveTextContent('1 exact stars');
+    expect(exactStarStatus()).toHaveAttribute('data-catalogue-star-count', '1');
     expect(scenePointIds()).toEqual([catalogueFixture.systems[0].id64]);
     const localStars = {
       systems: [
@@ -733,11 +772,11 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
         revision: 2,
       },
     });
-    await waitFor(() =>
-      expect(
-        vi.mocked(api.getCatalogueViewportSystems).mock.calls.length,
-      ).toBeGreaterThan(starFetches),
-    );
+    await new Promise((resolve) => setTimeout(resolve, 220));
+    await tick();
+    // A closer camera inside the same budget band can reuse the covering
+    // cells; the old shifted-box request would have refetched here.
+    expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(starFetches);
     // Active-query invalidation must still refetch at the fade endpoint;
     // cached data alone would also be visible with an incorrectly disabled query.
     const fetches = vi.mocked(api.getMapHeatmap).mock.calls.length;
@@ -748,7 +787,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     expect(densityStatus()).toHaveAttribute('data-density-state', 'ready');
   });
 
-  it('preserves the previous local mask until the returning wide sample arrives', async () => {
+  it('filters retained local detail against the current footprint while the returning wide cells load', async () => {
     featureGate.enabled = true;
     vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
     vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue(
@@ -815,14 +854,12 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
         expect.anything(),
       ),
     );
-    expect(exactStarStatus()).toHaveTextContent('2 exact stars');
-    // A wide disk mask would hide this valid local rim star; removing the
-    // local mask would reveal its corner. Both stay as last rendered until data.
+    expect(exactStarStatus()).toHaveTextContent('1 exact stars');
+    // Retained points remain constrained to the current camera footprint;
+    // the off-catalogue corner never becomes visible during the hand-off.
     expect(scenePointIds()).toEqual([localFixture.systems[0].id64]);
     finish(catalogueFixture);
-    await waitFor(() =>
-      expect(scenePointIds()).toEqual([catalogueFixture.systems[0].id64]),
-    );
+    await waitFor(() => expect(scenePointIds()).toEqual([]));
   });
 
   it('keeps the star viewport mode while the camera reverses inside the hysteresis band', async () => {
@@ -877,12 +914,86 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
         { interval: 1 },
       );
     }
-    expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(4);
+    const requests = vi
+      .mocked(api.getCatalogueViewportSystems)
+      .mock.calls.map(([request]) => request);
+    expect(new Set(requests.map((request) => request.limit))).toEqual(
+      new Set([GALAXY_WIDE_STAR_LIMIT, 40_000]),
+    );
+    // Revisiting the hysteresis band reuses whole cached cells; no shifted
+    // copy of an already requested cell is fetched during this reversal.
     expect(
-      vi
-        .mocked(api.getCatalogueViewportSystems)
-        .mock.calls.map(([request]) => request.limit),
-    ).toEqual([GALAXY_WIDE_STAR_LIMIT, 40_000, 40_000, 40_000]);
+      new Set(requests.map((request) => JSON.stringify(request))).size,
+    ).toBe(requests.length);
+  });
+
+  it('reuses cells for a small camera pan and updates their coverage when the viewport widens', async () => {
+    featureGate.enabled = true;
+    vi.mocked(api.getMapHeatmap).mockResolvedValue(legacyFixture);
+    let resizeViewport!: (width: number, height: number) => void;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resizeViewport = (width, height) =>
+            callback(
+              [{ contentRect: { width, height } } as ResizeObserverEntry],
+              this as unknown as ResizeObserver,
+            );
+        }
+        observe = vi.fn();
+        disconnect = vi.fn();
+        unobserve = vi.fn();
+      },
+    );
+    render(ExploreWorkspaceTestHost);
+    await waitForCatalogueCells();
+    resizeViewport(360, 360);
+    const camera = {
+      ...currentScene().camera,
+      focusLy: { x: 0, y: 0, z: 0 },
+      distanceLy: 1_000,
+      pitchRad: Math.PI / 2,
+      bearingRad: 0,
+      revision: 1,
+    };
+    emitRuntime({ type: 'CAMERA_CHANGED', camera });
+    await waitFor(() =>
+      expect(api.getCatalogueViewportSystems).toHaveBeenLastCalledWith(
+        expect.objectContaining({ limit: 12_000 }),
+        expect.anything(),
+      ),
+    );
+    await waitForCatalogueCells();
+    const localCalls = vi.mocked(api.getCatalogueViewportSystems).mock.calls
+      .length;
+    emitRuntime({
+      type: 'CAMERA_CHANGED',
+      camera: {
+        ...camera,
+        focusLy: { x: 50, y: 0, z: 0 },
+        revision: 2,
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 220));
+    await tick();
+    expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(localCalls);
+
+    resizeViewport(840, 360);
+    await waitFor(() =>
+      expect(
+        vi.mocked(api.getCatalogueViewportSystems).mock.calls.length,
+      ).toBeGreaterThan(localCalls),
+    );
+    await waitForCatalogueCells();
+    const cachedCells = queryClient
+      .getQueryCache()
+      .getAll()
+      .filter((query) => query.queryKey[2] === 'catalogue-stars');
+    expect(cachedCells.length).toBeLessThanOrEqual(64);
+    expect(
+      cachedCells.filter((query) => query.getObserversCount() > 0).length,
+    ).toBeLessThanOrEqual(16);
   });
 });
 
@@ -1099,12 +1210,20 @@ function currentScene(): GalaxySceneContract {
 }
 
 function scenePointIds(): string[] {
-  return currentScene().contributions.flatMap((contribution) =>
-    contribution.layers.flatMap((layer) => {
-      const payload = layer.payload as { systems?: { systemId64: string }[] };
-      return payload.systems?.map((point) => point.systemId64) ?? [];
-    }),
-  );
+  // The renderer deduplicates Finder points also retained in the reserved
+  // catalogue contribution; inspect the same visible system identity set.
+  return [
+    ...new Set(
+      currentScene().contributions.flatMap((contribution) =>
+        contribution.layers.flatMap((layer) => {
+          const payload = layer.payload as {
+            systems?: { systemId64: string }[];
+          };
+          return payload.systems?.map((point) => point.systemId64) ?? [];
+        }),
+      ),
+    ),
+  ];
 }
 
 function emitRuntime(event: RuntimeEvent): void {
@@ -1327,7 +1446,10 @@ async function expectPage(index: number): Promise<void> {
     screen.getByText(`Showing 1 of 3 (results ${index + 1}–${index + 1})`),
   ).toBeInTheDocument();
   await waitFor(() =>
-    expect(scenePointIds()).toEqual([rankedRows[index].id64]),
+    expect(scenePointIds()).toEqual([
+      rankedRows[index].id64,
+      ...(mockedPage.state.anchor ? [mockedPage.state.anchor.id64] : []),
+    ]),
   );
 }
 
@@ -2226,6 +2348,89 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
     await waitFor(() => expect(scenePointIds()).toEqual([rankedRows[0].id64]));
   });
 
+  it('reserves selected, anchor, Finder, pinned and watched positions even when the cell sample is empty', async () => {
+    const pinnedId = parseId64('9007199254741200');
+    const watchedId = parseId64('9007199254741300');
+    pins.set([
+      {
+        id64: pinnedId,
+        name: 'Far pinned target',
+        x: 45_000,
+        y: -100,
+        z: 70_000,
+        pinned_at: '2026-11-02T00:00:00Z',
+      },
+      {
+        id64: parseId64('9007199254741400'),
+        name: 'Pin without coordinates',
+        pinned_at: '2026-11-02T00:00:00Z',
+      },
+    ]);
+    const priorSyncKey = syncKey.read().value;
+    syncKey.set({
+      state: { syncKey: 'm08watchlistfixture00000000' },
+      version: 0,
+    });
+    vi.mocked(api.getWatchlist).mockImplementation(async (key) => ({
+      sync_key: key,
+      watchlist: [
+        {
+          system_id64: watchedId,
+          name: 'Far watched target',
+          x: -45_000,
+          y: 100,
+          z: 60_000,
+        },
+      ],
+    }));
+    await auth.bootstrap();
+    try {
+      renderEnabled(`page_size=1&selected=${anchorB.id64}`, {
+        anchor: anchorA,
+      });
+      await screen.findByRole('heading', { name: `Restored ${anchorB.id64}` });
+      await waitFor(() => {
+        const contribution = currentScene().contributions.find(
+          ({ id }) => id === 'catalogue-viewport-stars',
+        );
+        const payload = contribution?.layers[0]?.payload as
+          GalaxySystemsPayload | undefined;
+        expect(
+          payload?.systems.map((point) => point.systemId64).sort(),
+        ).toEqual(
+          [
+            anchorA.id64,
+            anchorB.id64,
+            rankedRows[0].id64,
+            pinnedId,
+            watchedId,
+          ].sort(),
+        );
+        expect(payload?.systems.every((point) => point.reserved === true)).toBe(
+          true,
+        );
+        expect(
+          payload?.systems.find((point) => point.systemId64 === pinnedId),
+        ).toMatchObject({
+          positionLy: { x: 45_000, y: -100, z: 70_000 },
+        });
+        expect(
+          payload?.systems.find((point) => point.systemId64 === watchedId),
+        ).toMatchObject({
+          positionLy: { x: -45_000, y: 100, z: 60_000 },
+        });
+      });
+      expect(api.getCatalogueViewportSystems).toHaveBeenCalled();
+      expect(exactStarStatus()).toHaveAttribute(
+        'data-catalogue-star-count',
+        '5',
+      );
+    } finally {
+      pins.clear();
+      syncKey.set(priorSyncKey);
+    }
+  });
+
   it.each(['any', 'selected'])(
     'hydrates a clean off-page %s selection from getSystem when the catalogue arrives first',
     async (mode) => {
@@ -2753,7 +2958,15 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
         engine.scenes.at(-1)?.getMeshByName('catalogue-density-cells')?.metadata
           .spatialLayer.renderedCellCount,
       ).toBe(1);
-      expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(1);
+      const cellRequests = vi.mocked(api.getCatalogueViewportSystems).mock
+        .calls;
+      expect(cellRequests.length).toBeGreaterThan(0);
+      expect(cellRequests.length).toBeLessThanOrEqual(16);
+      expect(
+        cellRequests.every(
+          ([request]) => request.limit === GALAXY_WIDE_STAR_LIMIT,
+        ),
+      ).toBe(true);
       expect(api.getCatalogueViewportSystems).toHaveBeenCalledWith(
         expect.objectContaining({ limit: GALAXY_WIDE_STAR_LIMIT }),
         expect.anything(),
@@ -2785,7 +2998,11 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
     renderEnabled('page_size=2', { anchor: anchorA });
     await screen.findByText('Showing 2 of 3 (results 1–2)');
     await waitFor(() =>
-      expect(scenePointIds()).toEqual([rankedRows[0].id64, rankedRows[1].id64]),
+      expect(scenePointIds()).toEqual([
+        rankedRows[0].id64,
+        rankedRows[1].id64,
+        anchorA.id64,
+      ]),
     );
 
     const runtime = runtimeAdapter.create.mock.results.at(-1)!.value;
@@ -2832,7 +3049,11 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
       queryKey: [...queryKeys.all, 'explore', 'results'],
     });
     await screen.findByText(/Updating…/);
-    expect(scenePointIds()).toEqual([rankedRows[0].id64, rankedRows[1].id64]);
+    expect(scenePointIds()).toEqual([
+      rankedRows[0].id64,
+      rankedRows[1].id64,
+      anchorA.id64,
+    ]);
     expect(screen.getByText('Ranked 2')).toBeInTheDocument();
     finish({
       ...finderPage(0, 2),
@@ -2851,7 +3072,11 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
     emitRuntime({ type: 'TRANSITION_FINISHED', target });
 
     await waitFor(() => expect(currentScene().camera).toEqual(settledCamera));
-    expect(scenePointIds()).toEqual([rankedRows[0].id64, rankedRows[2].id64]);
+    expect(scenePointIds()).toEqual([
+      rankedRows[0].id64,
+      rankedRows[2].id64,
+      anchorA.id64,
+    ]);
     expect(currentScene().selection).toContainEqual(target);
     expect(document.querySelector('[data-camera-distance]')).toHaveAttribute(
       'data-camera-distance',
