@@ -1,11 +1,12 @@
 # ED-Finder V3 Roadmap
 
-## Where things stand (2026-11-01)
+## Where things stand (2026-11-02)
 
-- **Production:** app `293bc72b`, the seventh F2d release, was accepted on
-  2026-11-01 in slot green; rollback artifact `181f6fed`. The Finder archetype UI
+- **Production:** app `a8d1b794`, the eighth F2d release, was accepted on
+  2026-11-02 in slot blue; rollback artifact `293bc72b`. The Finder archetype UI
   is **ON**, per owner decision #974 ([release evidence](operations/v3-production-application-release.md#f3-finder-cutover--product-publish-promotion-gate)).
-- **Database:** installed schema is [through-022](operations/evidence/2026-10-31-v3-production-migration-apply-022-receipt-run-41180459540.json).
+- **Database:** installed schema is [through-023](operations/evidence/2026-11-02-v3-production-migration-apply-023-receipt-run-41449682997.json)
+  (023 = the Search name-prefix index, applied 2026-11-02).
   Governed purge P **COMPLETED 2026-10-31** ([completion receipt](operations/evidence/2026-10-31-v3-derived-purge-complete-receipt-run-41241201758.json)).
 - **Backups:** Sunday full, Monday–Saturday differential and Sunday verify run
   against the Storage Box ([backup status and schedule](../deploy/v3-production/backup/README.md)).
@@ -18,14 +19,13 @@
 - **Live Inspect:** [Ratings V4 with explanations](../CHANGES.md#2026-10-25--inspect-shows-ratings-v4-ring-hotspots-and-station-economies).
 - **Live Colony Planner `/plan`:** through S5b, with S3b surface slot predictions,
   Raven layout import and the floating facility picker ([current programme](../CLAUDE.md#current-programme)).
-- **Live system-name search (autocomplete) is down:** it returns 503 because
-  `v3_derived.system_search` has no index for a name-prefix match. The fix (merged
-  in PR #978: migration `023` plus the V3 autocomplete route) needs the governed
-  migration plan and apply, then an application release; until then, pick systems
-  from the map or open a shared link.
-- **Finder next:** [body-count filters](#programme-status--2026-09-26) and a
-  refresh-safe search anchor are implemented on a branch and in review; anchored
-  picked-archetype filters still need a probe and re-attestation.
+- **Live system-name search works again** (2026-11-02): migration `023` and the V3
+  autocomplete route (#978) are live in `a8d1b794`; the Galaxy map shows stars in
+  their spectral colours (#980) and reports the nebula inventory honestly (#981).
+- **Finder next:** [body-count filters](#programme-status--2026-09-26) for anchored
+  Any searches and a refresh-safe `near` search anchor are merged and reach
+  production with the next release; anchored picked-archetype filters still need
+  a probe and re-attestation.
 - **UI redesign:** the requested design kit, home, Finder, Inspect, Plan and
   Review & export work has no detailed redesign plan in this tree; the
   [product journey](#product-journey-and-spatial-north-star) remains its starting point.
@@ -397,6 +397,20 @@ newer dated source wins).
   then the post-go-live work recorded in the 2026-10-21 entries. Known
   follow-ups: the dense-window development sort is slow near the galactic core,
   and the PR #877 visual polish list.
+- **Production app promoted to `a8d1b794`, the eighth F2d release (2026-11-02).**
+  Owner-approved. Migration `023` applied first (plan run 41449585823 pending
+  exactly `[023]`; apply run 41449682997, about seven minutes, index only, no
+  payload change), then release run 41462330572, preflight run 41463550705 and
+  promote run 41465888068 (receipt `created_at` `2026-11-02T14:52:15Z`, active
+  slot green→blue, `status: accepted`). Carries the live system-name search fix
+  (#978), spectral star colours on the Galaxy map (#980), the honest nebula
+  inventory with planetary markers (#981) and the audit leftovers (#979). The
+  operator-code identity changed to `7008c681…` (023's timeout envelope only);
+  ranking identity unchanged. Public checks: health reports `a8d1b794`;
+  autocomplete for Sol/Achenar/Alioth returns within a second; stars near Sol
+  render in colour; Ratings V4 public smoke 8/8. The `293bc72b` backend is the
+  recorded rollback artifact. Receipts under
+  `docs/operations/evidence/2026-11-02-v3-production-*`.
 - **Production app promoted to `293bc72b`, the seventh F2d release (2026-11-01).**
   Owner-approved. Release run 41342325477, preflight run 41342504519, promote
   run 41342589203, receipt `created_at` `2026-11-01T19:37:23Z`, active slot
