@@ -73,6 +73,27 @@ describe('catalogue density truth contract', () => {
     ).toThrow(/inside its declared cell/);
   });
 
+  it('allows complete viewport counts without implying the whole generation is in view', () => {
+    const payload = buildFixtureCatalogueDensity(points, fixtureOptions);
+    const viewport = validateCatalogueDensityPayload({
+      ...payload,
+      coverageScope: 'viewport',
+      sourceSystemCount: 10,
+    });
+    expect(viewport.coveredSystemCount).toBe(3);
+    expect(viewport.sourceSystemCount).toBe(10);
+    expect(viewport.complete).toBe(true);
+    expect(() =>
+      validateCatalogueDensityPayload({ ...viewport, sourceSystemCount: 2 }),
+    ).toThrow(/cannot exceed/);
+    expect(() =>
+      validateCatalogueDensityPayload({
+        ...viewport,
+        coverageScope: 'unknown',
+      }),
+    ).toThrow(/coverageScope/);
+  });
+
   it('requires one catalogue-owned DERIVED layer with honest target state', () => {
     const payload = buildFixtureCatalogueDensity(points, fixtureOptions);
     const contribution = createCatalogueDensityContribution(payload, 11);

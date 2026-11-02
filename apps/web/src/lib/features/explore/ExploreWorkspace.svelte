@@ -78,8 +78,10 @@
   import { collectGalaxySpatialContributions } from '$lib/spatial/galaxy-overlays';
   import {
     classifyDensityError,
+    densityCoverageLabel,
     densityContributionFrom,
-    heatmapVoxelSizeForDistance,
+    heatmapViewportQueryKey,
+    heatmapViewportRequest,
     mapHeatmapToDensityPayload,
     type GalaxyDensityResult,
   } from '$lib/spatial/galaxy-density-source';
@@ -811,31 +813,15 @@
       return commanderVisits.data.count === 0 ? 'empty' : 'ready';
     },
   );
-  // Normalize the raw camera distance to the discrete voxel size once, then key
-  // the query AND its request params by it, so several nearby zoom stops that
-  // round to the same voxel size reuse one cached response instead of issuing a
-  // fresh request (and burning the route's 30-req/min budget) on every settle.
-  const heatmapVoxelSize = $derived(
-    heatmapVoxelSizeForDistance(streamCamera?.distanceLy ?? 118_000),
-  );
+  // Both request and cache key use the same discrete zoom/focus buckets after
+  // the camera debounce. The server chooses a complete level for this area.
+  const heatmapRequest = $derived(heatmapViewportRequest(streamCamera));
   const densityEnabled = $derived(
     showDensity && (streamCamera?.distanceLy ?? 0) >= DENSITY_CROSSFADE_NEAR_LY,
   );
   const heatmap = createQuery(() => ({
-    queryKey: ['map-heatmap', heatmapVoxelSize],
-    queryFn: ({ signal }) =>
-      getMapHeatmap(
-        {
-          voxel_size: heatmapVoxelSize,
-          // The density swirl wants every occupied cell, so request the full
-          // aggregate. The endpoint defaults to `min_systems: 5`, which would
-          // drop sparse cells and make a non-truncated payload fail its
-          // count-sum reconciliation against the generation-wide source count.
-          min_systems: 1,
-          max_cells: 40_000,
-        },
-        signal,
-      ),
+    queryKey: heatmapViewportQueryKey(heatmapRequest),
+    queryFn: ({ signal }) => getMapHeatmap(heatmapRequest, signal),
     // Enabled across the zoomed-out + overlap band; below `nearLy` density is
     // fully faded so no fetch needed.
     enabled: densityEnabled,
@@ -914,7 +900,9 @@
                   : 'ready',
   );
   const densityCellCount = $derived(lastGoodDensity?.payload.cells.length ?? 0);
-  const densityTruncated = $derived(lastGoodDensity?.area === 'truncated');
+  const densityCoverage = $derived(
+    lastGoodDensity ? densityCoverageLabel(lastGoodDensity) : null,
+  );
   const filteredCatalogueSystems = $derived(
     (appliedCataloguePacket?.systems ?? []).filter((system) => {
       // Keep the accepted packet's visibility mask until its replacement is
@@ -2018,6 +2006,7 @@
           onNebulaeToggle={toggleNebulae}
           densityCellSizeLy={lastGoodDensity?.payload.cellSizeLy ?? null}
           densityGeneration={lastGoodDensity?.payload.generationId ?? null}
+          {densityCoverage}
           journeysMaxVisits={travelHeatmapState === 'ready'
             ? Math.max(
                 1,
@@ -2046,9 +2035,8 @@
                   ? ' · showing previous area'
                   : ''}
               {:else if densityState === 'stale'}
-                {densityCellCount.toLocaleString()} density cells{densityTruncated
-                  ? ' · bounded view'
-                  : ''} · stale · {densityFailure?.kind === 'invalid'
+                {densityCellCount.toLocaleString()} density cells · {densityCoverage}
+                · stale · {densityFailure?.kind === 'invalid'
                   ? 'density response invalid'
                   : 'density refresh unavailable'}
               {:else if densityState === 'unavailable'}
@@ -2060,8 +2048,9 @@
               {:else if densityState === 'empty'}
                 No density cells in this area
               {:else}
-                {densityCellCount.toLocaleString()} density cells{densityTruncated
-                  ? ' · bounded view'
+                {densityCellCount.toLocaleString()} density cells{lastGoodDensity?.area ===
+                'truncated'
+                  ? ` · ${densityCoverage}`
                   : ''}
               {/if}
               {#if densityEnabled && densityFailure}

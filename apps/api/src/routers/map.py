@@ -1,11 +1,13 @@
 """Map data endpoints — galaxy regions, cluster hulls, heatmap, timeline."""
+import asyncio
 import math
-from typing import Optional
+from typing import Literal, Optional
 
 import asyncpg
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from edfinder_api.config import settings, limiter, log
 from edfinder_api.deps import get_pool, get_redis, cache_get, cache_set
@@ -16,6 +18,60 @@ from edfinder_api.v3_schema import current_generation_schema
 router = APIRouter(tags=['map'])
 
 MAX_MAP_HEATMAP_CELLS = 50_000
+
+
+class MapHeatmapPyramidCell(BaseModel):
+    origin_x_ly: float
+    origin_y_ly: float
+    origin_z_ly: float
+    centroid_x_ly: float
+    centroid_y_ly: float
+    centroid_z_ly: float
+    system_count: int
+    representative_system_id64: int | None = None
+
+
+class MapHeatmapBounds(BaseModel):
+    min_x: float | None
+    max_x: float | None
+    min_y: float | None
+    max_y: float | None
+    min_z: float | None
+    max_z: float | None
+
+
+class MapHeatmapPyramidResponse(BaseModel):
+    source: Literal['pyramid']
+    generation_id: str
+    spatial_generation_id: str
+    spatial_pyramid_version: str
+    source_system_count: int
+    coverage_at: str | None
+    level: int
+    requested_level: int
+    served_level: int
+    level_cell_count: int | None = Field(
+        description='Exact matching cell count at the served level; unknown for truncated legacy requests.',
+    )
+    coverage: Literal['complete', 'truncated']
+    cell_size_ly: float
+    voxel_size: int
+    bounds: MapHeatmapBounds
+    cells: list[MapHeatmapPyramidCell]
+    count: int
+    max_cells: int
+    truncated: bool
+
+
+class MapHeatmapLegacyResponse(BaseModel):
+    source: Literal['legacy-fallback']
+    voxel_size: int
+    voxel_bucket: int
+    economy: str | None
+    cells: list[dict[str, int | float | None]]
+    count: int
+    max_cells: int
+    truncated: bool
 
 # Real-star viewport lane (the zoom-in detail lane; heatmap is the aggregate lane).
 MAX_MAP_VIEWPORT_SYSTEMS = 40_000   # hard cap on individual systems per viewport
@@ -199,22 +255,34 @@ async def _current_spatial_pyramid(conn: asyncpg.Connection) -> Optional[asyncpg
 
 async def _pyramid_level(conn: asyncpg.Connection, version: str, voxel_size: int) -> Optional[asyncpg.Record]:
     """Pick the registered `v3_spatial.cell_level` row whose `cell_size_ly`
-    best matches the request's `voxel_size`, for the pyramid's own version --
-    the query-time level choice the design doc calls for (semantic scale +
-    budget; the level ladder itself is Task 7's benchmarking concern, not
-    this read path's).
+    best matches the request's `voxel_size`, for the pyramid's own version.
+    Complete-coverage requests start here and walk toward coarser registered
+    levels when the requested bounds exceed the cell budget.
     """
     return await conn.fetchrow(
         '''SELECT level, cell_size_ly
              FROM v3_spatial.cell_level
             WHERE spatial_pyramid_version = $1
-            ORDER BY abs(cell_size_ly - $2)
+            ORDER BY abs(cell_size_ly - $2), cell_size_ly, level
             LIMIT 1''',
         version, float(voxel_size),
     )
 
 
-@router.get('/api/map/heatmap')
+def _heatmap_unavailable(detail: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        media_type='application/problem+json',
+        content={
+            'type': 'https://ed-finder.app/problem/heatmap-unavailable',
+            'title': 'Known-system density temporarily unavailable',
+            'status': 503,
+            'detail': detail,
+        },
+    )
+
+
+@router.get('/api/map/heatmap', response_model=MapHeatmapPyramidResponse | MapHeatmapLegacyResponse)
 @limiter.limit('30/minute')
 async def map_heatmap(
     request: Request,
@@ -225,6 +293,10 @@ async def map_heatmap(
         ge=100,
         le=MAX_MAP_HEATMAP_CELLS,
         description='Maximum heatmap cells returned',
+    ),
+    coverage: Literal['complete', 'truncated'] = Query(
+        'truncated',
+        description='Complete chooses a coarser published level that fits; truncated preserves the legacy popularity cap.',
     ),
     economy:     Optional[str] = Query(None, description='Filter to a specific economy score'),
     min_x: Optional[float] = Query(None, description='Bounds min X (LY); omitted = whole galaxy'),
@@ -252,6 +324,11 @@ async def map_heatmap(
     has ever been published -- instead uses the legacy rated-MV/live-
     aggregate lane this endpoint has always served, tagged explicitly
     `"source": "legacy-fallback"` so callers can tell them apart.
+
+    With `coverage=complete`, count matching cells first and walk the registered
+    ladder toward coarser cell sizes until the whole requested view fits. An
+    unavailable pyramid or a budget that even the coarsest level cannot meet
+    returns 503; this mode never drops sparse cells or uses the rated fallback.
     """
     eco_col = None
     eco_key = None
@@ -260,15 +337,23 @@ async def map_heatmap(
         if eco_key is None:
             raise HTTPException(status_code=422, detail=f'Invalid economy: {economy}')
         eco_col = ratings_score_column(eco_key)
+    if coverage == 'complete' and economy is not None:
+        raise HTTPException(status_code=422, detail='Complete density coverage does not support economy filters')
 
     bounds = {
         'min_x': min_x, 'max_x': max_x, 'min_y': min_y, 'max_y': max_y,
         'min_z': min_z, 'max_z': max_z,
     }
-    bounds_key = ':'.join('x' if v is None else f'{v:.3f}' for v in bounds.values())
+    for axis in ('x', 'y', 'z'):
+        low, high = bounds[f'min_{axis}'], bounds[f'max_{axis}']
+        if any(value is not None and not math.isfinite(value) for value in (low, high)):
+            raise HTTPException(status_code=422, detail='Heatmap bounds must be finite')
+        if low is not None and high is not None and low > high:
+            raise HTTPException(status_code=422, detail=f'min_{axis} must not exceed max_{axis}')
+    bounds_key = ':'.join('x' if v is None else repr(float(v)) for v in bounds.values())
 
     cache_key = (
-        f'map:heatmap:v3:{voxel_size}:{min_systems}:{max_cells}:'
+        f'map:heatmap:v4:{coverage}:{voxel_size}:{min_systems}:{max_cells}:'
         f'{eco_col or "overall"}:{bounds_key}'
     )
     cached = await cache_get(cache_key, redis)
@@ -287,12 +372,16 @@ async def map_heatmap(
                 level_row = await _pyramid_level(conn, pyramid['spatial_pyramid_version'], voxel_size)
                 if level_row is None:
                     log.warning(
-                        'spatial pyramid %s has no registered cell_level; falling back to legacy heatmap',
+                        'spatial pyramid %s has no registered cell_level',
                         pyramid['spatial_pyramid_version'],
                     )
                     pyramid = None
 
+    if pyramid is None and coverage == 'complete':
+        return _heatmap_unavailable('No published density pyramid with registered levels is available.')
+
     if pyramid is not None:
+        requested_level = level_row['level']
         conditions = [
             'spatial_generation_id = $1', 'spatial_pyramid_version = $2',
             'level = $3', 'system_count >= $4',
@@ -315,19 +404,59 @@ async def map_heatmap(
         _add_bound('centroid_z_ly', min_z, '>=')
         _add_bound('centroid_z_ly', max_z, '<=')
 
-        args.append(max_cells + 1)
         where_clause = ' AND '.join(conditions)
 
         async with pool.acquire() as conn:
-            rows = await conn.fetch(f"""
-                SELECT origin_x_ly, origin_y_ly, origin_z_ly,
-                       centroid_x_ly, centroid_y_ly, centroid_z_ly,
-                       system_count, representative_system_id64
-                  FROM v3_spatial.cell_summary
-                 WHERE {where_clause}
-                 ORDER BY system_count DESC, origin_x_ly, origin_y_ly, origin_z_ly
-                 LIMIT ${len(args)}
-            """, *args)
+            try:
+                # The schema bounds the ladder to 31 levels. Each count probe
+                # stops at the first overflow cell, and the entire walk/read
+                # shares one timeout so a wide request cannot scan every cell.
+                async with asyncio.timeout(8):
+                    level_cell_count = None
+                    if coverage == 'complete':
+                        levels = await conn.fetch(
+                            '''SELECT level, cell_size_ly FROM v3_spatial.cell_level
+                                WHERE spatial_pyramid_version = $1 AND cell_size_ly >= $2
+                                ORDER BY cell_size_ly, level''',
+                            pyramid['spatial_pyramid_version'], level_row['cell_size_ly'],
+                        )
+                        for candidate in levels:
+                            args[2] = candidate['level']
+                            level_cell_count = await conn.fetchval(f'''
+                                SELECT count(*) FROM (
+                                    SELECT 1 FROM v3_spatial.cell_summary
+                                     WHERE {where_clause}
+                                     LIMIT ${len(args) + 1}
+                                ) AS matching_cells
+                            ''', *args, max_cells + 1)
+                            if level_cell_count <= max_cells:
+                                level_row = candidate
+                                break
+                        else:
+                            return _heatmap_unavailable(
+                                'No registered density level can cover these bounds within max_cells.',
+                            )
+
+                    order = (
+                        'origin_x_ly, origin_y_ly, origin_z_ly'
+                        if coverage == 'complete'
+                        else 'system_count DESC, origin_x_ly, origin_y_ly, origin_z_ly'
+                    )
+                    rows = await conn.fetch(f"""
+                        SELECT origin_x_ly, origin_y_ly, origin_z_ly,
+                               centroid_x_ly, centroid_y_ly, centroid_z_ly,
+                               system_count, representative_system_id64
+                          FROM v3_spatial.cell_summary
+                         WHERE {where_clause}
+                         ORDER BY {order}
+                         LIMIT ${len(args) + 1}
+                    """, *args, max_cells + 1)
+            except TimeoutError:
+                return _heatmap_unavailable('Density coverage query exceeded its time budget.')
+
+        if coverage == 'complete' and len(rows) != level_cell_count:
+            # Published cells are immutable; a mismatch is not a complete view.
+            return _heatmap_unavailable('Published density coverage could not be verified.')
 
         truncated = len(rows) > max_cells
         bounded_rows = rows[:max_cells]
@@ -341,6 +470,10 @@ async def map_heatmap(
             'source_system_count': pyramid['source_system_count'],
             'coverage_at': coverage_at.isoformat() if coverage_at else None,
             'level': level_row['level'],
+            'requested_level': requested_level,
+            'served_level': level_row['level'],
+            'level_cell_count': None if truncated else len(bounded_rows),
+            'coverage': 'truncated' if truncated else 'complete',
             'cell_size_ly': level_row['cell_size_ly'],
             'voxel_size': voxel_size,
             'bounds': bounds,

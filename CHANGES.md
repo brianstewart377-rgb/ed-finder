@@ -11,6 +11,24 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-02 — Complete known-system density follows the camera (M06)
+
+Explore requests known-system density inside an overscanned, bucketed camera
+box with `coverage=complete`. The API counts matching cells at the requested
+published pyramid level and walks only its registered coarser levels until the
+whole view fits the cell budget, preserving sparse geography. Complete requests
+fail closed when no published pyramid or fitting registered level is available.
+The default popularity-limited mode and legacy rated fallback remain available
+to existing callers, with separate cache entries.
+
+Pyramid responses identify the requested and served levels, complete/truncated
+coverage and the served level's cell count (unknown for a truncated legacy
+request). Layers reports “Complete at … LY” with the cell count, generation and
+view scope. Camera debouncing and discrete request buckets keep cache keys
+stable; complete viewport coverage no longer claims whole-catalogue coverage.
+API, web and generated OpenAPI contracts cover the new mode. No migration,
+pyramid rebuild, new level or production operation is part of this change.
+
 ## 2026-11-02 — Explore Layers separates catalogue density, journeys and nebulae
 
 Explore now has a non-modal **Layers** pop-out with independent Known-system

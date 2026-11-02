@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifyDensityError,
+  densityCoverageLabel,
   densityContributionFrom,
   heatmapVoxelSizeForDistance,
+  heatmapViewportQueryKey,
+  heatmapViewportRequest,
   mapHeatmapToDensityPayload,
   type GalaxyDensityResult,
 } from './galaxy-density-source';
 import { ApiError, type MapHeatmapPyramidResponse } from '$lib/api/client';
+import type { CameraState } from './contracts';
 
 const pyramid: MapHeatmapPyramidResponse = {
   source: 'pyramid',
@@ -16,6 +20,10 @@ const pyramid: MapHeatmapPyramidResponse = {
   source_system_count: 3,
   coverage_at: '2026-09-19T00:00:00Z',
   level: 3,
+  requested_level: 3,
+  served_level: 3,
+  level_cell_count: 2,
+  coverage: 'complete',
   cell_size_ly: 100,
   voxel_size: 100,
   bounds: {
@@ -91,6 +99,12 @@ describe('mapHeatmapToDensityPayload', () => {
     ['missing cells', { ...pyramid, cells: undefined }],
     ['malformed cells', { ...pyramid, cells: 'not-an-array' }],
     ['missing truncation', { ...pyramid, truncated: undefined }],
+    ['missing coverage', { ...pyramid, coverage: undefined }],
+    ['inconsistent coverage', { ...pyramid, coverage: 'truncated' }],
+    ['missing requested level', { ...pyramid, requested_level: undefined }],
+    ['different served level', { ...pyramid, served_level: 99 }],
+    ['missing level count', { ...pyramid, level_cell_count: undefined }],
+    ['incomplete cell list', { ...pyramid, level_cell_count: 3 }],
     ['mismatched cell count', { ...pyramid, count: 0 }],
   ])('reports invalid without throwing for %s', (_label, value) => {
     expect(() => mapHeatmapToDensityPayload(value)).not.toThrow();
@@ -126,6 +140,7 @@ describe('mapHeatmapToDensityPayload', () => {
       ...pyramid,
       cells: [],
       count: 0,
+      level_cell_count: 0,
       source_system_count: 0,
     });
     expect(result.area).toBe('empty');
@@ -139,6 +154,7 @@ describe('mapHeatmapToDensityPayload', () => {
       ...pyramid,
       cells: [],
       count: 0,
+      level_cell_count: 0,
       source_system_count: 0,
       bounds: {
         min_x: null,
@@ -157,7 +173,20 @@ describe('mapHeatmapToDensityPayload', () => {
   });
 
   it.each([
-    ['unreconciled source count', { source_system_count: 3 }],
+    [
+      'unreconciled global source count',
+      {
+        source_system_count: 3,
+        bounds: {
+          min_x: null,
+          max_x: null,
+          min_y: null,
+          max_y: null,
+          min_z: null,
+          max_z: null,
+        },
+      },
+    ],
     ['invalid metadata', { generation_id: '' }],
     ['invalid bounds', { bounds: {} }],
   ])('still rejects empty payloads with %s', (_label, invalidField) => {
@@ -166,6 +195,7 @@ describe('mapHeatmapToDensityPayload', () => {
         ...pyramid,
         cells: [],
         count: 0,
+        level_cell_count: 0,
         source_system_count: 0,
         ...invalidField,
       }).kind,
@@ -178,12 +208,154 @@ describe('mapHeatmapToDensityPayload', () => {
       cells: pyramid.cells.slice(0, 1),
       count: 1,
       truncated: true,
+      coverage: 'truncated',
     });
     expect(result.area).toBe('truncated');
     expect(result.payload.complete).toBe(false);
     expect(result.payload.coveredSystemCount).toBe(2);
     expect(result.payload.sourceSystemCount).toBe(3);
   });
+
+  it('accepts complete viewport coverage while preserving the global source count', () => {
+    const result = readyResult({ ...pyramid, source_system_count: 1_000 });
+    expect(result.payload.coverageScope).toBe('viewport');
+    expect(result.payload.complete).toBe(true);
+    expect(result.payload.sourceSystemCount).toBe(1_000);
+    expect(result.payload.coveredSystemCount).toBe(3);
+  });
+
+  it('keeps the served grid aligned when request bounds cut through cells', () => {
+    const result = readyResult({
+      ...pyramid,
+      bounds: {
+        min_x: 21,
+        max_x: 170,
+        min_y: 21,
+        max_y: 79,
+        min_z: 21,
+        max_z: 79,
+      },
+    });
+    expect(result.payload.cellOriginLy).toEqual({ x: 0, y: 0, z: 0 });
+    expect(result.payload.cells[1].index).toEqual({ x: 1, y: 0, z: 0 });
+    expect(result.payload.boundsLy.min).toEqual({ x: 21, y: 21, z: 21 });
+  });
+});
+
+describe('density viewport requests', () => {
+  const camera: CameraState = {
+    focusLy: { x: 12_000, y: 350, z: -8_000 },
+    distanceLy: 10_000,
+    bearingRad: 0,
+    pitchRad: 0.55,
+    projection: 'perspective',
+    revision: 0,
+  };
+
+  it('requests all occupied cells inside an overscanned focus box at regional zoom', () => {
+    const request = heatmapViewportRequest(camera);
+    expect(request).toMatchObject({
+      coverage: 'complete',
+      min_systems: 1,
+      max_cells: 40_000,
+      voxel_size: 200,
+    });
+    for (const axis of ['x', 'y', 'z'] as const) {
+      expect(request[`min_${axis}`]).toBeLessThan(
+        camera.focusLy[axis] - camera.distanceLy,
+      );
+      expect(request[`max_${axis}`]).toBeGreaterThan(
+        camera.focusLy[axis] + camera.distanceLy,
+      );
+      expect(request[`max_${axis}`] - request[`min_${axis}`]).toBeLessThan(
+        40_000,
+      );
+    }
+  });
+
+  it('shrinks the bounded region as the view zooms in, even at the same fine voxel size', () => {
+    const wide = heatmapViewportRequest({ ...camera, distanceLy: 118_000 });
+    const regional = heatmapViewportRequest(camera);
+    const near = heatmapViewportRequest({ ...camera, distanceLy: 3_000 });
+    expect(wide.max_x - wide.min_x).toBeGreaterThan(
+      regional.max_x - regional.min_x,
+    );
+    expect(regional.max_x - regional.min_x).toBeGreaterThan(
+      near.max_x - near.min_x,
+    );
+    expect(near.voxel_size).toBe(regional.voxel_size);
+    expect(heatmapViewportQueryKey(near)).not.toEqual(
+      heatmapViewportQueryKey(regional),
+    );
+  });
+
+  it('reuses the cache for nearby zoom stops and movement inside the same focus bucket', () => {
+    const wide = {
+      ...camera,
+      focusLy: { x: 0, y: 0, z: 0 },
+      distanceLy: 118_000,
+    };
+    const first = heatmapViewportRequest(wide);
+    const nearby = heatmapViewportRequest({
+      ...wide,
+      distanceLy: 118_050,
+      focusLy: { x: 20, y: 0, z: 0 },
+    });
+    expect(heatmapViewportQueryKey(first)).toEqual(
+      heatmapViewportQueryKey(nearby),
+    );
+  });
+
+  it('partitions the cache when panning to a different bounds bucket at the same zoom', () => {
+    const first = heatmapViewportRequest(camera);
+    const moved = heatmapViewportRequest({
+      ...camera,
+      focusLy: { ...camera.focusLy, x: 42_000 },
+    });
+    expect(moved.voxel_size).toBe(first.voxel_size);
+    expect(heatmapViewportQueryKey(moved)).not.toEqual(
+      heatmapViewportQueryKey(first),
+    );
+    expect(heatmapViewportQueryKey(moved)[0]).toBe('map-heatmap');
+  });
+
+  it('rejects non-finite camera coordinates before sending a request', () => {
+    expect(() =>
+      heatmapViewportRequest({ ...camera, distanceLy: NaN }),
+    ).toThrow();
+    expect(() =>
+      heatmapViewportRequest({
+        ...camera,
+        focusLy: { x: Infinity, y: 0, z: 0 },
+      }),
+    ).toThrow();
+  });
+});
+
+describe('density coverage legend', () => {
+  it('names the served resolution of complete coverage', () => {
+    expect(
+      densityCoverageLabel(readyResult({ ...pyramid, requested_level: 2 })),
+    ).toBe('Complete at 100 LY');
+  });
+
+  it.each([null, 8])(
+    'shows numbers for legacy truncated coverage (level count %s)',
+    (count) => {
+      const result = readyResult({
+        ...pyramid,
+        truncated: true,
+        coverage: 'truncated',
+        level_cell_count: count,
+      });
+      expect(densityCoverageLabel(result)).toBe(
+        count === null
+          ? 'Truncated · 2 cells shown at 100 LY'
+          : 'Truncated · 2 of 8 cells shown at 100 LY',
+      );
+      expect(densityCoverageLabel(result)).not.toContain('bounded view');
+    },
+  );
 });
 
 describe('classifyDensityError', () => {

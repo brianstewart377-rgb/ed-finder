@@ -10,6 +10,7 @@
     onNebulaeToggle,
     densityCellSizeLy,
     densityGeneration,
+    densityCoverage = null,
     journeysMaxVisits,
     densityStatus,
     journeysStatus,
@@ -23,6 +24,7 @@
     onNebulaeToggle: () => void;
     densityCellSizeLy: number | null;
     densityGeneration: string | null;
+    densityCoverage?: string | null;
     journeysMaxVisits?: number;
     densityStatus: Snippet;
     journeysStatus: Snippet;
@@ -200,8 +202,8 @@
         <span class="switch-track" aria-hidden="true"><span></span></span>
       </button>
       <p id={`${id}-density-description`}>
-        Public aggregate of catalogue systems per cell; detail changes with
-        zoom.
+        Public aggregate of catalogue systems per cell in this view; detail
+        changes with zoom.
       </p>
       <div class="layer-legend" aria-label="Known-system density legend">
         <div class="colour-ramp density-ramp" aria-hidden="true"></div>
@@ -209,7 +211,9 @@
           <span>fewer systems</span><span>more systems</span>
         </div>
         <p>
-          {#if densityCellSizeLy !== null}
+          {#if densityCoverage}
+            {densityCoverage}
+          {:else if densityCellSizeLy !== null}
             {densityCellSizeLy.toLocaleString()} LY cells
           {:else}
             Cell size available when loaded

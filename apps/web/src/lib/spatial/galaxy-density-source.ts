@@ -1,4 +1,4 @@
-import type { SpatialContribution } from './contracts';
+import type { CameraState, SpatialContribution } from './contracts';
 import {
   CATALOGUE_DENSITY_SCHEMA_VERSION,
   createCatalogueDensityContribution,
@@ -12,6 +12,7 @@ export type GalaxyDensityResult =
       kind: 'ready';
       payload: CatalogueDensityPayload;
       area: 'complete' | 'empty' | 'truncated';
+      levelCellCount: number | null;
     }
   | { kind: 'unavailable'; reason: string }
   | { kind: 'invalid'; reason: string }
@@ -95,16 +96,52 @@ export function mapHeatmapToDensityPayload(
     if (value.count !== value.cells.length) {
       throw new Error('Density response count must match its cells');
     }
+    if (
+      !Number.isSafeInteger(value.requested_level) ||
+      Number(value.requested_level) < 0 ||
+      !Number.isSafeInteger(value.served_level) ||
+      Number(value.served_level) < 0 ||
+      value.served_level !== value.level
+    ) {
+      throw new Error(
+        'Density response must identify its requested and served levels',
+      );
+    }
+    if (
+      (value.coverage !== 'complete' && value.coverage !== 'truncated') ||
+      (value.coverage === 'truncated') !== value.truncated
+    ) {
+      throw new Error('Density coverage must agree with truncation');
+    }
+    if (
+      value.level_cell_count !== null &&
+      (!Number.isSafeInteger(value.level_cell_count) ||
+        Number(value.level_cell_count) < value.cells.length)
+    ) {
+      throw new Error('Density level cell count must cover the returned cells');
+    }
+    if (
+      value.coverage === 'complete' &&
+      value.level_cell_count !== value.cells.length
+    ) {
+      throw new Error(
+        'Complete density must return every cell at its served level',
+      );
+    }
     const res = value as unknown as MapHeatmapPyramidResponse;
     const cells = res.cells;
-    // An empty published pyramid still passes the full metadata/count
-    // validation. With no occupied cells, null bounds have zero extent.
-    const originX =
-      res.bounds.min_x ?? (cells.length ? minBy(cells, 'origin_x_ly') : 0);
-    const originY =
-      res.bounds.min_y ?? (cells.length ? minBy(cells, 'origin_y_ly') : 0);
-    const originZ =
-      res.bounds.min_z ?? (cells.length ? minBy(cells, 'origin_z_ly') : 0);
+    // Request bounds need not align with the served level's cell grid. Anchor
+    // indices to actual cell origins, preserving each factual centroid/cell.
+    // An empty published area still passes metadata/count validation.
+    const originX = cells.length
+      ? minBy(cells, 'origin_x_ly')
+      : (res.bounds.min_x ?? 0);
+    const originY = cells.length
+      ? minBy(cells, 'origin_y_ly')
+      : (res.bounds.min_y ?? 0);
+    const originZ = cells.length
+      ? minBy(cells, 'origin_z_ly')
+      : (res.bounds.min_z ?? 0);
     const payload = validateCatalogueDensityPayload({
       schemaVersion: CATALOGUE_DENSITY_SCHEMA_VERSION,
       generationId: res.generation_id,
@@ -139,7 +176,10 @@ export function mapHeatmapToDensityPayload(
       sourceSystemCount: res.source_system_count,
       coveredSystemCount: cells.reduce((n, c) => n + c.system_count, 0),
       coverageAsOf: res.coverage_at ?? new Date(0).toISOString(),
-      complete: !res.truncated,
+      coverageScope: Object.values(res.bounds).some((bound) => bound !== null)
+        ? 'viewport'
+        : 'generation',
+      complete: res.coverage === 'complete',
       cells: cells.map((c) => ({
         index: {
           x: Math.round((c.origin_x_ly - originX) / res.cell_size_ly),
@@ -158,6 +198,7 @@ export function mapHeatmapToDensityPayload(
       kind: 'ready',
       payload,
       area: res.truncated ? 'truncated' : cells.length ? 'complete' : 'empty',
+      levelCellCount: res.level_cell_count,
     };
   } catch (error) {
     return {
@@ -197,4 +238,56 @@ export function densityContributionFrom(
  */
 export function heatmapVoxelSizeForDistance(distanceLy: number): number {
   return Math.max(200, Math.round(distanceLy / 200));
+}
+
+/**
+ * Conservative focus-centred cube with overscan. The camera stream is already
+ * debounced; zoom and focus buckets let small movements reuse the same view.
+ * There is no fixed whole-galaxy extent at regional or local zoom.
+ */
+export function heatmapViewportRequest(camera: CameraState | null) {
+  const distance = camera?.distanceLy ?? 118_000;
+  const focus = camera?.focusLy ?? { x: 0, y: 0, z: 0 };
+  if (
+    !Number.isFinite(distance) ||
+    distance < 0 ||
+    Object.values(focus).some((coordinate) => !Number.isFinite(coordinate))
+  )
+    throw new RangeError(
+      'Density camera must have finite coordinates and distance',
+    );
+  const distanceBucket = Math.max(1_000, Math.round(distance / 1_000) * 1_000);
+  const step = Math.max(200, 2 ** Math.floor(Math.log2(distanceBucket / 8)));
+  // Include the far edge of this distance bucket and half a focus bucket.
+  const radius =
+    Math.ceil(((distanceBucket + 500) * 1.5 + step / 2) / step) * step;
+  const centre = (coordinate: number) => Math.round(coordinate / step) * step;
+  return {
+    voxel_size: heatmapVoxelSizeForDistance(distance),
+    min_systems: 1,
+    max_cells: 40_000,
+    coverage: 'complete' as const,
+    min_x: centre(focus.x) - radius,
+    max_x: centre(focus.x) + radius,
+    min_y: centre(focus.y) - radius,
+    max_y: centre(focus.y) + radius,
+    min_z: centre(focus.z) - radius,
+    max_z: centre(focus.z) + radius,
+  };
+}
+
+export function heatmapViewportQueryKey(
+  request: ReturnType<typeof heatmapViewportRequest>,
+) {
+  return ['map-heatmap', JSON.stringify(request)] as const;
+}
+
+export function densityCoverageLabel(
+  result: Extract<GalaxyDensityResult, { kind: 'ready' }>,
+): string {
+  const size = result.payload.cellSizeLy.toLocaleString();
+  if (result.area !== 'truncated') return `Complete at ${size} LY`;
+  const shown = result.payload.cells.length.toLocaleString();
+  const total = result.levelCellCount?.toLocaleString();
+  return `Truncated · ${shown}${total ? ` of ${total}` : ''} cells shown at ${size} LY`;
 }
