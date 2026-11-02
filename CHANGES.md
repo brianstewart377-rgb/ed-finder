@@ -11,23 +11,6 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
-<<<<<<< HEAD
-## 2026-11-01 — Explore body filters and refresh-safe search anchors
-
-Explore keeps the committed search anchor in a bounded, lossless `near` URL
-parameter and restores its name and coordinates on reload or from a shared link.
-Invalid or unresolved anchors are removed with a notice; a plain Explore visit
-still waits for a requested search.
-
-The Body filters pop-out groups the API's 19 body counts into Planets, Stars and
-Features, with whole-count ranges, number inputs and unlimited maxima. Apply
-commits the draft with one search; removable chips and Clear all update results.
-Filters are shared through the bounded `bodies` URL parameter and are paused
-outside an anchored Any search. Both features work with the F4 flag on or off;
-filters are never persisted to local storage. Unit/component coverage exercises
-validation, draft controls, accessibility and history; Product E2E covers Apply,
-the request body, URL-only reload restoration and the open pop-out's accessibility.
-=======
 ## 2026-11-02 — Migration 023 applied; eighth F2d release `a8d1b794` accepted: system-name search restored
 
 Owner-approved. The governed plan run 41449585823 listed pending exactly `[023]`
@@ -66,7 +49,22 @@ revisions only with accepted data reduces the non-F4 interaction workload from
 and transitions unchanged. This visible map change needs Product E2E/visual
 validation before production promotion and is not deployed. No API, SQL or
 workflow changes are included.
->>>>>>> origin/main
+
+## 2026-11-01 — Explore body filters and refresh-safe search anchors
+
+Explore keeps the committed search anchor in a bounded, lossless `near` URL
+parameter and restores its name and coordinates on reload or from a shared link.
+Invalid or unresolved anchors are removed with a notice; a plain Explore visit
+still waits for a requested search.
+
+The Body filters pop-out groups the API's 19 body counts into Planets, Stars and
+Features, with whole-count ranges, number inputs and unlimited maxima. Apply
+commits the draft with one search; removable chips and Clear all update results.
+Filters are shared through the bounded `bodies` URL parameter and are paused
+outside an anchored Any search. Both features work with the F4 flag on or off;
+filters are never persisted to local storage. Unit/component coverage exercises
+validation, draft controls, accessibility and history; Product E2E covers Apply,
+the request body, URL-only reload restoration and the open pop-out's accessibility.
 
 ## 2026-11-02 — Galaxy nebula inventory and planetary landmarks (M02)
 
