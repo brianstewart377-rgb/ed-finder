@@ -432,7 +432,6 @@ and all consent and export reads remain available. Database-free route tests
 cover the refusals and withdrawal; PostgreSQL integration coverage preserves
 the export-builder and consent flows with the pause explicitly disabled.
 
-
 ## 2026-10-31 — Finder: ranking rows carry their best rival archetype (F4b fit label)
 
 Selected-archetype ranking rows now carry `rival_archetype` and `rival_score`,
