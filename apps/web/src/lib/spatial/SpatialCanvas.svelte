@@ -1,9 +1,16 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
+  import { SvelteMap } from 'svelte/reactivity';
+  import { resolve } from '$app/paths';
   import { FINDER_F4_ENABLED } from '$lib/config';
 
   import type {
+    Bounds3Ly,
+    BodyRef,
+    BodyVisualDescriptor,
     CameraState,
+    GalaxySystemPoint,
+    Provenance,
     RuntimeEvent,
     SpatialRuntime,
     SpatialRuntimeStatus,
@@ -13,13 +20,32 @@
     SystemCameraState,
   } from './contracts';
   import {
+    GALAXY_CAMERA_NAVIGATION_BOUNDS_LY,
+    elevateGalaxyCameraByPixels,
+    elevateGalaxyCameraStep,
     orbitGalaxyCamera,
     panGalaxyCamera,
+    pinchGalaxyCamera,
     topDownGalaxyCamera,
     zoomGalaxyCamera,
+    zoomGalaxyCameraTowards,
+    type GalaxyCameraPoint,
   } from './galaxy-camera';
+  import {
+    CATALOGUE_DENSITY_LAYER_ID,
+    catalogueDensitySceneLayer,
+  } from './galaxy-density';
   import { galaxyReferenceGrid } from './galaxy-grid';
-  import { galaxyLabelCandidates, layoutGalaxyLabels } from './galaxy-labels';
+  import {
+    galaxyLabelCandidates,
+    galaxySystemPointIndex,
+    layoutGalaxyLabels,
+    projectGalaxyLabel,
+    type GalaxyLabelCandidate,
+    type ProjectedGalaxyLabel,
+  } from './galaxy-labels';
+  import GalaxySystemHoverCard from './GalaxySystemHoverCard.svelte';
+  import SystemBodyLegend from './SystemBodyLegend.svelte';
 
   let {
     scene,
@@ -31,6 +57,10 @@
     contributionPatchRevision = 0,
     onRuntimeEvent,
     onTransitionChange,
+    anchorPoint = null,
+    onSystemSelect,
+    systemInspectHref,
+    onSystemInspect,
   } = $props<{
     scene?: SpatialSceneContract;
     focusTarget?: SpatialTarget | null;
@@ -40,6 +70,10 @@
     contributionPatch?: SpatialContribution | null;
     contributionPatchRevision?: number;
     onRuntimeEvent?: (event: RuntimeEvent) => void;
+    anchorPoint?: GalaxySystemPoint | null;
+    onSystemSelect?: (system: GalaxySystemPoint) => void;
+    systemInspectHref?: (system: GalaxySystemPoint) => string;
+    onSystemInspect?: (event: MouseEvent, system: GalaxySystemPoint) => void;
     onTransitionChange?: (
       active: boolean,
       camera?: CameraState | SystemCameraState | null,
@@ -62,26 +96,146 @@
   const canGalaxyNavigate = $derived(scene?.kind === 'galaxy');
   const canSystemNavigate = $derived(scene?.kind === 'system');
   const canNavigate = $derived(canGalaxyNavigate || canSystemNavigate);
-  let drag: {
+  const cameraDensityContribution = $derived.by(() => {
+    if (scene?.kind !== 'galaxy') return undefined;
+    const contributions: readonly SpatialContribution[] = scene.contributions;
+    for (const part of contributions) {
+      // F4 reserves an empty contribution until its first density patch.
+      const contribution: SpatialContribution =
+        contributionPatch?.id === part.id &&
+        part.revision < contributionPatch.revision
+          ? contributionPatch
+          : part;
+      if (
+        contribution.layers.some(
+          (layer) => layer.id === CATALOGUE_DENSITY_LAYER_ID,
+        )
+      )
+        return contribution;
+    }
+    return undefined;
+  });
+  const cameraDensity = $derived.by(() => {
+    const contribution = cameraDensityContribution;
+    if (!contribution) return undefined;
+    // Camera receipts replace the scene object. Validate density only when
+    // the contribution changes, so a drag never rescans its catalogue cells.
+    const galaxyScene = untrack(() => scene);
+    if (galaxyScene?.kind !== 'galaxy') return undefined;
+    return catalogueDensitySceneLayer({
+      ...galaxyScene,
+      contributions: [contribution],
+    })?.payload;
+  });
+  let cameraBounds = $state<Bounds3Ly | undefined>();
+  let cameraBoundsGeneration: string | undefined;
+  $effect(() => {
+    const density = cameraDensity;
+    if (!density) return;
+    if (density.generationId !== cameraBoundsGeneration) {
+      cameraBoundsGeneration = density.generationId;
+      cameraBounds = undefined;
+    }
+    // Truncated responses describe only the densest cells. Retain the last
+    // complete catalogue extent while a finer level refreshes this generation.
+    if (density.complete) cameraBounds = density.boundsLy;
+  });
+  type ActivePointer = {
     id: number;
+    pointerType: string;
     x: number;
     y: number;
     startX: number;
     startY: number;
     moved: boolean;
-    orbit: boolean;
-  } | null = null;
+    mode: 'pan' | 'orbit' | 'elevate';
+  };
+  const activePointers = new SvelteMap<number, ActivePointer>();
   let removeWindowDragListeners: (() => void) | null = null;
   let lastPickedId64 = $state<string | undefined>();
   let lastPickedRegionId = $state<string | undefined>();
   let lastHoveredRegionId = $state<string | undefined>();
+  let lastHoveredBodyRef = $state<BodyRef | undefined>();
+  const hoveredBody = $derived(
+    scene?.kind === 'system' &&
+      scene.systemId64 === lastHoveredBodyRef?.systemId64
+      ? scene.bodies.find(
+          (body: BodyVisualDescriptor) =>
+            body.ref.bodyId === lastHoveredBodyRef?.bodyId,
+        )
+      : undefined,
+  );
+  $effect.pre(() => {
+    if (
+      scene?.kind !== 'system' ||
+      scene.systemId64 !== lastHoveredBodyRef?.systemId64
+    )
+      lastHoveredBodyRef = undefined;
+  });
+  let cameraTransitionActive = $state(false);
+  let hoveredSystemId64 = $state<string | undefined>();
+  let hoverPosition = $state({ x: 16, y: 16 });
+  let hoverClearTimeout: number | null = null;
+  let tooltipHost = $state<HTMLDivElement>();
+  let nearbyOpen = $state(false);
+  const componentId = $props.id();
+  const tooltipId = `${componentId}-system-tooltip`;
+  const systemKeyboardHelpId = `${componentId}-system-keyboard-help`;
+  let hoverOpener: HTMLElement | null = null;
+  let restoringHoverFocus = false;
+  let focusCardRequested = $state(false);
+  const pointIndex = $derived(
+    scene?.kind === 'galaxy' ? galaxySystemPointIndex(scene) : null,
+  );
+  const hoveredSystem = $derived(
+    hoveredSystemId64
+      ? (pointIndex?.get(hoveredSystemId64) ??
+          (anchorPoint?.systemId64 === hoveredSystemId64 ? anchorPoint : null))
+      : null,
+  );
+  let labelCandidates = $state.raw<GalaxyLabelCandidate[]>([]);
+  let visibleGalaxyLabels = $state.raw<ProjectedGalaxyLabel[]>([]);
+  let labelCamera = $state.raw<CameraState | null>(null);
+  const labelsMoving = $derived(
+    cameraTransitionActive || labelCamera !== currentCamera,
+  );
+  const nearbySystems = $derived(
+    labelCandidates
+      .filter((label) => label.kind === 'system' && label.point)
+      // Priority chooses membership/placement. Stable DOM order keeps Tab and
+      // existing keyboard focus predictable when hover changes that priority.
+      .sort(
+        (left, right) =>
+          left.text.localeCompare(right.text) ||
+          left.key.localeCompare(right.key),
+      ),
+  );
+  const renderedGalaxyLabels = $derived(
+    [...visibleGalaxyLabels].sort((left, right) =>
+      left.key.localeCompare(right.key),
+    ),
+  );
+  $effect(() => {
+    if (!focusCardRequested || !hoveredSystem || labelsMoving) return;
+    void tick().then(() => {
+      tooltipHost?.querySelector<HTMLButtonElement>('button')?.focus();
+      focusCardRequested = false;
+    });
+  });
+  $effect(() => {
+    // A pointer no longer identifies the same star once the camera moves.
+    // Keyboard-triggered cards instead remain associated with their trigger.
+    void currentCamera;
+    untrack(() => {
+      if (!hoverOpener) dismissHover();
+    });
+  });
   let lastSettledFocusId64 = $state<string | undefined>();
   let lastSettledFocusBodyId = $state<number | undefined>();
   let lastAppliedSceneRevision = $state<number | undefined>();
   let lastAppliedContributionRevision = $state<number | undefined>();
   let renderedLayerIds = $state<string[]>([]);
   let pendingHoverPoint: { x: number; y: number } | null = null;
-  let cameraTransitionActive = $state(false);
   let transitionCamera: CameraState | SystemCameraState | null = null;
   let pendingPickPoint: { screenX: number; screenY: number } | null = null;
   type PendingCameraMove =
@@ -164,26 +318,36 @@
   );
   const sceneTargetCount = $derived(targetCount(scene));
   const systemTargetCount = $derived(layerTargetCount(scene, 'finder-systems'));
-  const visibleGalaxyLabels = $derived.by(() => {
-    // Resize revision invalidates the CSS-pixel projection even when the
-    // accepted scene and camera are unchanged. Read it explicitly so it stays a
-    // reactive dependency of this $derived — do not remove.
+  $effect(() => {
+    // Like viewport streaming, labels use the settled view. Never rank or solve
+    // overlap on CAMERA_CHANGED animation frames or during a held drag.
     void resizeRevision;
-    if (
-      !canGalaxyNavigate ||
-      scene?.kind !== 'galaxy' ||
-      !currentCamera ||
-      !host
-    )
-      return [];
-    return layoutGalaxyLabels(
-      galaxyLabelCandidates(scene, lastHoveredRegionId),
-      currentCamera,
-      {
-        width: Math.max(1, host.clientWidth),
-        height: Math.max(1, host.clientHeight),
-      },
-    );
+    const nextScene = scene;
+    const camera = currentCamera;
+    const regionId = lastHoveredRegionId;
+    const systemId = hoveredSystemId64;
+    const reference = anchorPoint;
+    if (nextScene?.kind !== 'galaxy' || !camera || !host) {
+      labelCandidates = [];
+      visibleGalaxyLabels = [];
+      return;
+    }
+    if (cameraTransitionActive) return;
+    const timeout = window.setTimeout(() => {
+      const size = viewport();
+      labelCandidates = galaxyLabelCandidates(
+        { ...nextScene, camera },
+        regionId,
+        {
+          hoveredSystemId64: systemId,
+          anchor: reference ?? undefined,
+          viewport: size,
+        },
+      );
+      visibleGalaxyLabels = layoutGalaxyLabels(labelCandidates, camera, size);
+      labelCamera = camera;
+    }, 180);
+    return () => window.clearTimeout(timeout);
   });
   const atlasRegionLabels = $derived(
     visibleGalaxyLabels.filter(
@@ -375,11 +539,26 @@
 
   function pan(x: number, y: number): void {
     if (currentCamera)
-      setCamera(panGalaxyCamera(currentCamera, x, y, viewport()));
+      setCamera(
+        panGalaxyCamera(
+          currentCamera,
+          x,
+          y,
+          viewport(),
+          cameraBounds ?? GALAXY_CAMERA_NAVIGATION_BOUNDS_LY,
+        ),
+      );
   }
 
   function zoom(delta: number): void {
     if (currentCamera) setCamera(zoomGalaxyCamera(currentCamera, delta));
+  }
+
+  function elevate(direction: 1 | -1): void {
+    if (currentCamera)
+      setCamera(
+        elevateGalaxyCameraStep(currentCamera, direction, cameraBounds),
+      );
   }
 
   function orbit(bearing: number, pitch = 0): void {
@@ -508,34 +687,65 @@
   }
 
   function pointerDown(event: PointerEvent): void {
+    if ((event.target as Element).closest('[data-map-interactive]')) return;
     if (!canNavigate) {
       pick(event);
       return;
     }
     if (event.button !== 0 && event.button !== 2) return;
-    if (drag || status.state !== 'ready') return;
+    if (status.state !== 'ready' || activePointers.has(event.pointerId)) return;
+    // A second touch joins a Galaxy gesture. Other additional pointers never
+    // replace an active drag or change the System map's existing controls.
+    if (
+      activePointers.size > 0 &&
+      (!canGalaxyNavigate ||
+        event.pointerType !== 'touch' ||
+        activePointers.size >= 2 ||
+        [...activePointers.values()].some(
+          (pointer) => pointer.pointerType !== 'touch',
+        ))
+    )
+      return;
     // Keep keyboard focus on the semantic host; the browser's default pointer
     // focus would otherwise land on the hidden canvas and scroll the page.
     event.preventDefault();
     host.focus({ preventScroll: true });
     clearHover();
-    drag = {
+    activePointers.set(event.pointerId, {
       id: event.pointerId,
+      pointerType: event.pointerType,
       x: event.clientX,
       y: event.clientY,
       startX: event.clientX,
       startY: event.clientY,
       moved: false,
-      orbit: canSystemNavigate || event.shiftKey || event.button === 2,
-    };
-    installWindowDragListeners();
+      mode:
+        canSystemNavigate || event.shiftKey || event.button === 2
+          ? 'orbit'
+          : event.altKey
+            ? 'elevate'
+            : 'pan',
+    });
+    if (activePointers.size === 2) {
+      // Neither finger may become a click after participating in a gesture.
+      for (const pointer of activePointers.values()) pointer.moved = true;
+    }
+    try {
+      host.setPointerCapture?.(event.pointerId);
+    } catch (error) {
+      // Synthetic PointerEvents have no browser-owned active pointer to
+      // capture. The window listeners still complete and cancel that gesture.
+      if (!(error instanceof DOMException) || error.name !== 'NotFoundError')
+        throw error;
+    }
+    if (!removeWindowDragListeners) installWindowDragListeners();
   }
 
   function installWindowDragListeners(): void {
     removeWindowDragListeners?.();
     const move = (event: PointerEvent): void => windowPointerMove(event);
     const up = (event: PointerEvent): void => windowPointerUp(event);
-    const cancel = (): void => windowPointerCancel();
+    const cancel = (event: PointerEvent): void => windowPointerCancel(event);
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', cancel);
@@ -548,12 +758,43 @@
   }
 
   function pointerMove(event: PointerEvent): void {
-    if (drag) return;
+    if (
+      activePointers.size > 0 ||
+      (event.target as Element).closest('[data-map-interactive]')
+    )
+      return;
     hover(event);
   }
 
+  function canvasPoint(point: GalaxyCameraPoint): GalaxyCameraPoint {
+    const bounds = (
+      host.querySelector('canvas') ?? host
+    ).getBoundingClientRect();
+    return { x: point.x - bounds.left, y: point.y - bounds.top };
+  }
+
   function windowPointerMove(event: PointerEvent): void {
-    if (!drag || drag.id !== event.pointerId) return;
+    const drag = activePointers.get(event.pointerId);
+    if (!drag) return;
+    if (activePointers.size === 2 && canGalaxyNavigate && currentCamera) {
+      const [first, second] = [...activePointers.values()] as [
+        ActivePointer,
+        ActivePointer,
+      ];
+      const previous = [canvasPoint(first), canvasPoint(second)] as const;
+      drag.x = event.clientX;
+      drag.y = event.clientY;
+      setCamera(
+        pinchGalaxyCamera(
+          currentCamera,
+          previous,
+          [canvasPoint(first), canvasPoint(second)],
+          viewport(),
+          cameraBounds,
+        ),
+      );
+      return;
+    }
     const deltaX = event.clientX - drag.x;
     const deltaY = event.clientY - drag.y;
     if (
@@ -566,22 +807,39 @@
     drag.x = event.clientX;
     drag.y = event.clientY;
     if (canSystemNavigate) orbitSystem(-deltaX * 0.006, deltaY * 0.004);
-    else if (drag.orbit) orbit(-deltaX * 0.006, deltaY * 0.004);
+    else if (drag.mode === 'orbit') orbit(-deltaX * 0.006, deltaY * 0.004);
+    else if (drag.mode === 'elevate' && currentCamera)
+      setCamera(
+        elevateGalaxyCameraByPixels(
+          currentCamera,
+          -deltaY,
+          viewport(),
+          cameraBounds,
+        ),
+      );
     else pan(-deltaX, -deltaY);
   }
 
+  function releasePointerCapture(id: number): void {
+    if (host.hasPointerCapture?.(id)) host.releasePointerCapture(id);
+  }
+
   function windowPointerUp(event: PointerEvent): void {
-    if (!drag || drag.id !== event.pointerId) return;
-    const completed = drag;
-    drag = null;
-    removeWindowDragListeners?.();
-    if (!completed.moved && (canSystemNavigate || !completed.orbit))
+    const completed = activePointers.get(event.pointerId);
+    if (!completed) return;
+    activePointers.delete(event.pointerId);
+    releasePointerCapture(event.pointerId);
+    if (activePointers.size === 0) removeWindowDragListeners?.();
+    if (!completed.moved && (canSystemNavigate || completed.mode === 'pan'))
       pick(event);
   }
 
-  function windowPointerCancel(): void {
-    drag = null;
+  function windowPointerCancel(event?: PointerEvent): void {
+    if (event && !activePointers.has(event.pointerId)) return;
+    const ids = [...activePointers.keys()];
+    activePointers.clear();
     removeWindowDragListeners?.();
+    for (const id of ids) releasePointerCapture(id);
     clearHover();
   }
 
@@ -648,6 +906,7 @@
   }
 
   function clearHover(): void {
+    lastHoveredBodyRef = undefined;
     pendingHoverPoint = null;
     if (hoverFrame !== null) {
       window.cancelAnimationFrame(hoverFrame);
@@ -656,7 +915,127 @@
     if (status.state === 'ready' && runtime) {
       runtime.dispatch({ type: 'CLEAR_HOVER' });
     }
+    scheduleHoverClear();
   }
+
+  function keepHover(): void {
+    if (hoverClearTimeout !== null) window.clearTimeout(hoverClearTimeout);
+    hoverClearTimeout = null;
+  }
+
+  function dismissHover(): void {
+    keepHover();
+    if (!hoveredSystemId64) return;
+    focusCardRequested = false;
+    if (tooltipHost?.contains(document.activeElement)) {
+      restoringHoverFocus = true;
+      (hoverOpener?.isConnected ? hoverOpener : host).focus({
+        preventScroll: true,
+      });
+      restoringHoverFocus = false;
+    }
+    hoveredSystemId64 = undefined;
+    onRuntimeEvent?.({
+      type: 'TARGET_HOVERED',
+      target: lastHoveredRegionId
+        ? { kind: 'region', id: lastHoveredRegionId }
+        : undefined,
+    });
+  }
+
+  function scheduleHoverClear(): void {
+    keepHover();
+    // Allow crossing the short gap between a star/label and its card. Focus
+    // within either the trigger or card keeps it open; Tab is never captured.
+    hoverClearTimeout = window.setTimeout(() => {
+      hoverClearTimeout = null;
+      if (tooltipHost?.contains(document.activeElement)) return;
+      const focused = document.activeElement as HTMLElement | null;
+      if (
+        hoveredSystemId64 &&
+        focused?.dataset.systemId64 === hoveredSystemId64
+      )
+        return;
+      dismissHover();
+    }, 220);
+  }
+
+  function showSystem(
+    system: GalaxySystemPoint,
+    event?: PointerEvent | FocusEvent,
+  ): void {
+    if (restoringHoverFocus) return;
+    keepHover();
+    lastHoveredRegionId = undefined;
+    hoveredSystemId64 = system.systemId64;
+    hoverOpener =
+      event && !('clientX' in event)
+        ? (event.currentTarget as HTMLElement)
+        : null;
+    if (event && 'clientX' in event) {
+      const bounds = host.getBoundingClientRect();
+      hoverPosition = {
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top,
+      };
+    } else {
+      const projected = currentCamera
+        ? projectGalaxyLabel(system.positionLy, currentCamera, viewport())
+        : null;
+      hoverPosition = { x: projected?.xPx ?? 16, y: projected?.yPx ?? 16 };
+    }
+    onRuntimeEvent?.({
+      type: 'TARGET_HOVERED',
+      target: {
+        kind: 'system',
+        systemId64: system.systemId64,
+        name: system.name,
+      },
+    });
+  }
+
+  function systemKey(event: KeyboardEvent, system: GalaxySystemPoint): void {
+    if (event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    event.stopPropagation();
+    showSystem(system);
+    hoverOpener = event.currentTarget as HTMLElement;
+    focusCardRequested = true;
+  }
+
+  function selectSystem(system: GalaxySystemPoint): void {
+    if (
+      tooltipHost?.contains(document.activeElement) ||
+      document.activeElement?.classList.contains('galaxy-label--system')
+    ) {
+      // The flight hides map overlays. Keep keyboard focus on the persistent
+      // canvas host before removing a focused card or hiding a label.
+      host.focus({ preventScroll: true });
+      hoverOpener = null;
+      dismissHover();
+    }
+    if (onSystemSelect) onSystemSelect(system);
+    else {
+      const target = { kind: 'system', systemId64: system.systemId64 } as const;
+      onRuntimeEvent?.({ type: 'TARGET_PICKED', target });
+      dispatchCameraMove({
+        type: 'FLY_TO',
+        target,
+        reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)')
+          .matches,
+      });
+    }
+  }
+
+  const cardPosition = $derived.by(() => {
+    void resizeRevision;
+    const width = host?.clientWidth ?? 640;
+    const height = host?.clientHeight ?? 360;
+    return {
+      x: Math.max(8, Math.min(hoverPosition.x + 14, width - 292)),
+      y: Math.max(8, Math.min(hoverPosition.y + 14, height - 240)),
+    };
+  });
 
   onMount(() => {
     let mounted = true;
@@ -715,6 +1094,14 @@
         } else if (event.type === 'TARGET_HOVERED') {
           lastHoveredRegionId =
             event.target?.kind === 'region' ? event.target.id : undefined;
+          lastHoveredBodyRef =
+            event.target?.kind === 'body' ? event.target.ref : undefined;
+          if (event.target?.kind === 'system') {
+            keepHover();
+            hoverOpener = null;
+            hoveredSystemId64 = event.target.systemId64;
+            hoverPosition = { x: event.screenX ?? 16, y: event.screenY ?? 16 };
+          } else scheduleHoverClear();
         } else if (event.type === 'SCENE_APPLIED') {
           lastAppliedSceneRevision = event.sceneRevision;
           renderedLayerIds = event.renderedLayers.map((layer) => layer.layerId);
@@ -829,7 +1216,16 @@
               : 1);
         const boundedPixels = Math.max(-400, Math.min(400, pixels));
         if (canSystemNavigate) zoomSystem(boundedPixels);
-        else if (currentCamera) zoom(boundedPixels);
+        else if (currentCamera)
+          setCamera(
+            zoomGalaxyCameraTowards(
+              currentCamera,
+              boundedPixels,
+              canvasPoint({ x: event.clientX, y: event.clientY }),
+              viewport(),
+              cameraBounds,
+            ),
+          );
       };
       host.addEventListener('wheel', wheel, { passive: false });
       resize(host.clientWidth, host.clientHeight);
@@ -841,8 +1237,8 @@
     return () => {
       mounted = false;
       clearHover();
-      drag = null;
-      removeWindowDragListeners?.();
+      keepHover();
+      windowPointerCancel();
       if (wheel) host.removeEventListener('wheel', wheel);
       observer?.disconnect();
       unsubscribe();
@@ -854,6 +1250,7 @@
       lastContributionPatchRevision = -1;
       lastPickedRegionId = undefined;
       lastHoveredRegionId = undefined;
+      lastHoveredBodyRef = undefined;
       lastSettledFocusId64 = undefined;
       lastSettledFocusBodyId = undefined;
       lastAppliedSceneRevision = undefined;
@@ -881,6 +1278,12 @@
     >
     <button type="button" aria-label="Rotate right" onclick={() => orbit(0.25)}
       >↷</button
+    >
+    <button type="button" aria-label="Move up" onclick={() => elevate(1)}
+      >Up</button
+    >
+    <button type="button" aria-label="Move down" onclick={() => elevate(-1)}
+      >Down</button
     >
     <button
       type="button"
@@ -911,11 +1314,19 @@
         >Range {Math.round(currentCamera?.distanceLy ?? 0).toLocaleString()} ly</span
       >
       <span>Grid {lightYearInterval(currentGrid?.minorStepLy)}</span>
+      <span role="group" aria-label="Focus coordinates"
+        >X {Math.round(currentCamera?.focusLy.x ?? 0).toLocaleString()} / Y {Math.round(
+          currentCamera?.focusLy.y ?? 0,
+        ).toLocaleString()} / Z {Math.round(
+          currentCamera?.focusLy.z ?? 0,
+        ).toLocaleString()} LY</span
+      >
     </span>
   </div>
   <p class="camera-help">
-    Drag to pan · Shift-drag to orbit · Scroll to zoom · Arrow keys to pan · Q/E
-    to rotate
+    Drag to pan · Shift-drag to orbit · Alt/Option-drag to move up/down · Scroll
+    or pinch to zoom · Two-finger drag to pan · Arrow keys to pan · Q/E to
+    rotate
   </p>
 {:else if canSystemNavigate}
   <div class="camera-toolbar" role="group" aria-label="System camera controls">
@@ -949,104 +1360,212 @@
   </p>
 {/if}
 
-<!-- The Galaxy canvas implements keyboard navigation and has parallel native controls. -->
-<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-<div
-  class="spatial-canvas"
-  bind:this={host}
-  role={canNavigate ? 'application' : 'presentation'}
-  aria-label={canGalaxyNavigate
-    ? 'Interactive Galaxy map. Arrow keys pan, plus and minus zoom, Q and E rotate, Home resets.'
-    : canSystemNavigate
-      ? 'Interactive 3D system map. Arrow keys rotate, plus and minus zoom, Home resets, and bodies can be selected.'
-      : undefined}
-  tabindex={canNavigate ? 0 : -1}
-  onkeydown={cameraKey}
-  onpointerdown={pointerDown}
-  onpointermove={pointerMove}
-  oncontextmenu={(event) => {
-    if (canNavigate) event.preventDefault();
-  }}
-  onpointerleave={clearHover}
-  data-scene-target-count={sceneTargetCount}
-  data-system-target-count={systemTargetCount}
-  data-camera-transition-active={cameraTransitionActive}
-  data-last-picked-id64={lastPickedId64}
-  data-last-picked-region-id={lastPickedRegionId}
-  data-last-hovered-region-id={lastHoveredRegionId}
-  data-last-settled-focus-id64={lastSettledFocusId64}
-  data-last-settled-focus-body-id={lastSettledFocusBodyId}
-  data-applied-scene-revision={lastAppliedSceneRevision}
-  data-applied-contribution-revision={lastAppliedContributionRevision}
-  data-camera-revision={canGalaxyNavigate
-    ? currentCamera?.revision
-    : currentSystemCamera?.revision}
-  data-camera-bearing={canGalaxyNavigate
-    ? currentCamera?.bearingRad
-    : currentSystemCamera?.bearingRad}
-  data-camera-pitch={canGalaxyNavigate
-    ? currentCamera?.pitchRad
-    : currentSystemCamera?.pitchRad}
-  data-rendered-layer-ids={renderedLayerIds.join(',')}
->
-  <canvas
-    bind:this={canvas}
-    data-spatial-canvas
-    data-resize-revision={resizeRevision}
-    tabindex="-1"
-    aria-hidden="true"
-  ></canvas>
-  <svg
-    class="galaxy-label-leaders"
-    aria-hidden="true"
-    data-atlas-region-leader-count={atlasRegionLabels.length}
-  >
-    {#each atlasRegionLabels as label (label.key)}
-      <polyline
-        class:is-selected={label.selected}
-        class:is-hovered={label.hovered}
-        points={`${label.anchorXPx},${label.anchorYPx} ${label.leaderEndXPx},${label.yPx}`}
-      ></polyline>
-      <circle
-        class:is-selected={label.selected}
-        class:is-hovered={label.hovered}
-        cx={label.anchorXPx}
-        cy={label.anchorYPx}
-        r={label.selected || label.hovered ? 2.5 : 1.35}
-      ></circle>
-    {/each}
-  </svg>
+<div class="map-systems-surface">
+  {#if canGalaxyNavigate}
+    <p id={systemKeyboardHelpId} class="system-keyboard-help">
+      Press Right arrow for system card actions. Enter selects and focuses the
+      system. Escape closes the card.
+    </p>
+  {/if}
+  <!-- The Galaxy canvas implements keyboard navigation and has parallel native controls. -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div
-    class="galaxy-label-layer"
-    aria-hidden="true"
-    data-visible-label-count={visibleGalaxyLabels.length}
+    class="spatial-canvas"
+    bind:this={host}
+    role={canNavigate ? 'application' : 'presentation'}
+    aria-label={canGalaxyNavigate
+      ? 'Interactive Galaxy map. Arrow keys pan, plus and minus zoom, Q and E rotate, Home resets.'
+      : canSystemNavigate
+        ? 'Interactive 3D system map. Arrow keys rotate, plus and minus zoom, Home resets, and bodies can be selected.'
+        : undefined}
+    tabindex={canNavigate ? 0 : -1}
+    onkeydown={cameraKey}
+    onpointerdown={pointerDown}
+    onpointermove={pointerMove}
+    onlostpointercapture={windowPointerCancel}
+    oncontextmenu={(event) => {
+      if (canNavigate) event.preventDefault();
+    }}
+    onpointerleave={clearHover}
+    data-scene-target-count={sceneTargetCount}
+    data-system-target-count={systemTargetCount}
+    data-camera-transition-active={cameraTransitionActive}
+    data-last-picked-id64={lastPickedId64}
+    data-last-picked-region-id={lastPickedRegionId}
+    data-last-hovered-region-id={lastHoveredRegionId}
+    data-last-hovered-system-id={hoveredSystemId64}
+    data-last-settled-focus-id64={lastSettledFocusId64}
+    data-last-settled-focus-body-id={lastSettledFocusBodyId}
+    data-applied-scene-revision={lastAppliedSceneRevision}
+    data-applied-contribution-revision={lastAppliedContributionRevision}
+    data-camera-revision={canGalaxyNavigate
+      ? currentCamera?.revision
+      : currentSystemCamera?.revision}
+    data-camera-bearing={canGalaxyNavigate
+      ? currentCamera?.bearingRad
+      : currentSystemCamera?.bearingRad}
+    data-camera-pitch={canGalaxyNavigate
+      ? currentCamera?.pitchRad
+      : currentSystemCamera?.pitchRad}
+    data-rendered-layer-ids={renderedLayerIds.join(',')}
   >
-    {#each visibleGalaxyLabels as label (label.key)}
-      <span
-        class:galaxy-label--system={label.kind === 'system'}
-        class:galaxy-label--region={label.kind === 'region'}
-        class:galaxy-label--atlas={label.placement !== 'map'}
-        class:galaxy-label--atlas-left={label.placement === 'atlas-left'}
-        class:galaxy-label--atlas-right={label.placement === 'atlas-right'}
-        class:is-selected={label.selected}
-        class:is-hovered={label.hovered}
-        class:is-current={label.current}
-        class="galaxy-label"
-        data-map-label-kind={label.kind}
-        data-map-label-key={label.key}
-        data-map-label-selected={label.selected || undefined}
-        data-map-label-anchor-x={label.anchorXPx}
-        data-map-label-anchor-y={label.anchorYPx}
-        style:left={`${label.xPx}px`}
-        style:top={`${label.yPx}px`}
+    <canvas
+      bind:this={canvas}
+      data-spatial-canvas
+      data-resize-revision={resizeRevision}
+      tabindex="-1"
+      aria-hidden="true"
+    ></canvas>
+    {#if hoveredBody}
+      <div
+        class="system-body-hover"
+        data-hovered-body-id={hoveredBody.ref.bodyId}
       >
-        {#if label.kind === 'system'}<span class="galaxy-label__beacon"
-          ></span>{/if}
-        <span>{label.text}</span>
-      </span>
-    {/each}
+        <strong>{hoveredBody.name ?? `Body ${hoveredBody.ref.bodyId}`}</strong>
+        <span
+          >{hoveredBody.bodyClass?.value ??
+            hoveredBody.class?.value ??
+            'Unknown body type'}</span
+        >
+        {#if hoveredBody.bodyClass?.provenance?.some((entry: Provenance) => entry.source === 'ratings-v4-derived')}
+          <small>Source: Ratings V4 derived catalogue</small>
+        {/if}
+      </div>
+    {/if}
+    <svg
+      class="galaxy-label-leaders"
+      aria-hidden="true"
+      data-atlas-region-leader-count={atlasRegionLabels.length}
+    >
+      {#each atlasRegionLabels as label (label.key)}
+        <polyline
+          class:is-selected={label.selected}
+          class:is-hovered={label.hovered}
+          points={`${label.anchorXPx},${label.anchorYPx} ${label.leaderEndXPx},${label.yPx}`}
+        ></polyline>
+        <circle
+          class:is-selected={label.selected}
+          class:is-hovered={label.hovered}
+          cx={label.anchorXPx}
+          cy={label.anchorYPx}
+          r={label.selected || label.hovered ? 2.5 : 1.35}
+        ></circle>
+      {/each}
+    </svg>
+    <div
+      class="galaxy-label-layer"
+      class:labels-moving={labelsMoving}
+      data-visible-label-count={visibleGalaxyLabels.length}
+    >
+      {#each renderedGalaxyLabels as label (label.key)}
+        {#if label.kind === 'system' && label.point}
+          <button
+            type="button"
+            class="galaxy-label galaxy-label--system"
+            class:is-selected={label.selected}
+            class:is-hovered={label.hovered}
+            data-map-interactive
+            data-system-id64={label.point.systemId64}
+            data-map-label-kind={label.kind}
+            data-map-label-key={label.key}
+            data-map-label-selected={label.selected || undefined}
+            data-map-label-anchor-x={label.anchorXPx}
+            data-map-label-anchor-y={label.anchorYPx}
+            aria-label={`Select ${label.text}`}
+            aria-describedby={`${systemKeyboardHelpId}${hoveredSystemId64 === label.point.systemId64 ? ` ${tooltipId}` : ''}`}
+            aria-keyshortcuts="ArrowRight"
+            onkeydown={(event) => systemKey(event, label.point!)}
+            style:left={`${label.xPx}px`}
+            style:top={`${label.yPx}px`}
+            onpointerenter={(event) => showSystem(label.point!, event)}
+            onpointerleave={scheduleHoverClear}
+            onfocus={(event) => showSystem(label.point!, event)}
+            onblur={scheduleHoverClear}
+            onclick={() => selectSystem(label.point!)}
+          >
+            <span class="galaxy-label__beacon" aria-hidden="true"></span>
+            <span class="galaxy-label__name">{label.text}</span>
+          </button>
+        {:else}
+          <span
+            aria-hidden="true"
+            class="galaxy-label galaxy-label--region"
+            class:galaxy-label--atlas={label.placement !== 'map'}
+            class:galaxy-label--atlas-left={label.placement === 'atlas-left'}
+            class:galaxy-label--atlas-right={label.placement === 'atlas-right'}
+            class:is-selected={label.selected}
+            class:is-hovered={label.hovered}
+            class:is-current={label.current}
+            data-map-label-kind={label.kind}
+            data-map-label-key={label.key}
+            data-map-label-selected={label.selected || undefined}
+            data-map-label-anchor-x={label.anchorXPx}
+            data-map-label-anchor-y={label.anchorYPx}
+            style:left={`${label.xPx}px`}
+            style:top={`${label.yPx}px`}>{label.text}</span
+          >
+        {/if}
+      {/each}
+    </div>
   </div>
+  {#if canGalaxyNavigate}
+    <details class="nearby-systems" bind:open={nearbyOpen}>
+      <summary>Nearby systems ({nearbySystems.length})</summary>
+      {#if nearbyOpen}
+        {#if nearbySystems.length}
+          <ul aria-label="Nearby systems">
+            {#each nearbySystems as candidate (candidate.key)}
+              <li>
+                <button
+                  type="button"
+                  data-system-id64={candidate.point!.systemId64}
+                  aria-describedby={`${systemKeyboardHelpId}${hoveredSystemId64 === candidate.point!.systemId64 ? ` ${tooltipId}` : ''}`}
+                  aria-keyshortcuts="ArrowRight"
+                  onkeydown={(event) => systemKey(event, candidate.point!)}
+                  onfocus={(event) => showSystem(candidate.point!, event)}
+                  onblur={scheduleHoverClear}
+                  onclick={() => selectSystem(candidate.point!)}
+                  >{candidate.text}</button
+                >
+              </li>
+            {/each}
+          </ul>
+        {:else}
+          <p>Zoom in or search to find nearby systems.</p>
+        {/if}
+      {/if}
+    </details>
+  {/if}
+  {#if hoveredSystem && !labelsMoving}
+    <div
+      class="system-hover-position"
+      bind:this={tooltipHost}
+      role="presentation"
+      onpointerenter={keepHover}
+      onpointerleave={scheduleHoverClear}
+      onfocusin={keepHover}
+      onfocusout={scheduleHoverClear}
+      style:left={`${cardPosition.x}px`}
+      style:top={`${cardPosition.y}px`}
+    >
+      <GalaxySystemHoverCard
+        id={tooltipId}
+        system={hoveredSystem}
+        anchor={anchorPoint}
+        onSelect={selectSystem}
+        inspectHref={systemInspectHref?.(hoveredSystem) ??
+          resolve(
+            `/inspect?system=${encodeURIComponent(hoveredSystem.systemId64)}`,
+          )}
+        onInspect={onSystemInspect}
+        onDismiss={dismissHover}
+      />
+    </div>
+  {/if}
 </div>
+{#if scene?.kind === 'system'}
+  <SystemBodyLegend bodies={scene.bodies} />
+{/if}
 <p
   class="renderer-status"
   role="status"
@@ -1058,6 +1577,83 @@
 </p>
 
 <style>
+  .system-keyboard-help {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .galaxy-label__name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .map-systems-surface {
+    position: relative;
+  }
+  .system-hover-position {
+    position: absolute;
+    z-index: 5;
+    max-width: calc(100% - 16px);
+  }
+  .nearby-systems {
+    margin-top: 0.75rem;
+    color: #dbedf7;
+  }
+  .nearby-systems summary {
+    cursor: pointer;
+    padding: 0.4rem 0;
+  }
+  .nearby-systems ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0;
+    list-style: none;
+  }
+  .nearby-systems button {
+    border: 1px solid #344c61;
+    border-radius: 0.4rem;
+    background: #101e2c;
+    color: #dbedf7;
+    padding: 0.4rem 0.7rem;
+    cursor: pointer;
+  }
+  .nearby-systems button:focus-visible,
+  .nearby-systems summary:focus-visible,
+  .galaxy-label--system:focus-visible {
+    outline: 2px solid #77d5ee;
+    outline-offset: 2px;
+  }
+  .labels-moving {
+    visibility: hidden;
+  }
+
+  .system-body-hover {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    display: grid;
+    gap: 0.25rem;
+    max-width: min(20rem, calc(100% - 1.5rem));
+    padding: 0.6rem 0.8rem;
+    border: 1px solid #344c61;
+    border-radius: 0.4rem;
+    background: #101e2cee;
+    color: #dbedf7;
+    font-size: 0.8rem;
+    pointer-events: none;
+  }
+  .system-body-hover span,
+  .system-body-hover small {
+    color: #b3c5d2;
+  }
   .spatial-canvas {
     position: relative;
     width: 100%;
@@ -1122,6 +1718,7 @@
     display: block;
     width: 100%;
     height: 100%;
+    touch-action: none;
   }
 
   .galaxy-label-layer {
@@ -1239,6 +1836,9 @@
     text-align: left;
   }
   .galaxy-label--system {
+    pointer-events: auto;
+    cursor: pointer;
+    font-family: inherit;
     gap: 0.38rem;
     padding: 0.28rem 0.52rem 0.3rem;
     border: 1px solid rgba(87, 190, 226, 0.34);

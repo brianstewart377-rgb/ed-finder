@@ -2,16 +2,17 @@ import type { SystemDetail, SystemDetailBody } from '$lib/api/client';
 import { stellarFamilyFromCatalogue } from './stellar-presentation';
 
 import type {
+  BodyFamily,
   BodyVisualDescriptor,
   SpatialTarget,
   SystemSceneContract,
   Truth,
 } from './contracts';
 
-const factual = <T>(value: T, source: string): Truth<T> => ({
+const factual = <T>(value: T, source?: string): Truth<T> => ({
   value,
   representation: 'AUTHORITATIVE',
-  provenance: [{ source }],
+  ...(source ? { provenance: [{ source }] } : {}),
 });
 
 const derived = <T>(value: T, source: string, note: string): Truth<T> => ({
@@ -31,6 +32,100 @@ const BODY_TYPE_LABELS: Readonly<Record<string, string>> = {
 export function bodyTypeLabel(code: string | null | undefined): string | null {
   if (!code) return null;
   return BODY_TYPE_LABELS[code] ?? code.replaceAll('_', ' ');
+}
+
+/** Classify the retained class fact for presentation, never from other body data. */
+export function bodyFamilyFromClass(bodyClass: string | null): BodyFamily {
+  switch (bodyClass?.trim().toLowerCase()) {
+    case 'earth-like world':
+      return { family: 'earth-like' };
+    case 'water world':
+      return { family: 'water-world' };
+    case 'ammonia world':
+      return { family: 'ammonia-world' };
+    case 'high metal content world':
+      return { family: 'high-metal-content' };
+    case 'metal-rich body':
+      return { family: 'metal-rich' };
+    case 'rocky body':
+      return { family: 'rocky' };
+    case 'rocky ice world':
+    case 'rocky ice body':
+      return { family: 'rocky-ice' };
+    case 'icy body':
+      return { family: 'icy' };
+    case 'class i gas giant':
+      return { family: 'gas-giant', variant: 'I' };
+    case 'class ii gas giant':
+      return { family: 'gas-giant', variant: 'II' };
+    case 'class iii gas giant':
+      return { family: 'gas-giant', variant: 'III' };
+    case 'class iv gas giant':
+      return { family: 'gas-giant', variant: 'IV' };
+    case 'class v gas giant':
+      return { family: 'gas-giant', variant: 'V' };
+    case 'gas giant with water-based life':
+    case 'gas giant with water based life':
+      return { family: 'gas-giant-life', variant: 'water' };
+    case 'gas giant with ammonia-based life':
+    case 'gas giant with ammonia based life':
+      return { family: 'gas-giant-life', variant: 'ammonia' };
+    case 'helium-rich gas giant':
+    case 'helium gas giant':
+      return { family: 'helium-gas-giant' };
+    case 'water giant':
+      return { family: 'water-giant' };
+    default:
+      return { family: 'unknown' };
+  }
+}
+
+type BodyFamilyPresentation = Readonly<{
+  label: string;
+  colour: readonly [number, number, number];
+}>;
+
+/** The legend and renderer share a restrained, illustrative (not observed) palette. */
+export const BODY_FAMILY_PRESENTATIONS = {
+  'earth-like': { label: 'Earth-like', colour: [0.16, 0.58, 0.57] },
+  'water-world': { label: 'Water world', colour: [0.12, 0.32, 0.64] },
+  'ammonia-world': { label: 'Ammonia world', colour: [0.62, 0.39, 0.22] },
+  'high-metal-content': {
+    label: 'High metal content',
+    colour: [0.52, 0.46, 0.4],
+  },
+  'metal-rich': { label: 'Metal-rich', colour: [0.34, 0.3, 0.28] },
+  rocky: { label: 'Rocky', colour: [0.72, 0.57, 0.4] },
+  'rocky-ice': { label: 'Rocky ice', colour: [0.62, 0.7, 0.76] },
+  icy: { label: 'Icy', colour: [0.82, 0.92, 0.97] },
+  'gas-giant-I': { label: 'Gas giant · I', colour: [0.8, 0.78, 0.67] },
+  'gas-giant-II': { label: 'Gas giant · II', colour: [0.88, 0.76, 0.53] },
+  'gas-giant-III': { label: 'Gas giant · III', colour: [0.42, 0.56, 0.68] },
+  'gas-giant-IV': { label: 'Gas giant · IV', colour: [0.67, 0.35, 0.24] },
+  'gas-giant-V': { label: 'Gas giant · V', colour: [0.46, 0.15, 0.13] },
+  'gas-giant-life-water': {
+    label: 'Life-bearing giant · water',
+    colour: [0.41, 0.63, 0.46],
+  },
+  'gas-giant-life-ammonia': {
+    label: 'Life-bearing giant · ammonia',
+    colour: [0.61, 0.45, 0.68],
+  },
+  'helium-gas-giant': { label: 'Helium gas giant', colour: [0.88, 0.84, 0.75] },
+  'water-giant': { label: 'Water giant', colour: [0.64, 0.83, 0.94] },
+  unknown: { label: 'Unknown class', colour: [0.48, 0.48, 0.52] },
+} as const satisfies Readonly<Record<string, BodyFamilyPresentation>>;
+
+export function bodyFamilyPresentation(
+  bodyFamily: BodyFamily,
+): BodyFamilyPresentation {
+  if (bodyFamily.family === 'gas-giant') {
+    return BODY_FAMILY_PRESENTATIONS[`gas-giant-${bodyFamily.variant}`];
+  }
+  if (bodyFamily.family === 'gas-giant-life') {
+    return BODY_FAMILY_PRESENTATIONS[`gas-giant-life-${bodyFamily.variant}`];
+  }
+  return BODY_FAMILY_PRESENTATIONS[bodyFamily.family];
 }
 
 /** Spectral + luminosity class as catalogued, e.g. `G2 V`. */
@@ -121,6 +216,17 @@ export function buildSystemScene(
         ref: { systemId64: system.id64, bodyId: body.id },
         name: body.name,
         ...(label ? { class: factual(label, source) } : {}),
+        ...(body.bodyType === 'planet' && body.bodyClass != null
+          ? {
+              bodyClass: factual(
+                body.bodyClass,
+                body.bodyClassSource ?? undefined,
+              ),
+            }
+          : {}),
+        ...(body.bodyType === 'planet'
+          ? { bodyFamily: bodyFamilyFromClass(body.bodyClass) }
+          : {}),
         ...(subtype
           ? {
               subtype: derived(
