@@ -22,9 +22,10 @@
 - **Live system-name search works again** (2026-11-02): migration `023` and the V3
   autocomplete route (#978) are live in `a8d1b794`; the Galaxy map shows stars in
   their spectral colours (#980) and reports the nebula inventory honestly (#981).
-- **Finder next:** [body-count filters](#programme-status--2026-09-26) and a
-  refresh-safe search anchor are implemented on a branch and in review; anchored
-  picked-archetype filters still need a probe and re-attestation.
+- **Finder next:** [body-count filters](#programme-status--2026-09-26) for anchored
+  Any searches and a refresh-safe `near` search anchor are merged and reach
+  production with the next release; anchored picked-archetype filters still need
+  a probe and re-attestation.
 - **UI redesign:** the requested design kit, home, Finder, Inspect, Plan and
   Review & export work has no detailed redesign plan in this tree; the
   [product journey](#product-journey-and-spatial-north-star) remains its starting point.

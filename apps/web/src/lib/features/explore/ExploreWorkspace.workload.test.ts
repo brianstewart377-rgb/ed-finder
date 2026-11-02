@@ -441,9 +441,11 @@ describe('Explore load and interaction work budget', () => {
         rendererScenes: enabled ? 5 : 6,
         loads: enabled ? 5 : 6,
         patches: enabled ? 1 : 0,
-        // Includes the disabled account-summary observer; no journal request
-        // runs until the visitor enables My journeys while signed in.
-        activeQueries: enabled ? 8 : 7,
+        // URL anchor reconstruction adds a disabled observer in legacy mode;
+        // the Layers pop-out adds the disabled account-summary observer in
+        // both modes. No journal request runs until the visitor enables My
+        // journeys while signed in.
+        activeQueries: 8,
         transitions: 1,
         api: { ...idleApi, finder: 0, catalogue: 3, density: 2 },
       });
@@ -456,7 +458,10 @@ describe('Explore load and interaction work budget', () => {
         rendererScenes: enabled ? 12 : 11,
         loads: enabled ? 13 : 12,
         patches: enabled ? 1 : 0,
-        activeQueries: enabled ? 8 : 7,
+        // The committed anchor and selected result now have separate query
+        // identities; history coordinates still require no detail request.
+        // The account-summary observer adds one in both modes.
+        activeQueries: enabled ? 9 : 8,
         transitions: enabled ? 6 : 5,
         api: {
           ...idleApi,
@@ -550,7 +555,8 @@ describe('Explore load and interaction work budget', () => {
         rendererScenes: 15,
         loads: 16,
         patches: 1,
-        activeQueries: 8,
+        // Includes the disabled account-summary observer from the Layers pop-out.
+        activeQueries: 9,
         transitions: 6,
         api: {
           ...idleApi,

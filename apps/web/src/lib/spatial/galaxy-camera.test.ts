@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CameraState } from './contracts';
+import type { Bounds3Ly, CameraState } from './contracts';
 import {
+  elevateGalaxyCamera,
+  elevateGalaxyCameraByPixels,
+  elevateGalaxyCameraStep,
   fitGalaxyCamera,
   fitGalaxyPlaneCamera,
   focusGalaxyCamera,
@@ -10,14 +13,19 @@ import {
   GALAXY_CAMERA_MAX_PITCH_RAD,
   GALAXY_CAMERA_MIN_DISTANCE_LY,
   GALAXY_CAMERA_MIN_PITCH_RAD,
+  GALAXY_CAMERA_NAVIGATION_BOUNDS_LY,
+  galaxyCameraPlanePoint,
   galaxyCameraPose,
   interpolateGalaxyCamera,
   normalizeGalaxyCamera,
   orbitGalaxyCamera,
   panGalaxyCamera,
+  pinchGalaxyCamera,
   topDownGalaxyCamera,
   zoomGalaxyCamera,
+  zoomGalaxyCameraTowards,
 } from './galaxy-camera';
+import { projectGalaxyLabel } from './galaxy-labels';
 
 const camera: CameraState = {
   focusLy: { x: 123.5, y: -45.25, z: 678.125 },
@@ -156,6 +164,244 @@ describe('renderer-neutral Galaxy camera', () => {
     );
   });
 
+  it('elevates only focus Y, with range-scaled dragging and catalogue bounds', () => {
+    const bounds: Bounds3Ly = {
+      min: { x: -1_000, y: -100, z: -1_000 },
+      max: { x: 1_000, y: 100, z: 1_000 },
+    };
+    expect(elevateGalaxyCamera(camera, 30, bounds)).toEqual({
+      ...camera,
+      focusLy: { ...camera.focusLy, y: camera.focusLy.y + 30 },
+      revision: camera.revision + 1,
+    });
+    for (const deltaLy of [Number.MAX_VALUE, -Number.MAX_VALUE]) {
+      expect(elevateGalaxyCamera(camera, deltaLy, bounds)).toEqual({
+        ...camera,
+        focusLy: { ...camera.focusLy, y: deltaLy > 0 ? 100 : -100 },
+        revision: camera.revision + 1,
+      });
+    }
+    const dragged = elevateGalaxyCameraByPixels(camera, 30, viewport);
+    const farther = elevateGalaxyCameraByPixels(
+      { ...camera, distanceLy: camera.distanceLy * 2 },
+      30,
+      viewport,
+    );
+    expect(dragged.focusLy.y).toBeGreaterThan(camera.focusLy.y);
+    expect(farther.focusLy.y - camera.focusLy.y).toBeCloseTo(
+      (dragged.focusLy.y - camera.focusLy.y) * 2,
+    );
+    expect(elevateGalaxyCamera(camera, Number.MAX_VALUE).focusLy.y).toBe(
+      GALAXY_CAMERA_NAVIGATION_BOUNDS_LY.max.y,
+    );
+    expect(elevateGalaxyCameraStep(camera, 1).focusLy.y).toBe(
+      camera.focusLy.y + camera.distanceLy * 0.1,
+    );
+    expect(elevateGalaxyCameraStep(camera, -1).focusLy.y).toBe(
+      camera.focusLy.y - camera.distanceLy * 0.1,
+    );
+  });
+
+  it.each(['perspective', 'orthographic'] as const)(
+    'keeps the cursor plane point projected in place for %s zoom at several pitches and aspects',
+    (projection) => {
+      for (const pitchRad of [0.12, Math.PI / 4, Math.PI / 2]) {
+        for (const view of [
+          viewport,
+          { width: 400, height: 900 },
+          { width: 900, height: 900 },
+        ]) {
+          for (const bearingRad of [0, 1.1]) {
+            const state = { ...camera, projection, pitchRad, bearingRad };
+            for (const point of [
+              { x: view.width * 0.8, y: view.height * 0.6 },
+              { x: view.width * 0.2, y: view.height * 0.45 },
+            ]) {
+              const anchor = galaxyCameraPlanePoint(state, point, view)!;
+              expect(anchor).not.toBeNull();
+              expect(anchor.y).toBe(camera.focusLy.y);
+              const before = projectGalaxyLabel(anchor, state, view)!;
+              expect(Math.abs(before.xPx - point.x)).toBeLessThan(1e-6);
+              expect(Math.abs(before.yPx - point.y)).toBeLessThan(1e-6);
+              for (const delta of [-600, 450]) {
+                const zoomed = zoomGalaxyCameraTowards(
+                  state,
+                  delta,
+                  point,
+                  view,
+                );
+                const after = projectGalaxyLabel(anchor, zoomed, view)!;
+                expect(Math.abs(after.xPx - before.xPx)).toBeLessThan(1e-6);
+                expect(Math.abs(after.yPx - before.yPx)).toBeLessThan(1e-6);
+                expect(zoomed.focusLy.y).toBe(camera.focusLy.y);
+                expect(zoomed.bearingRad).toBeCloseTo(bearingRad);
+                expect(zoomed.pitchRad).toBe(pitchRad);
+                expect(zoomed.revision).toBe(camera.revision + 1);
+              }
+            }
+          }
+        }
+      }
+    },
+  );
+
+  it.each(['perspective', 'orthographic'] as const)(
+    'scales %s pinch distance by finger ratio and carries the old midpoint to the new one',
+    (projection) => {
+      const state = { ...camera, projection, bearingRad: 0.7 };
+      const previous = [
+        { x: 300, y: 400 },
+        { x: 500, y: 400 },
+      ] as const;
+      const current = [
+        { x: 260, y: 420 },
+        { x: 660, y: 500 },
+      ] as const;
+      const previousMidpoint = { x: 400, y: 400 };
+      const currentMidpoint = { x: 460, y: 460 };
+      const anchor = galaxyCameraPlanePoint(state, previousMidpoint, viewport)!;
+      const pinched = pinchGalaxyCamera(state, previous, current, viewport);
+      expect(pinched.distanceLy).toBeCloseTo(
+        (camera.distanceLy * 200) / Math.hypot(400, 80),
+        9,
+      );
+      const projected = projectGalaxyLabel(anchor, pinched, viewport)!;
+      expect(Math.abs(projected.xPx - currentMidpoint.x)).toBeLessThan(1e-6);
+      expect(Math.abs(projected.yPx - currentMidpoint.y)).toBeLessThan(1e-6);
+      expect(pinched.focusLy.y).toBe(camera.focusLy.y);
+      expect(pinched.revision).toBe(camera.revision + 1);
+
+      const centered = [
+        { x: 200, y: 400 },
+        { x: 600, y: 400 },
+      ] as const;
+      const fixedMidpoint = pinchGalaxyCamera(
+        state,
+        previous,
+        centered,
+        viewport,
+      );
+      const fixedProjection = projectGalaxyLabel(
+        anchor,
+        fixedMidpoint,
+        viewport,
+      )!;
+      expect(fixedMidpoint.distanceLy).toBeCloseTo(camera.distanceLy / 2, 9);
+      expect(Math.abs(fixedProjection.xPx - previousMidpoint.x)).toBeLessThan(
+        1e-6,
+      );
+      expect(Math.abs(fixedProjection.yPx - previousMidpoint.y)).toBeLessThan(
+        1e-6,
+      );
+    },
+  );
+
+  it('pans equal-separation and coincident fingers without changing range', () => {
+    for (const separation of [0, 200]) {
+      const previous = [
+        { x: 300, y: 400 },
+        { x: 300 + separation, y: 400 },
+      ] as const;
+      const current = [
+        { x: 330, y: 420 },
+        { x: 330 + separation, y: 420 },
+      ] as const;
+      const point = { x: 300 + separation / 2, y: 400 };
+      const anchor = galaxyCameraPlanePoint(camera, point, viewport)!;
+      const moved = pinchGalaxyCamera(camera, previous, current, viewport);
+      const projected = projectGalaxyLabel(anchor, moved, viewport)!;
+      expect(moved.distanceLy).toBeCloseTo(camera.distanceLy);
+      expect(Math.abs(projected.xPx - point.x - 30)).toBeLessThan(1e-6);
+      expect(Math.abs(projected.yPx - point.y - 20)).toBeLessThan(1e-6);
+    }
+  });
+
+  it('keeps distance and translated focus within bounds while retaining factual coordinates', () => {
+    const bounds: Bounds3Ly = {
+      min: { x: -10, y: -10, z: -10 },
+      max: { x: 10, y: 10, z: 10 },
+    };
+    const state = {
+      ...camera,
+      focusLy: { x: 9, y: 3, z: 0 },
+      pitchRad: Math.PI / 2,
+    };
+    const point = { x: viewport.width, y: viewport.height / 2 };
+    const zoomed = zoomGalaxyCameraTowards(
+      state,
+      -1e10,
+      point,
+      viewport,
+      bounds,
+    );
+    expect(zoomed.distanceLy).toBe(GALAXY_CAMERA_MIN_DISTANCE_LY);
+    expect(zoomed.focusLy).toEqual({ x: 10, y: 3, z: 0 });
+    const pinched = pinchGalaxyCamera(
+      state,
+      [
+        { x: 0, y: 360 },
+        { x: 1e9, y: 360 },
+      ],
+      [
+        { x: 0, y: 360 },
+        { x: 1, y: 360 },
+      ],
+      viewport,
+      bounds,
+    );
+    expect(pinched.distanceLy).toBeCloseTo(GALAXY_CAMERA_MAX_DISTANCE_LY);
+    expect(pinched.focusLy.x).toBeLessThanOrEqual(bounds.max.x);
+    expect(pinched.focusLy.x).toBeGreaterThanOrEqual(bounds.min.x);
+    expect(pinched.focusLy.y).toBe(state.focusLy.y);
+    expect(panGalaxyCamera(state, 1e6, 1e6, viewport, bounds).focusLy).toEqual({
+      x: 10,
+      y: 3,
+      z: -10,
+    });
+    expect(
+      focusGalaxyCamera(camera, { x: 1e6, y: 1e6, z: 1e6 }).focusLy,
+    ).toEqual({
+      x: 1e6,
+      y: 1e6,
+      z: 1e6,
+    });
+  });
+
+  it('uses center zoom above the horizon and ordinary pan when a pinch crosses it', () => {
+    const state = { ...camera, pitchRad: GALAXY_CAMERA_MIN_PITCH_RAD };
+    const point = { x: 400, y: 0 };
+    expect(galaxyCameraPlanePoint(state, point, viewport)).toBeNull();
+    expect(
+      galaxyCameraPlanePoint(
+        { ...state, projection: 'orthographic' },
+        { x: 400, y: viewport.height },
+        viewport,
+      ),
+    ).toBeNull();
+    expect(zoomGalaxyCameraTowards(state, -300, point, viewport)).toEqual(
+      zoomGalaxyCamera(state, -300),
+    );
+    const pinched = pinchGalaxyCamera(
+      state,
+      [
+        { x: 300, y: 0 },
+        { x: 500, y: 0 },
+      ],
+      [
+        { x: 330, y: 10 },
+        { x: 530, y: 10 },
+      ],
+      viewport,
+    );
+    expect(pinched.focusLy.x).toBeCloseTo(
+      panGalaxyCamera(state, -30, -10, viewport).focusLy.x,
+    );
+    expect(pinched.focusLy.z).toBeCloseTo(
+      panGalaxyCamera(state, -30, -10, viewport).focusLy.z,
+    );
+    expect(pinched.revision).toBe(camera.revision + 1);
+  });
+
   it('bounds orbital elevation and wraps bearing without changing the target or distance', () => {
     const orbit = orbitGalaxyCamera(camera, 3 * Math.PI, -2 * Math.PI);
     expect(orbit).toMatchObject({
@@ -261,6 +507,33 @@ describe('renderer-neutral Galaxy camera', () => {
     ).toThrow(RangeError);
     expect(() => panGalaxyCamera(camera, NaN, 0, viewport)).toThrow(RangeError);
     expect(() => zoomGalaxyCamera(camera, Infinity)).toThrow(RangeError);
+    expect(() => elevateGalaxyCamera(camera, NaN)).toThrow(RangeError);
+    expect(() =>
+      elevateGalaxyCameraByPixels(camera, 1, { width: 0, height: 1 }),
+    ).toThrow(RangeError);
+    expect(() =>
+      elevateGalaxyCamera(camera, 1, {
+        min: { x: 0, y: 20, z: 0 },
+        max: { x: 0, y: 10, z: 0 },
+      }),
+    ).toThrow(RangeError);
+    expect(() =>
+      zoomGalaxyCameraTowards(camera, 1, { x: NaN, y: 0 }, viewport),
+    ).toThrow(RangeError);
+    expect(() =>
+      pinchGalaxyCamera(
+        camera,
+        [
+          { x: 0, y: 0 },
+          { x: 0, y: 0 },
+        ],
+        [
+          { x: 0, y: 0 },
+          { x: Infinity, y: 0 },
+        ],
+        viewport,
+      ),
+    ).toThrow(RangeError);
     expect(() => orbitGalaxyCamera(camera, Infinity, 0)).toThrow(RangeError);
     expect(() => interpolateGalaxyCamera(camera, camera, NaN)).toThrow(
       RangeError,
