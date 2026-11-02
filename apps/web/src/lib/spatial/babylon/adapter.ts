@@ -1475,7 +1475,9 @@ function pickGalaxyTarget(
     return {
       kind: 'system',
       systemId64: chosen.systemId64,
-      ...(options.includeSystemName && chosen.name ? { name: chosen.name } : {}),
+      ...(options.includeSystemName && chosen.name
+        ? { name: chosen.name }
+        : {}),
     };
   const hit = product.scene.pick(screenX * scaleX, screenY * scaleY, (mesh) =>
     product.regionFillMeshes.some((fill) => fill.mesh === mesh),
