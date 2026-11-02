@@ -11,6 +11,10 @@
   import type { Id64 } from '$lib/domain/id64';
   import RatingExplanation from './RatingExplanation.svelte';
   import {
+    AVAILABILITY_LABELS,
+    type RatingsSourceState,
+  } from './source-freshness';
+  import {
     byPotential,
     percent,
     ratingEconomyLabel,
@@ -20,8 +24,9 @@
     id64: Id64;
     bodies: readonly SystemDetailBody[];
     headingId: string;
+    onSourceChange?: (source: RatingsSourceState) => void;
   };
-  let { id64, bodies, headingId }: Props = $props();
+  let { id64, bodies, headingId, onSourceChange }: Props = $props();
 
   const queryClient = useQueryClient();
 
@@ -47,6 +52,32 @@
     retry: (failureCount, error) => !isAbsent(error) && failureCount < 1,
   }));
   const identity = $derived(ratings.data?.identity ?? null);
+  const availability = $derived(
+    ratings.isError
+      ? isAbsent(ratings.error)
+        ? 'unknown'
+        : 'unavailable'
+      : ratings.isPending
+        ? 'loading'
+        : 'available',
+  );
+
+  $effect(() => {
+    const systemId = id64;
+    onSourceChange?.({
+      id64: systemId,
+      status: availability,
+      identity,
+      // Capture the emitting system so a detached callback cannot refetch the
+      // next selection. This reuses the mounted query and its request.
+      retry: () => {
+        void queryClient.refetchQueries({
+          queryKey: queryKeys.systemRatings(systemId),
+          exact: true,
+        });
+      },
+    });
+  });
   // Lazy: nothing is fetched until a "Why?" is opened, and the key carries the
   // identity of the ratings on screen so a republish never reuses it.
   const explanation = createQuery(() => ({
@@ -101,16 +132,27 @@
     <p class="state-copy" role="status">Loading economy ratings…</p>
   {:else if ratings.isError}
     {#if isAbsent(ratings.error)}
-      <p class="state-copy">This system is not in the published ratings yet.</p>
+      <p class="state-copy" data-unavailable-fields data-availability="unknown">
+        <strong>{AVAILABILITY_LABELS.unknown}</strong> — the published source has
+        no ratings for this system.
+      </p>
     {:else}
-      <div class="system-ratings-error" role="alert">
-        <p class="state-copy">Economy ratings could not be loaded.</p>
+      <div
+        class="system-ratings-error"
+        role="alert"
+        data-unavailable-fields
+        data-availability="unavailable"
+      >
+        <p class="state-copy">
+          <strong>{AVAILABILITY_LABELS.unavailable}</strong> — economy ratings could
+          not be loaded.
+        </p>
         <button
           class="secondary-button"
           type="button"
           onclick={() => ratings.refetch()}
         >
-          Try again
+          Retry
         </button>
       </div>
     {/if}
@@ -171,14 +213,30 @@
                   {:else if explanation.isPending}
                     <p role="status">Loading the explanation…</p>
                   {:else if explanation.isError}
-                    <p role="alert">The explanation could not be loaded.</p>
-                    <button
-                      class="quiet-button"
-                      type="button"
-                      onclick={() => explanation.refetch()}
+                    <p
+                      role="alert"
+                      data-unavailable-fields
+                      data-availability={isAbsent(explanation.error)
+                        ? 'unknown'
+                        : 'unavailable'}
                     >
-                      Try again
-                    </button>
+                      {#if isAbsent(explanation.error)}
+                        <strong>{AVAILABILITY_LABELS.unknown}</strong> — the published
+                        source has no explanation for this system.
+                      {:else}
+                        <strong>{AVAILABILITY_LABELS.unavailable}</strong> — the explanation
+                        could not be loaded.
+                      {/if}
+                    </p>
+                    {#if !isAbsent(explanation.error)}
+                      <button
+                        class="quiet-button"
+                        type="button"
+                        onclick={() => explanation.refetch()}
+                      >
+                        Retry
+                      </button>
+                    {/if}
                   {:else if explanation.data?.kind === 'republished'}
                     <p role="alert">
                       The ratings were republished while this page was open.

@@ -1725,7 +1725,7 @@ describe('Babylon spatial adapter boundary', () => {
     });
     const matrixData = product.nebulaMesh?.thinInstanceGetWorldMatrices()[0];
     expect(matrixData?.getTranslation().asArray()).toEqual([125, -34, 912]);
-    expect(nebulaCloudRadiusLy()).toBe(2_000);
+    expect(nebulaCloudRadiusLy()).toBe(1_200);
     expect(product.renderedLayers[0]).toMatchObject({
       layerId: 'galaxy-nebulae',
       representation: 'AMBIENT',
@@ -1737,7 +1737,7 @@ describe('Babylon spatial adapter boundary', () => {
     engine.dispose();
   });
 
-  it('hides nebula landmark clouds at system-selection distance and shows them at galaxy-overview distance', () => {
+  it('keeps nebula landmarks at system-selection distance while fading their schematic clouds', () => {
     const payload: GalaxyNebulaePayload = {
       datasetId: 'fixture-nebulae',
       sourceUrl: 'https://edastro.com/mapcharts/files/nebulae-coordinates.csv',
@@ -1785,26 +1785,30 @@ describe('Babylon spatial adapter boundary', () => {
 
     const closeEngine = new NullEngine();
     // ~400 ly matches ExploreWorkspace's system-selection camera target; the
-    // camera sits inside several landmark clouds at this distance, so the
-    // layer must be fully hidden.
+    // decorative clouds fade out here while their catalogue markers persist.
     const closeProduct = createBabylonGalaxyScene(
       closeEngine,
       buildContractAt(400, 1),
     );
-    expect(closeProduct.nebulaMesh?.isEnabled()).toBe(false);
-    expect(closeProduct.nebulaMesh?.visibility).toBe(0);
+    expect(closeProduct.nebulaMesh?.isEnabled()).toBe(true);
+    expect(closeProduct.nebulaMesh?.visibility).toBe(1);
+    expect(closeProduct.nebulaCloudMesh?.isEnabled()).toBe(false);
+    expect(closeProduct.nebulaCloudMesh?.visibility).toBe(0);
+    expect(closeProduct.renderedLayers[0]?.renderedTargetCount).toBe(1);
     closeProduct.scene.dispose();
     closeEngine.dispose();
 
     const farEngine = new NullEngine();
-    // Galaxy-overview scale (tens of thousands of ly): landmarks stay fully
-    // visible, preserving this branch's existing overview appearance.
+    // Galaxy-overview scale shows both the marker and its schematic cloud.
     const farProduct = createBabylonGalaxyScene(
       farEngine,
       buildContractAt(118_000, 2),
     );
     expect(farProduct.nebulaMesh?.isEnabled()).toBe(true);
     expect(farProduct.nebulaMesh?.visibility).toBe(1);
+    expect(farProduct.nebulaCloudMesh?.isEnabled()).toBe(true);
+    expect(farProduct.nebulaCloudMesh?.visibility).toBe(1);
+    expect(farProduct.renderedLayers[0]?.renderedTargetCount).toBe(1);
     farProduct.scene.dispose();
     farEngine.dispose();
   });

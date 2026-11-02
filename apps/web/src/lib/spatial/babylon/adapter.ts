@@ -71,11 +71,16 @@ import {
 } from '../galaxy-nebulae';
 import {
   galaxyNebulaVisibility,
+  nebulaCloudEnabled,
   selectGalaxyNebulaLandmarks,
   NEBULA_LANDMARK_CELL_LY,
   NEBULA_LANDMARK_LIMIT,
   NEBULA_LANDMARK_FADE_START_LY,
   NEBULA_LANDMARK_FADE_END_LY,
+  NEBULA_CLOUD_REENTER_LY,
+  NEBULA_LANDMARK_MARKER_RADIUS_LY,
+  NEBULA_SCHEMATIC_RADIUS_MIN_LY,
+  NEBULA_SCHEMATIC_RADIUS_MAX_LY,
   PLANETARY_NEBULA_FADE_START_LY,
   PLANETARY_NEBULA_FADE_END_LY,
   PLANETARY_NEBULA_MARKER_RADIUS_LY,
@@ -83,6 +88,12 @@ import {
   type NebulaKind,
 } from '../galaxy-nebulae-policy';
 import { createCatalogueDensityMesh } from './catalogue-density';
+import {
+  createGalaxyNebulaCloudMesh,
+  createGalaxyNebulaLandmarkMesh,
+  NEBULA_CLOUD_QUADS_PER_LANDMARK,
+} from './nebula-meshes';
+
 import { densityCrossfadeT } from '../galaxy-density-crossfade';
 import {
   DENSITY_CROSSFADE_NEAR_LY,
@@ -109,6 +120,8 @@ import {
   systemBodyLayout,
   type SystemBodyLayout,
 } from '../system-scene';
+
+export { nebulaCloudRadiusLy } from '../galaxy-nebulae-policy';
 
 const disposeEngine = (engine: AbstractEngine): void => {
   try {
@@ -193,7 +206,8 @@ export type BabylonGalaxyProduct = Readonly<{
   stellarAccentMeshes: readonly Mesh[];
   densityMesh: Mesh | null;
   commanderHistoryMesh: ReturnType<typeof CreateSphere> | null;
-  nebulaMesh: ReturnType<typeof CreateSphere> | null;
+  nebulaMesh: Mesh | null;
+  nebulaCloudMesh: Mesh | null;
   planetaryNebulaMesh: ReturnType<typeof CreateSphere> | null;
   nebulaeMetadata: ReturnType<typeof galaxyNebulaeMetadata> | null;
   regionBoundaryMesh: ReturnType<typeof CreateLineSystem> | null;
@@ -1073,84 +1087,6 @@ function commanderHistoryReceipt(
   };
 }
 
-export function nebulaCloudRadiusLy(): number {
-  // Mapcharts publishes a reference-system coordinate, not a physical boundary.
-  // This bounded radius is deliberately schematic map presentation — sized so a
-  // landmark reads as a soft cloud at the Galaxy-scale camera (~10^5 ly), not the
-  // sub-pixel dot the earlier 56/160 ly radii produced.
-  return 2_000;
-}
-
-// Emission-nebula palette: warm rose, teal, gold, violet, cyan, jade. Balanced
-// so the layer reads as varied landmarks rather than a single blue smear.
-const NEBULA_PALETTE = [
-  [0.86, 0.34, 0.52],
-  [0.3, 0.68, 0.74],
-  [0.9, 0.6, 0.3],
-  [0.58, 0.4, 0.82],
-  [0.34, 0.6, 0.86],
-  [0.4, 0.74, 0.54],
-] as const;
-
-/** Deterministic 0..1 hash from a stable nebula identity. */
-function nebulaIdentityHash(id: string): number {
-  let hash = 2_166_136_261;
-  for (let index = 0; index < id.length; index += 1) {
-    hash ^= id.charCodeAt(index);
-    hash = Math.imul(hash, 16_777_619);
-  }
-  return ((hash >>> 0) % 100_000) / 100_000;
-}
-
-function createGalaxyNebulaeMesh(
-  scene: Scene,
-  landmarks: readonly GalaxyNebula[],
-): ReturnType<typeof CreateSphere> | null {
-  if (!landmarks.length) return null;
-  const mesh = CreateSphere(
-    'galaxy-nebula-landmarks',
-    { diameter: 2, segments: 16 },
-    scene,
-  );
-  mesh.isPickable = false;
-  mesh.thinInstanceEnablePicking = false;
-  mesh.hasVertexAlpha = true;
-  mesh.alphaIndex = 0;
-  const material = new StandardMaterial('galaxy-nebula-material', scene);
-  material.disableLighting = true;
-  material.backFaceCulling = false;
-  material.disableDepthWrite = true;
-  material.diffuseColor = Color3.White();
-  material.emissiveColor = new Color3(0.24, 0.26, 0.4);
-  material.specularColor = Color3.Black();
-  material.alpha = 0.45;
-  mesh.material = material;
-  mesh.onDisposeObservable.addOnce(() => material.dispose());
-
-  const matrices = new Float32Array(landmarks.length * 16);
-  const colours = new Float32Array(landmarks.length * 4);
-  landmarks.forEach((nebula, index) => {
-    const hash = nebulaIdentityHash(nebula.id);
-    // Vary size so clouds read as distinct landmarks, not a uniform stipple.
-    const radius = nebulaCloudRadiusLy() * (0.65 + hash * 1.25);
-    const position = nebula.positionLy.value;
-    Matrix.Compose(
-      new Vector3(radius, radius * 0.62, radius),
-      Quaternion.Identity(),
-      new Vector3(position.x, position.y, position.z),
-    ).copyToArray(matrices, index * 16);
-    const paletteIndex =
-      (nebula.regionId ?? Math.floor(hash * NEBULA_PALETTE.length)) %
-      NEBULA_PALETTE.length;
-    const colour = NEBULA_PALETTE[paletteIndex]!;
-    colours.set([...colour, 0.4 + hash * 0.25], index * 4);
-  });
-  mesh.thinInstanceSetBuffer('matrix', matrices, 16, true);
-  mesh.thinInstanceSetBuffer('color', colours, 4, true);
-  mesh.thinInstanceRefreshBoundingInfo(true);
-  return mesh;
-}
-
 function createPlanetaryNebulaeMesh(
   scene: Scene,
   landmarks: readonly GalaxyNebula[],
@@ -1198,9 +1134,11 @@ function galaxyNebulaeMetadata(
     usageBasis: nebulae.payload.usageBasis,
     sourceByteCount: nebulae.payload.sourceByteCount,
     sourceSha256: nebulae.payload.sourceSha256,
-    // Counts describe enabled scene instances at the current zoom, not pixel
-    // coverage or a per-instance frustum/occlusion query.
+    // Target counts describe unique landmarks with enabled markers at this
+    // zoom, not pixel coverage/frustum/occlusion. Decorative cloud quads never
+    // add targets to M02 receipts or the inventory/status line.
     visibilityMeaning: 'scene-instances-enabled-at-current-zoom',
+    targetCountMeaning: 'unique-enabled-landmark-markers-excluding-cloud-quads',
   };
   const kindMetadata = (kind: NebulaKind) => ({
     ...common,
@@ -1216,8 +1154,33 @@ function galaxyNebulaeMetadata(
       landmarkCellLy: NEBULA_LANDMARK_CELL_LY,
       landmarkLimit: NEBULA_LANDMARK_LIMIT,
       selectionRule: 'named-then-regional-then-lowest-codepoint-id',
-      fadeStartLy: NEBULA_LANDMARK_FADE_START_LY,
-      fadeEndLy: NEBULA_LANDMARK_FADE_END_LY,
+      markerRadiusLy: NEBULA_LANDMARK_MARKER_RADIUS_LY,
+      markerScreenDiameterPx: [3, 6],
+      markerVisibility: 'persistent-at-all-galaxy-zooms',
+      extentMeaning: 'schematic extent; catalogue supplies positions only',
+      schematicRadiusMinLy: NEBULA_SCHEMATIC_RADIUS_MIN_LY,
+      schematicRadiusMaxLy: NEBULA_SCHEMATIC_RADIUS_MAX_LY,
+      clouds: {
+        id: GALAXY_NEBULAE_LAYER_ID,
+        kind: 'nebula-cloud',
+        representation: 'AMBIENT',
+        selectedLandmarkCount: selection.counts.nebula.selectedLandmarkCount,
+        quadsPerLandmark: NEBULA_CLOUD_QUADS_PER_LANDMARK,
+        instanceCount:
+          selection.counts.nebula.selectedLandmarkCount *
+          NEBULA_CLOUD_QUADS_PER_LANDMARK,
+        enabledLandmarkCount: 0,
+        enabledQuadCount: 0,
+        visibilityMeaning:
+          'enabled-decoration-batch-before-camera-proximity-frustum-and-occlusion',
+        targetCountMeaning: 'decoration-excluded-from-target-counts',
+        extentMeaning: 'schematic extent; catalogue supplies positions only',
+        schematicRadiusMinLy: NEBULA_SCHEMATIC_RADIUS_MIN_LY,
+        schematicRadiusMaxLy: NEBULA_SCHEMATIC_RADIUS_MAX_LY,
+        fadeStartLy: NEBULA_LANDMARK_FADE_START_LY,
+        fadeEndLy: NEBULA_LANDMARK_FADE_END_LY,
+        reenterLy: NEBULA_CLOUD_REENTER_LY,
+      },
     },
     'planetary-nebula': {
       ...kindMetadata('planetary-nebula'),
@@ -1233,6 +1196,9 @@ function galaxyNebulaeMetadata(
   return {
     ...common,
     countsByKind,
+    // Reused by camera updates so the nebula frame path allocates no scratch
+    // objects. Diffuse opacity belongs to clouds; markers always stay visible.
+    zoomOpacityByKind: { nebula: 0, 'planetary-nebula': 0 },
     catalogueRecordCount:
       diffuse.catalogueRecordCount + planetary.catalogueRecordCount,
     acceptedFeatureCount:
@@ -1249,27 +1215,48 @@ function galaxyNebulaeMetadata(
 
 function updateGalaxyNebulaVisibility(
   nebulaMesh: Mesh | null,
+  nebulaCloudMesh: Mesh | null,
   planetaryNebulaMesh: Mesh | null,
   metadata: ReturnType<typeof galaxyNebulaeMetadata> | null,
   camera: CameraState,
 ): void {
   if (!metadata) return;
-  const visibility = galaxyNebulaVisibility(camera.distanceLy);
-  const meshes = {
-    nebula: nebulaMesh,
-    'planetary-nebula': planetaryNebulaMesh,
-  };
-  for (const kind of ['nebula', 'planetary-nebula'] as const) {
-    const mesh = meshes[kind];
-    if (mesh) {
-      mesh.setEnabled(visibility[kind] > 0);
-      mesh.visibility = visibility[kind];
-    }
-    const counts = metadata.countsByKind[kind];
-    counts.currentlyVisibleCount =
-      mesh?.isEnabled() && mesh.visibility > 0 ? mesh.thinInstanceCount : 0;
-    counts.renderedPointCount = counts.currentlyVisibleCount;
+  const visibility = galaxyNebulaVisibility(
+    camera.distanceLy,
+    metadata.zoomOpacityByKind,
+  );
+  if (nebulaMesh) {
+    nebulaMesh.setEnabled(true);
+    nebulaMesh.visibility = 1;
   }
+  const diffuse = metadata.countsByKind.nebula;
+  diffuse.currentlyVisibleCount = nebulaMesh?.thinInstanceCount ?? 0;
+  diffuse.renderedPointCount = diffuse.currentlyVisibleCount;
+  if (nebulaCloudMesh) {
+    const enabled = nebulaCloudEnabled(
+      camera.distanceLy,
+      nebulaCloudMesh.isEnabled(),
+    );
+    nebulaCloudMesh.setEnabled(enabled);
+    nebulaCloudMesh.visibility = enabled ? visibility.nebula : 0;
+  }
+  const clouds = diffuse.clouds;
+  clouds.enabledQuadCount =
+    nebulaCloudMesh?.isEnabled() && nebulaCloudMesh.visibility > 0
+      ? nebulaCloudMesh.thinInstanceCount
+      : 0;
+  clouds.enabledLandmarkCount =
+    clouds.enabledQuadCount / NEBULA_CLOUD_QUADS_PER_LANDMARK;
+  if (planetaryNebulaMesh) {
+    planetaryNebulaMesh.setEnabled(visibility['planetary-nebula'] > 0);
+    planetaryNebulaMesh.visibility = visibility['planetary-nebula'];
+  }
+  const planetary = metadata.countsByKind['planetary-nebula'];
+  planetary.currentlyVisibleCount =
+    planetaryNebulaMesh?.isEnabled() && planetaryNebulaMesh.visibility > 0
+      ? planetaryNebulaMesh.thinInstanceCount
+      : 0;
+  planetary.renderedPointCount = planetary.currentlyVisibleCount;
   metadata.currentlyVisibleCount =
     metadata.countsByKind.nebula.currentlyVisibleCount +
     metadata.countsByKind['planetary-nebula'].currentlyVisibleCount;
@@ -1681,7 +1668,11 @@ export const createBabylonGalaxyScene = (
   const nebulaSelection = nebulae
     ? selectGalaxyNebulaLandmarks(nebulae.payload)
     : null;
-  const nebulaMesh = createGalaxyNebulaeMesh(
+  const nebulaMesh = createGalaxyNebulaLandmarkMesh(
+    scene,
+    nebulaSelection?.landmarks.nebula ?? [],
+  );
+  const nebulaCloudMesh = createGalaxyNebulaCloudMesh(
     scene,
     nebulaSelection?.landmarks.nebula ?? [],
   );
@@ -1695,12 +1686,17 @@ export const createBabylonGalaxyScene = (
       : null;
   if (nebulaMesh && nebulaeMetadata)
     nebulaMesh.metadata = { spatialLayer: nebulaeMetadata.countsByKind.nebula };
+  if (nebulaCloudMesh && nebulaeMetadata)
+    nebulaCloudMesh.metadata = {
+      spatialLayer: nebulaeMetadata.countsByKind.nebula.clouds,
+    };
   if (planetaryNebulaMesh && nebulaeMetadata)
     planetaryNebulaMesh.metadata = {
       spatialLayer: nebulaeMetadata.countsByKind['planetary-nebula'],
     };
   updateGalaxyNebulaVisibility(
     nebulaMesh,
+    nebulaCloudMesh,
     planetaryNebulaMesh,
     nebulaeMetadata,
     cameraState,
@@ -1749,7 +1745,6 @@ export const createBabylonGalaxyScene = (
     scene,
     [
       densityMesh,
-      nebulaMesh,
       commanderHistoryMesh,
       selectedMarker,
       ...stellarAccentMeshes,
@@ -1810,6 +1805,7 @@ export const createBabylonGalaxyScene = (
     densityMesh,
     commanderHistoryMesh,
     nebulaMesh,
+    nebulaCloudMesh,
     planetaryNebulaMesh,
     nebulaeMetadata,
     regionBoundaryMesh,
@@ -2186,6 +2182,7 @@ export const createBabylonSession = (
     updateGalaxyReferenceGridVisibility(referenceGrid, camera);
     updateGalaxyNebulaVisibility(
       product.nebulaMesh,
+      product.nebulaCloudMesh,
       product.planetaryNebulaMesh,
       product.nebulaeMetadata,
       camera,
@@ -2303,6 +2300,7 @@ export const createBabylonSession = (
         updateGalaxyReferenceGridVisibility(referenceGrid, product.cameraState);
         updateGalaxyNebulaVisibility(
           product.nebulaMesh,
+          product.nebulaCloudMesh,
           product.planetaryNebulaMesh,
           product.nebulaeMetadata,
           product.cameraState,

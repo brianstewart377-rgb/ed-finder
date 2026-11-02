@@ -51,6 +51,59 @@ bounds and journey request debounce. Local validation passed: `pnpm check`
 change requires Product E2E/visual validation before production promotion.
 **Not deployed.**
 
+## 2026-11-02 — Soft Galaxy nebula clouds and persistent landmarks (M03)
+
+Diffuse nebulae now separate a small marker at the catalogue position from
+three soft, irregular cloud billboards. A deterministic procedural alpha atlas
+and additive, depth-tested blending replace the dark-edged spheres. Clouds fade
+on approach with distinct exit/re-entry thresholds; their markers persist at
+close zoom. Cloud radii are bounded to 600–1,800 LY as **schematic extent** only:
+no authorised source supplies measured nebula extents. The layer status and
+renderer metadata expose that distinction.
+
+M02 catalogue inventory, landmark selection, deduplication and cap remain
+unchanged. Visible counts and receipts count each enabled landmark marker once;
+decorative cloud quads are reported separately and never inflate target counts.
+Planetary nebulae retain their existing markers and zoom fade. Clouds and diffuse
+markers each use one instanced draw with no new assets or dependencies.
+
+Validation passed on Node 24 / pnpm 11.25.0: web typecheck, lint, formatting,
+all 1,719 Vitest tests, and static build. Local Cypress diagnostics on
+SwiftShader/ANGLE compiled both shaders and captured overview, regional
+perspective/orthographic and close-range frames; isolated nebula rendering used
+two draws with clouds and one after they faded. These diagnostic screenshots
+are not Product E2E acceptance evidence.
+
+Product E2E screenshots and visual validation are required before any production
+promotion. This change is **not deployed**.
+
+## 2026-11-02 — Inspect source freshness and saved comparison capture times (A04)
+
+Inspect adds a compact, non-modal **Sources & freshness** pop-out beside the
+catalogue date. It identifies the canonical catalogue, Ratings V4 potentials,
+station economies when displayed, and the Commander data/development-fit
+integration gap. Canonical generation labels and rating generation/scorer
+identities come from the requests already used by the page. The current
+responses do not supply a ratings publication date or a station observation
+timestamp; the UI states those limits instead of reusing the catalogue date.
+
+Missing values, product gaps and failed requests now use **Unknown**, **Not
+integrated yet** and **Temporarily unavailable**, with Retry for failed reads.
+The `data-unavailable-fields` hook remains and carries `data-availability`.
+Pins and comparison expose capture times; comparison Refresh explicitly
+refetches the saved systems. Saved reference distances retain their own capture
+time when the existing response cannot refresh that reference.
+
+Component/facade tests cover source identities, availability, retries, capture
+times, explicit refresh and accessibility of the open pop-out. Existing
+SystemDetail/compare assertions and the Product E2E assertion that pinned
+“Not available yet” are updated for the new wording and capture rows. The
+Product E2E spec includes desktop/mobile source-panel screenshots and axe
+checks; that browser lane has not been run for this change. This user-visible
+change needs Product E2E/visual validation before production
+promotion and is **not deployed**. Changes are confined to `apps/web` and this
+entry; no backend API changes.
+
 ## 2026-11-02 — Galaxy system hover cards and nearby labels (M10)
 
 Catalogue stars and Finder markers now expose hover/focus cards with their

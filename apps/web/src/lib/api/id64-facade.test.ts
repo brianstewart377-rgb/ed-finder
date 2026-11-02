@@ -52,6 +52,9 @@ describe('id64-bearing application API facade', () => {
 
     expect(result.id64).toBe('9007199254740993');
     expect(result.name).toBe('Lossless');
+    expect(result.canonicalGenerationId).toBe('g-1');
+    expect(result.canonicalGenerationLabel).toBe('k1');
+    expect(result.sourceUpdatedAt).toBeNull();
     expect(result.bodies).toHaveLength(1);
     // Canonical body keys beyond 2^53 stay lossless decimal strings.
     expect(result.bodies[0]?.bodyKey).toBe('36028797018963969');
@@ -99,6 +102,8 @@ describe('id64-bearing application API facade', () => {
     // The first attempt straddles g-1 -> g-2; the retry sees g-2 on both sides.
     const fenced = await getSystem(parseId64('42'));
     expect(fenced.name).toBe('Fenced');
+    expect(fenced.canonicalGenerationId).toBe('g-2');
+    expect(fenced.canonicalGenerationLabel).toBe('k2');
     expect(
       fetchMock.mock.calls.filter(
         ([input]) => pathOf(input) === '/api/v1/systems/42',
@@ -438,6 +443,11 @@ describe('Inspect mapping of rings and stations', () => {
     ]);
     expect(detail.stations[0]?.bodyKey).toBe('36028797018963968');
     expect(detail.stations[1]?.bodyKey).toBeNull();
+    // The system source date is not a station-observation timestamp.
+    expect(detail.sourceUpdatedAt).not.toBeNull();
+    expect(
+      detail.stations.every((station) => station.lastObservedAt === null),
+    ).toBe(true);
     expect(detail.stations[0]?.economies.map((e) => e.economy)).toEqual([
       'extraction',
       'high_tech',
