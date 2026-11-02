@@ -1,13 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { GalaxyStarRequests } from './galaxy-star-requests';
+import { ApiError } from '$lib/api';
+
+import {
+  GALAXY_STAR_IDLE_DELAY_MS,
+  GalaxyStarRequests,
+} from './galaxy-star-requests';
 
 function deferred() {
   let resolve!: (value: string) => void;
-  const promise = new Promise<string>((done) => {
+  let reject!: (error: Error) => void;
+  const promise = new Promise<string>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 describe('bounded catalogue cell requests', () => {
@@ -49,6 +56,166 @@ describe('bounded catalogue cell requests', () => {
       'complete',
       'complete',
     ]);
+  });
+
+  it('waits for foreground queries and an idle interval, then starts nearest cells first', async () => {
+    requests.setPaused(true);
+    const downloads = Array.from({ length: 6 }, () => deferred());
+    const order: number[] = [];
+    const priorities = [30, 10, 20, 0, 10, 40];
+    const results = downloads.map((download, index) =>
+      requests.run(
+        new AbortController().signal,
+        () => {
+          order.push(index);
+          return download.promise;
+        },
+        priorities[index],
+      ),
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(order).toEqual([]);
+    requests.setPaused(false);
+    await vi.advanceTimersByTimeAsync(GALAXY_STAR_IDLE_DELAY_MS - 1);
+    expect(order).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(order).toEqual([3, 1, 4, 2]);
+    downloads.forEach((download) => download.resolve('complete'));
+    await Promise.all(results);
+    expect(order).toEqual([3, 1, 4, 2, 0, 5]);
+  });
+
+  it('stops filling active slots when foreground work resumes', async () => {
+    const active = Array.from({ length: 4 }, () => deferred());
+    const results = active.map((download) =>
+      requests.run(new AbortController().signal, () => download.promise),
+    );
+    const download = vi.fn(async () => 'queued');
+    const queued = requests.run(new AbortController().signal, download);
+    await vi.advanceTimersByTimeAsync(0);
+    requests.setPaused(true);
+    active.forEach((request) => request.resolve('complete'));
+    await Promise.all(results);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(download).not.toHaveBeenCalled();
+    requests.setPaused(false);
+    await vi.advanceTimersByTimeAsync(GALAXY_STAR_IDLE_DELAY_MS);
+    await expect(queued).resolves.toBe('queued');
+  });
+
+  it('restarts the idle interval when the camera moves and cancels obsolete viewport work', async () => {
+    requests.defer();
+    const obsoleteController = new AbortController();
+    const obsoleteDownload = vi.fn(async () => 'obsolete');
+    const obsolete = requests
+      .run(obsoleteController.signal, obsoleteDownload)
+      .catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(GALAXY_STAR_IDLE_DELAY_MS - 1);
+    obsoleteController.abort();
+    requests.defer();
+    const currentDownload = vi.fn(async () => 'current');
+    const current = requests.run(new AbortController().signal, currentDownload);
+    await vi.advanceTimersByTimeAsync(GALAXY_STAR_IDLE_DELAY_MS - 1);
+    expect(obsoleteDownload).not.toHaveBeenCalled();
+    expect(currentDownload).not.toHaveBeenCalled();
+    await expect(obsolete).resolves.toMatchObject({ name: 'AbortError' });
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(current).resolves.toBe('current');
+  });
+
+  it('probes route availability once before using all four connection slots', async () => {
+    requests = new GalaxyStarRequests({ probe: true });
+    const downloads = Array.from({ length: 6 }, () => deferred());
+    const order: number[] = [];
+    const results = downloads.map((download, index) =>
+      requests.run(new AbortController().signal, () => {
+        order.push(index);
+        return download.promise;
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(order).toEqual([0]);
+    downloads[0].resolve('available');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(order).toEqual([0, 1, 2, 3, 4]);
+    downloads.forEach((download) => download.resolve('complete'));
+    await Promise.all(results);
+    expect(order).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  it.each([404, 503])(
+    'fails the layer once on HTTP %s without downloading queued or future cells',
+    async (status) => {
+      requests = new GalaxyStarRequests({ probe: true });
+      const failure = new ApiError(status, '/api/map/systems', null);
+      const download = vi.fn(async () => {
+        throw failure;
+      });
+      const results = Array.from({ length: 16 }, () =>
+        requests
+          .run(new AbortController().signal, download)
+          .catch((error: unknown) => error),
+      );
+      await expect(Promise.all(results)).resolves.toEqual(
+        Array(16).fill(failure),
+      );
+      expect(download).toHaveBeenCalledOnce();
+      requests.defer();
+      requests.setPaused(true);
+      requests.setPaused(false);
+      await expect(
+        requests.run(new AbortController().signal, download),
+      ).rejects.toBe(failure);
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(download).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it('aborts active cells and rejects the whole queue when an established route becomes unavailable', async () => {
+    requests = new GalaxyStarRequests({ probe: true });
+    await requests.run(new AbortController().signal, async () => 'available');
+    const downloads = Array.from({ length: 6 }, () => deferred());
+    const signals: AbortSignal[] = [];
+    const results = downloads.map((download) =>
+      requests
+        .run(new AbortController().signal, (signal) => {
+          signals.push(signal);
+          return download.promise;
+        })
+        .catch((error: unknown) => error),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(signals).toHaveLength(4);
+    const failure = new ApiError(503, '/api/map/systems', null);
+    downloads[0].reject(failure);
+    await expect(Promise.all(results)).resolves.toEqual(Array(6).fill(failure));
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+    downloads.forEach((download) => download.resolve('late completion'));
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(signals).toHaveLength(4);
+  });
+
+  it('does not latch a transport failure or a stale cancelled response as route unavailability', async () => {
+    requests = new GalaxyStarRequests({ probe: true });
+    const stale = deferred();
+    const controller = new AbortController();
+    const cancelled = requests
+      .run(controller.signal, () => stale.promise)
+      .catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(0);
+    controller.abort();
+    stale.reject(new ApiError(503, '/api/map/systems', null));
+    await expect(cancelled).resolves.toMatchObject({ name: 'AbortError' });
+    const failure = new ApiError(500, '/api/map/systems', null);
+    await expect(
+      requests.run(new AbortController().signal, async () => {
+        throw failure;
+      }),
+    ).rejects.toBe(failure);
+    await expect(
+      requests.run(new AbortController().signal, async () => 'recovered'),
+    ).resolves.toBe('recovered');
   });
 
   it('removes cancelled queued work and rejects already-aborted signals without downloading', async () => {

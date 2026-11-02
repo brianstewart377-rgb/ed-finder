@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   GALAXY_STAR_API_CUBE_BOUND_LY,
+  GALAXY_WIDE_STAR_LIMIT,
   galaxyLocalStarLimit,
 } from './galaxy-detail-policy';
 import {
@@ -47,6 +48,51 @@ function viewport(
 }
 
 describe('catalogue cell planning', () => {
+  it('keeps overview and galaxy samples to one request until local detail is active', () => {
+    for (const distance of [9_000, 9_500, 40_000, 120_000]) {
+      const view = {
+        ...viewport(425, -925, 15_000, 15_000, distance),
+        wide: true,
+        limit: GALAXY_WIDE_STAR_LIMIT,
+      };
+      const cells = planGalaxyStarCells(view);
+      expect(cells).toHaveLength(1);
+      expect(cells[0].request).toEqual({
+        minX: view.minX,
+        maxX: view.maxX,
+        minY: view.minY,
+        maxY: view.maxY,
+        minZ: view.minZ,
+        maxZ: view.maxZ,
+        limit: GALAXY_WIDE_STAR_LIMIT,
+      });
+      expect(planGalaxyStarCells(view, cells)).toBe(cells);
+      expect(
+        refineGalaxyStarCells(view, cells, () => ({ truncated: true })),
+      ).toEqual(cells);
+      expect(
+        planGalaxyStarCells({ ...view, wide: false }, cells).length,
+      ).toBeGreaterThan(1);
+    }
+  });
+
+  it('coalesces adjacent local cells without expanding coverage or raising the row limit', () => {
+    const cells = planGalaxyStarCells(viewport(250, 250, 200, 200, 100));
+    expect(cells).toHaveLength(1);
+    expect(cells[0].request).toEqual({
+      minX: 0,
+      maxX: 500,
+      minY: -500,
+      maxY: 500,
+      minZ: 0,
+      maxZ: 500,
+      limit: 1_800,
+    });
+    expect(
+      planGalaxyStarCells(viewport(750, 250, 200, 200, 100))[0].request,
+    ).toMatchObject({ minX: 500, maxX: 1_000, minZ: 0, maxZ: 500 });
+  });
+
   it('reuses the same cells after a 5% pan and changes them after a 100% pan', () => {
     const initial = planGalaxyStarCells(viewport());
     const smallMove = planGalaxyStarCells(viewport(400, 300), initial);
@@ -313,6 +359,10 @@ describe('catalogue cell cache retention', () => {
     expect(view.maxX - view.minX).toBeGreaterThan(15_000);
     expect(planGalaxyStarCells(view).length).toBeLessThanOrEqual(
       MAX_GALAXY_STAR_ACTIVE_CELLS,
+    );
+    const [{ request }] = planGalaxyStarCells({ ...view, wide: true });
+    expect(request.maxX - request.minX).toBeLessThanOrEqual(
+      GALAXY_STAR_API_CUBE_BOUND_LY,
     );
   });
 });

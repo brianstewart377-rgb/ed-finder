@@ -363,6 +363,17 @@ describe('Explore load and interaction work budget', () => {
       await settle();
       regionResponse.resolve(regions);
       await settle();
+      // The initial close camera can finish its local cells before the overview
+      // starts density. Once density is pending, catalogue must yield to it.
+      const catalogueBeforeDensity = vi.mocked(api.getCatalogueViewportSystems)
+        .mock.calls.length;
+      expect(
+        queryClient.isFetching({ queryKey: ['map-heatmap'] }),
+      ).toBeGreaterThan(0);
+      await settle();
+      expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(
+        catalogueBeforeDensity,
+      );
       densityResponse.resolve(density);
       await settle();
       nebulaResponse.resolve(nebulae);
@@ -452,35 +463,34 @@ describe('Explore load and interaction work budget', () => {
         auth: 0,
       };
       expect(loaded).toEqual({
-        builds: enabled ? 3 : 18,
+        builds: enabled ? 3 : 17,
         rendererScenes: enabled ? 3 : 4,
-        loads: enabled ? 3 : 7,
+        loads: enabled ? 3 : 6,
         patches: enabled ? 1 : 0,
-        // Viewport catalogue cells add their observers; the Layers pop-out adds
-        // the disabled account-summary observer in both modes.
-        activeQueries: 16,
+        // One wide sample replaces overview cell fanout; the Layers pop-out
+        // adds the disabled account-summary observer in both modes.
+        activeQueries: 8,
         transitions: 1,
-        api: { ...idleApi, finder: 0, catalogue: 25, density: 2 },
+        api: { ...idleApi, finder: 0, catalogue: 5, density: 2 },
       });
-      // Whole-cell queries replace the old one-box request counts. Reserved
-      // anchor positions are available immediately, avoiding repeated flights
-      // while the local cell sample arrives. Empty samples add no layer and
-      // equal reserved contributions retain their identity, reducing builds.
+      // Measured after bounding request concurrency, yielding to foreground
+      // queries and coalescing adjacent local cells. Reserved anchors remain
+      // immediate; empty/equal samples retain their contribution identities.
       // Pending/equal responses below must still avoid scene reconstruction.
       expect(interacted).toEqual({
-        builds: enabled ? 7 : 36,
+        builds: enabled ? 7 : 35,
         rendererScenes: enabled ? 6 : 7,
-        loads: enabled ? 7 : 13,
+        loads: enabled ? 7 : 12,
         patches: enabled ? 1 : 0,
         // The committed anchor and selected result have separate query
         // identities; the account-summary observer adds one in both modes.
-        activeQueries: enabled ? 17 : 16,
+        activeQueries: enabled ? 9 : 8,
         transitions: 4,
         api: {
           ...idleApi,
           autocomplete: 1,
           finder: 2,
-          catalogue: enabled ? 37 : 29,
+          catalogue: enabled ? 14 : 10,
           density: enabled ? 4 : 5,
         },
       });
@@ -569,14 +579,14 @@ describe('Explore load and interaction work budget', () => {
         loads: 10,
         patches: 1,
         // Includes the disabled account-summary observer from the Layers pop-out.
-        activeQueries: 17,
+        activeQueries: 9,
         transitions: 4,
         api: {
           ...idleApi,
           autocomplete: 1,
           finder: 6,
           rankings: 1,
-          catalogue: 37,
+          catalogue: 14,
           density: 4,
         },
       });

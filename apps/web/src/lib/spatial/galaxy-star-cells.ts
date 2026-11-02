@@ -26,10 +26,7 @@ export type GalaxyStarCell = Readonly<{
 }>;
 
 function baseCellSize(viewport: GalaxyStarViewport): number {
-  if (
-    viewport.wide ||
-    viewport.cameraDistanceLy > LOCAL_STAR_BUDGET_BANDS[0].aboveDistanceLy
-  ) {
+  if (viewport.cameraDistanceLy > LOCAL_STAR_BUDGET_BANDS[0].aboveDistanceLy) {
     return 2_500;
   }
   return viewport.cameraDistanceLy > LOCAL_STAR_BUDGET_BANDS[2].aboveDistanceLy
@@ -37,10 +34,48 @@ function baseCellSize(viewport: GalaxyStarViewport): number {
     : 250;
 }
 
+/** Merge adjacent 2x2 blocks on a stable parent grid, without enlarging them. */
+function coalesceCells(cells: readonly GalaxyStarCell[]): GalaxyStarCell[] {
+  const groups = new Map<string, GalaxyStarCell[]>();
+  for (const cell of cells) {
+    const size = cell.cellSizeLy * 2;
+    // Keep individual cells where their parent would exceed the API bound.
+    const key =
+      size <= GALAXY_STAR_API_CUBE_BOUND_LY
+        ? `${Math.floor(cell.centre.x / size)}:${Math.floor(cell.centre.z / size)}`
+        : cell.key;
+    const group = groups.get(key) ?? [];
+    group.push(cell);
+    groups.set(key, group);
+  }
+  return [...groups.values()].map((group) => {
+    if (group.length === 1) return group[0];
+    const first = group[0];
+    const request = {
+      ...first.request,
+      minX: Math.min(...group.map((cell) => cell.request.minX)),
+      maxX: Math.max(...group.map((cell) => cell.request.maxX)),
+      minZ: Math.min(...group.map((cell) => cell.request.minZ)),
+      maxZ: Math.max(...group.map((cell) => cell.request.maxZ)),
+    };
+    return {
+      ...first,
+      key: `merged:${first.cellSizeLy}:${request.minX}:${request.maxX}:${request.minY}:${request.maxY}:${request.minZ}:${request.maxZ}:${request.limit}`,
+      request,
+      centre: {
+        x: (request.minX + request.maxX) / 2,
+        y: (request.minY + request.maxY) / 2,
+        z: (request.minZ + request.maxZ) / 2,
+      },
+    };
+  });
+}
+
 /**
  * Quantize requests, never catalogue positions. A small halo permits reuse
  * across grid boundaries; subsequent views reuse the prior complete rectangle
- * until they leave its coverage. Each request retains the detail-band limit.
+ * until they leave its coverage. Adjacent local cells share a bounded request;
+ * wide views use one sample. Each request retains the detail-band limit.
  */
 export function planGalaxyStarCells(
   viewport: GalaxyStarViewport,
@@ -65,6 +100,38 @@ export function planGalaxyStarCells(
       GALAXY_STAR_API_CUBE_BOUND_LY - 2 * Y_QUANTUM_LY
   ) {
     throw new RangeError('Cell viewport must fit the bounded catalogue cube');
+  }
+
+  if (viewport.wide) {
+    // Fractional world coordinates can subtract to just over the exact API
+    // bound. Trim only that numerical overshoot before sending one sample.
+    const boundedMaximum = (minimum: number, maximum: number) =>
+      maximum - minimum > GALAXY_STAR_API_CUBE_BOUND_LY
+        ? minimum + GALAXY_STAR_API_CUBE_BOUND_LY - BOUNDS_EPSILON_LY
+        : maximum;
+    const request = {
+      minX: viewport.minX,
+      maxX: boundedMaximum(viewport.minX, viewport.maxX),
+      minY: viewport.minY,
+      maxY: viewport.maxY,
+      minZ: viewport.minZ,
+      maxZ: boundedMaximum(viewport.minZ, viewport.maxZ),
+      limit: viewport.limit,
+    };
+    const key = `wide:${request.minX}:${request.maxX}:${request.minY}:${request.maxY}:${request.minZ}:${request.maxZ}:${request.limit}`;
+    if (previous.length === 1 && previous[0].key === key) return previous;
+    return [
+      {
+        key,
+        cellSizeLy: GALAXY_STAR_API_CUBE_BOUND_LY,
+        request,
+        centre: {
+          x: (request.minX + request.maxX) / 2,
+          y: (request.minY + request.maxY) / 2,
+          z: (request.minZ + request.maxZ) / 2,
+        },
+      },
+    ];
   }
 
   const paddedWidth = width * (1 + CELL_HALO_FRACTION * 2);
@@ -147,7 +214,7 @@ export function planGalaxyStarCells(
       });
     }
   }
-  return cells;
+  return coalesceCells(cells);
 }
 
 /**

@@ -544,7 +544,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('shows density loading independently while exact stars are ready', async () => {
+  it('prioritizes the initial density query before loading exact stars', async () => {
     let finish!: (response: api.MapHeatmapResponse) => void;
     vi.mocked(api.getMapHeatmap).mockImplementation(
       () => new Promise((resolve) => (finish = resolve)),
@@ -555,14 +555,20 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     render(ExploreWorkspaceTestHost);
     await openLayers();
 
-    await screen.findByText('1 exact stars');
+    await waitFor(() => expect(api.getMapHeatmap).toHaveBeenCalled());
     expect(densityStatus()).toHaveAttribute('data-density-state', 'loading');
     expect(densityStatus()).toHaveTextContent(/loading/i);
+    await waitFor(() =>
+      expect(exactStarStatus()).toHaveTextContent(
+        'Loading exact catalogue stars',
+      ),
+    );
+    expect(api.getCatalogueViewportSystems).not.toHaveBeenCalled();
     finish(pyramidFixture);
     await waitFor(() =>
       expect(densityStatus()).toHaveAttribute('data-density-state', 'ready'),
     );
-    expect(exactStarStatus()).toHaveTextContent('1 exact stars');
+    await screen.findByText('1 exact stars');
   });
 
   it.each([
@@ -1767,6 +1773,7 @@ describe.each([false, true])(
 
       await screen.findByText(/2 density cells/);
       await waitFor(() => expect(currentScene()).toBeDefined());
+      await waitForCatalogueCells();
       expectEmptyResults();
       expect(api.getCatalogueViewportSystems).toHaveBeenCalled();
       expect(api.searchExploreSystems).not.toHaveBeenCalled();
@@ -1843,7 +1850,11 @@ describe.each([false, true])(
         systems: [{ ...anchorA, populated: false }],
         truncated: false,
       });
-      renderEnabled('', { anchor: anchorA });
+      // A retained catalogue packet can supply fallback markers while a new
+      // foreground search runs; new cell downloads now wait for that search.
+      const navigation = renderEnabled('');
+      await waitForCatalogueCells();
+      navigation.restore('', { anchor: anchorA });
       await waitFor(() =>
         expect(api.searchExploreSystems).toHaveBeenCalledTimes(1),
       );
@@ -2772,6 +2783,7 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
           positionLy: { x: -45_000, y: 100, z: 60_000 },
         });
       });
+      await waitForCatalogueCells();
       expect(api.getCatalogueViewportSystems).toHaveBeenCalled();
       expect(exactStarStatus()).toHaveAttribute(
         'data-catalogue-star-count',
@@ -2813,15 +2825,24 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
         systems: [{ ...anchorA, populated: false }],
         truncated: false,
       });
-      renderEnabled(
-        `${mode === 'selected' ? 'archetype=manufacturing_hub&' : ''}page_size=1&offset=1&selected=${anchorA.id64}`,
-      );
-      // Hold results until the catalogue's selected system reaches the map.
-      // Its point must never supply the separate Finder selection contribution.
+      // Retain the catalogue before starting foreground results. New cell
+      // downloads yield to results, but a cached point must still never supply
+      // the separate Finder selection contribution.
+      const navigation = renderEnabled('');
       await waitFor(() =>
         expect(
           document.querySelector('[data-catalogue-star-count]'),
         ).toHaveAttribute('data-catalogue-star-count', '1'),
+      );
+      navigation.restore(
+        `${mode === 'selected' ? 'archetype=manufacturing_hub&' : ''}page_size=1&offset=1&selected=${anchorA.id64}`,
+      );
+      await waitFor(() =>
+        expect(
+          mode === 'selected'
+            ? api.getArchetypeRankings
+            : api.searchExploreSystems,
+        ).toHaveBeenCalledOnce(),
       );
       expect(api.getSystem).not.toHaveBeenCalled();
       await waitFor(() =>
@@ -3298,6 +3319,8 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
       await finishFrames();
       if (densityTiming !== 'during') finishDensity(coarsePyramidFixture);
       await vi.advanceTimersByTimeAsync(180);
+      await finishFrames();
+      await waitForCatalogueCells();
       await finishFrames();
       expect(scenePointIds()).toEqual([rankedRows[1].id64]);
       expect(work()).toEqual({ loads: 3, scenes: 3, transitions: 1 });

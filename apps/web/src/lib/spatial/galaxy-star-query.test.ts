@@ -10,7 +10,9 @@ import GalaxyStarQueryTestHost from './GalaxyStarQueryTestHost.svelte';
 import {
   GALAXY_STAR_CELL_CACHE_LIMIT,
   MAX_GALAXY_STAR_ACTIVE_CELLS,
+  planGalaxyStarCells,
 } from './galaxy-star-cells';
+import { GALAXY_STAR_IDLE_DELAY_MS } from './galaxy-star-requests';
 import { galaxyStarViewport } from './galaxy-star-stream';
 import { withinGalaxyStarFootprint } from './galaxy-star-footprint';
 
@@ -84,6 +86,7 @@ describe('catalogue cell query integration', () => {
   afterEach(() => {
     cleanup();
     client.clear();
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -121,6 +124,43 @@ describe('catalogue cell query integration', () => {
     expect(
       client.getQueryCache().findAll({ queryKey: queryPrefix }).length,
     ).toBeLessThanOrEqual(GALAXY_STAR_CELL_CACHE_LIMIT);
+  });
+
+  it('starts with no renderer viewport, then grows and shrinks cells without stranding foreground updates', async () => {
+    vi.useFakeTimers();
+    const initial = props(client, camera());
+    const view = render(GalaxyStarQueryTestHost, {
+      ...initial,
+      viewport: null,
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(screen.getByTestId('foreground')).toHaveTextContent('initial');
+    expect(api.getCatalogueViewportSystems).not.toHaveBeenCalled();
+    for (const [index, state] of [
+      camera(0, 0, 118_000),
+      camera(),
+      camera(0, 0, 118_000),
+      camera(200, 200, 20),
+    ].entries()) {
+      await view.rerender({
+        ...props(client, state),
+        viewport: galaxyStarViewport(
+          state,
+          state.distanceLy > 9_500 ? 'wide' : 'local',
+          viewportSize,
+        ),
+        foregroundKey: `foreground ${index}`,
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(screen.getByTestId('foreground')).toHaveTextContent(
+        `foreground ${index}`,
+      );
+      expect(packet()).toBeDefined();
+      expect(screen.getByTestId('catalogue-packet')).toHaveAttribute(
+        'data-fetching',
+        'false',
+      );
+    }
   });
 
   it('publishes successful cells and marks the packet incomplete when one sibling fails', async () => {
@@ -294,8 +334,9 @@ describe('catalogue cell query integration', () => {
   });
 
   it('evicts distant query packets after sustained travel while keeping the active view', async () => {
-    let now = Date.now();
-    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const now = Date.now.bind(Date);
+    let elapsed = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => now() + elapsed);
     const view = render(
       GalaxyStarQueryTestHost,
       props(client, camera(-40_000)),
@@ -308,7 +349,7 @@ describe('catalogue cell query integration', () => {
     for (let index = 1; index <= 20; index++) {
       // Separate real navigation visits in time without waiting on the route's
       // minute-based request budget in a unit test.
-      now += 61_000;
+      elapsed += 61_000;
       await view.rerender(props(client, camera(-40_000 + index * 4_000)));
       await settled();
       const retained = client
@@ -343,6 +384,11 @@ describe('catalogue cell query integration', () => {
         });
       },
     );
+    // Establish route availability before exercising the four-slot queue.
+    vi.mocked(api.getCatalogueViewportSystems).mockResolvedValueOnce({
+      systems: [],
+      truncated: false,
+    });
     client.setQueryData(['unrelated'], 'keep');
     const state = camera(5_000, 5_000, 9_000);
     const view = render(GalaxyStarQueryTestHost, {
@@ -362,10 +408,214 @@ describe('catalogue cell query integration', () => {
     await waitFor(() =>
       expect(signals.every((signal) => signal.aborted)).toBe(true),
     );
-    expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(4);
+    expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(5);
     expect(
       client.getQueryCache().findAll({ queryKey: queryPrefix }),
     ).toHaveLength(0);
     expect(client.getQueryData(['unrelated'])).toBe('keep');
+  });
+
+  it('waits for foreground ranking, autocomplete, density and journey requests, then for idle', async () => {
+    vi.useFakeTimers();
+    const finish: (() => void)[] = [];
+    const foreground = [
+      queryKeys.rankings({
+        archetype: 'manufacturing_hub',
+        min_score: 60,
+        page_size: 24,
+        offset: 0,
+      }),
+      queryKeys.autocomplete('sol'),
+      ['map-heatmap', 1_000],
+      [...queryKeys.all, 'map', 'commander-history', 'commander'],
+    ].map((queryKey) =>
+      client.fetchQuery({
+        queryKey,
+        queryFn: () =>
+          new Promise<null>((resolve) => finish.push(() => resolve(null))),
+      }),
+    );
+    render(GalaxyStarQueryTestHost, props(client, camera()));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(api.getCatalogueViewportSystems).not.toHaveBeenCalled();
+    for (const complete of finish.slice(0, -1)) complete();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(api.getCatalogueViewportSystems).not.toHaveBeenCalled();
+    finish.at(-1)!();
+    await Promise.all(foreground);
+    await vi.advanceTimersByTimeAsync(GALAXY_STAR_IDLE_DELAY_MS - 1);
+    expect(api.getCatalogueViewportSystems).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(api.getCatalogueViewportSystems).toHaveBeenCalled();
+  });
+
+  it.each([404, 503])(
+    'stops the whole layer after one unavailable probe (%s), including later viewports',
+    async (status) => {
+      vi.useFakeTimers();
+      vi.mocked(api.getCatalogueViewportSystems).mockRejectedValue(
+        new api.ApiError(status, '/api/map/systems', {}),
+      );
+      const view = render(GalaxyStarQueryTestHost, props(client, camera()));
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(api.getCatalogueViewportSystems).toHaveBeenCalledOnce();
+      expect(screen.getByTestId('catalogue-packet')).toHaveAttribute(
+        'data-error',
+        'true',
+      );
+      expect(screen.getByTestId('catalogue-packet')).toHaveAttribute(
+        'data-pending',
+        'false',
+      );
+      await view.rerender(props(client, camera(20_000, 20_000)));
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(api.getCatalogueViewportSystems).toHaveBeenCalledOnce();
+      expect(screen.getByTestId('catalogue-packet')).toHaveAttribute(
+        'data-error',
+        'true',
+      );
+    },
+  );
+
+  it('keeps the single wide sample and its full 8,000-star budget', async () => {
+    vi.useFakeTimers();
+    const state = camera(0, 0, 118_000);
+    vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue({
+      systems: Array.from({ length: 8_000 }, (_, index) => ({
+        id64: parseId64(String(index + 1)),
+        name: `Wide ${index}`,
+        x: index,
+        y: 0,
+        z: 0,
+        populated: false,
+      })),
+      truncated: false,
+    });
+    render(GalaxyStarQueryTestHost, {
+      ...props(client, state),
+      viewport: galaxyStarViewport(state, 'wide', viewportSize),
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(api.getCatalogueViewportSystems).toHaveBeenCalledOnce();
+    expect(packet()!.systems).toHaveLength(8_000);
+    expect(packet()!.truncated).toBe(false);
+  });
+
+  it('ignores a late unavailable response from an already cancelled viewport', async () => {
+    vi.useFakeTimers();
+    let rejectStale!: (error: Error) => void;
+    vi.mocked(api.getCatalogueViewportSystems).mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectStale = reject;
+        }),
+    );
+    const view = render(GalaxyStarQueryTestHost, props(client, camera()));
+    await vi.advanceTimersByTimeAsync(1_000);
+    const signal = vi.mocked(api.getCatalogueViewportSystems).mock.calls[0][1]!;
+    await view.rerender(props(client, camera(30_000, 30_000)));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(signal.aborted).toBe(true);
+    rejectStale(new api.ApiError(503, '/api/map/systems', {}));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(screen.getByTestId('catalogue-packet')).toHaveAttribute(
+      'data-error',
+      'false',
+    );
+    expect(packet()!.systems.length).toBeGreaterThan(0);
+  });
+
+  it('reserves connections for foreground work, starts nearest cells first and cancels obsolete queued cells', async () => {
+    vi.useFakeTimers();
+    const state = camera(5_000, 5_000, 9_000);
+    const initial = {
+      ...props(client, state),
+      viewport: galaxyStarViewport(state, 'local', {
+        width: 2_100,
+        height: 900,
+      }),
+    };
+    const expected = [...planGalaxyStarCells(initial.viewport!)].sort(
+      (a, b) => {
+        const distance = (cell: typeof a) =>
+          (cell.centre.x - 5_000) ** 2 +
+          cell.centre.y ** 2 +
+          (cell.centre.z - 5_000) ** 2;
+        return distance(a) - distance(b) || a.key.localeCompare(b.key);
+      },
+    );
+    expect(expected.length).toBeGreaterThan(5);
+    let active = 0;
+    let maximum = 0;
+    const downloads: { signal: AbortSignal; finish: () => void }[] = [];
+    vi.mocked(api.getCatalogueViewportSystems).mockImplementation(
+      (_request, signal) => {
+        active++;
+        maximum = Math.max(maximum, active);
+        return new Promise((resolve, reject) => {
+          const finish = () => {
+            active--;
+            resolve({ systems: [], truncated: false });
+          };
+          downloads.push({ signal: signal!, finish });
+          signal!.addEventListener(
+            'abort',
+            () => {
+              active--;
+              reject(new DOMException('Aborted', 'AbortError'));
+            },
+            { once: true },
+          );
+        });
+      },
+    );
+    const view = render(GalaxyStarQueryTestHost, initial);
+    await vi.advanceTimersByTimeAsync(GALAXY_STAR_IDLE_DELAY_MS);
+    expect(downloads).toHaveLength(1);
+    downloads[0].finish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(active).toBe(4);
+    expect(
+      vi
+        .mocked(api.getCatalogueViewportSystems)
+        .mock.calls.map(([request]) => request),
+    ).toEqual(expected.slice(0, 5).map((cell) => cell.request));
+
+    // Model Firefox's six-connection budget: four catalogue slots leave room
+    // for a foreground request, and no queued cell can refill while it runs.
+    let completeForeground!: () => void;
+    const foreground = client.fetchQuery({
+      queryKey: queryKeys.autocomplete('sol'),
+      queryFn: () => {
+        expect(active).toBeLessThan(6);
+        return new Promise<null>((resolve) => {
+          completeForeground = () => resolve(null);
+        });
+      },
+    });
+    for (const download of downloads.slice(1)) download.finish();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(downloads).toHaveLength(5);
+    expect(active).toBe(0);
+
+    // Move before releasing the foreground request. None of the old queued
+    // cells may hit the transport after the move.
+    await view.rerender(props(client, camera(30_000, 30_000, 9_000)));
+    await vi.advanceTimersByTimeAsync(0);
+    completeForeground();
+    await foreground;
+    await vi.advanceTimersByTimeAsync(GALAXY_STAR_IDLE_DELAY_MS);
+    const replacementCalls = vi
+      .mocked(api.getCatalogueViewportSystems)
+      .mock.calls.slice(5);
+    expect(replacementCalls.length).toBeGreaterThan(0);
+    expect(replacementCalls.every(([request]) => request.minX >= 10_000)).toBe(
+      true,
+    );
+    expect(maximum).toBe(4);
+    const current = downloads.slice(5);
+    await view.rerender(props(client, camera(-30_000, -10_000, 9_000)));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(current.every(({ signal }) => signal.aborted)).toBe(true);
   });
 });

@@ -1239,9 +1239,10 @@
 
     return () => {
       mounted = false;
-      clearHover();
-      keepHover();
       windowPointerCancel();
+      // Pointer cancellation also schedules hover dismissal. Cancel that last
+      // timer so it cannot inspect document or publish events after unmount.
+      keepHover();
       if (wheel) host.removeEventListener('wheel', wheel);
       observer?.disconnect();
       unsubscribe();

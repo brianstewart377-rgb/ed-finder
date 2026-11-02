@@ -1,6 +1,7 @@
 import { createQueries, useQueryClient } from '@tanstack/svelte-query';
 import { untrack } from 'svelte';
 import {
+  ApiError,
   getCatalogueViewportSystems,
   type CatalogueViewportResponse,
 } from '$lib/api/client';
@@ -27,10 +28,21 @@ export function createGalaxyStarQuery(
 ) {
   const client = useQueryClient();
   const cache = new GalaxyStarCellCache();
-  const requests = new GalaxyStarRequests();
+  const requests = new GalaxyStarRequests({ probe: true });
+  requests.setPaused(true);
+  let unavailable = $state(false);
+  const isCatalogueKey = (key: readonly unknown[]) =>
+    key[queryKeys.all.length] === 'map' &&
+    key[queryKeys.all.length + 1] === 'catalogue-stars';
+  const prioritizeForeground = () =>
+    requests.setPaused(
+      client.isFetching({
+        predicate: (query) => !isCatalogueKey(query.queryKey),
+      }) > 0,
+    );
   let previousCells: readonly GalaxyStarCell[] = [];
   const baseCells = $derived.by(() => {
-    const viewport = getViewport();
+    const viewport = unavailable ? null : getViewport();
     previousCells = viewport
       ? planGalaxyStarCells(viewport, previousCells)
       : [];
@@ -43,23 +55,30 @@ export function createGalaxyStarQuery(
   // Re-plan after a packet arrives, including first entry directly into a
   // close view. Read the actual cache instead of retaining duplicate packets
   // or an unbounded set of truncation flags outside its eviction policy.
-  const unsubscribe = client.getQueryCache().subscribe((event) => {
-    if (
-      event.type === 'updated' &&
-      (event.action.type === 'success' || event.action.type === 'error') &&
-      event.query.queryKey[queryKeys.all.length] === 'map' &&
-      event.query.queryKey[queryKeys.all.length + 1] === 'catalogue-stars' &&
-      // createQueries replaces its observer when the query set changes. Wait
-      // for this batch to settle so refinement cannot abort pending siblings.
-      previousRefinements.every(
-        (cell) => client.getQueryState(cellKey(cell))?.fetchStatus === 'idle',
+  // Cache notifications can run inside another component's query effect.
+  // Never attach that effect to our packet revision or scheduling state.
+  const unsubscribe = client.getQueryCache().subscribe((event) =>
+    untrack(() => {
+      // Pause synchronously, before a completion can dispatch another queued
+      // cell. This includes ranking, autocomplete, density and journey queries,
+      // even when they are owned by another component.
+      if (!isCatalogueKey(event.query.queryKey)) prioritizeForeground();
+      if (
+        event.type === 'updated' &&
+        (event.action.type === 'success' || event.action.type === 'error') &&
+        isCatalogueKey(event.query.queryKey) &&
+        // createQueries replaces its observer when the query set changes. Wait
+        // for this batch to settle so refinement cannot abort pending siblings.
+        previousRefinements.every(
+          (cell) => client.getQueryState(cellKey(cell))?.fetchStatus === 'idle',
+        )
       )
-    )
-      packetRevision += 1;
-  });
+        packetRevision += 1;
+    }),
+  );
   const cells = $derived.by(() => {
     void packetRevision;
-    const viewport = getViewport();
+    const viewport = unavailable ? null : getViewport();
     const next = viewport
       ? refineGalaxyStarCells(
           viewport,
@@ -69,45 +88,87 @@ export function createGalaxyStarQuery(
           previousRefinements,
         )
       : [];
+    const focus = getFocus();
+    const distance = (cell: GalaxyStarCell) =>
+      (cell.centre.x - focus.x) ** 2 +
+      (cell.centre.y - focus.y) ** 2 +
+      (cell.centre.z - focus.z) ** 2;
+    const ordered = [...next].sort(
+      (a, b) => distance(a) - distance(b) || a.key.localeCompare(b.key),
+    );
     // Stable options also keep failed siblings from retrying on each packet.
     if (
-      next.length !== previousRefinements.length ||
-      next.some((cell, index) => cell.key !== previousRefinements[index].key)
+      ordered.length !== previousRefinements.length ||
+      ordered.some((cell, index) => cell.key !== previousRefinements[index].key)
     )
-      previousRefinements = next;
+      previousRefinements = ordered;
     return previousRefinements;
   });
-  const queries = createQueries(() => ({
-    queries: cells.map((cell) => ({
+  const batch = createQueries(() => ({
+    queries: cells.map((cell, priority) => ({
       queryKey: cellKey(cell),
       queryFn: ({ signal }: { signal: AbortSignal }) =>
-        requests.run(signal, async (requestSignal) => {
-          const packet = await getCatalogueViewportSystems(
-            cell.request,
-            requestSignal,
-          );
-          // Keep twice a cell's share of the rendered band budget for overscan,
-          // and at least the full close-view budget. A dense 40k band therefore
-          // retains <=5k rows/cell (<=320k across the cache), not 2.56m rows.
-          const retainedLimit = Math.max(
-            LOCAL_STAR_CLOSE_LIMIT,
-            Math.ceil((2 * cell.request.limit) / MAX_GALAXY_STAR_ACTIVE_CELLS),
-          );
-          const systems = sampleCatalogueCellSystems(
-            packet.systems,
-            retainedLimit,
-          );
-          return {
-            systems,
-            truncated:
-              packet.truncated || systems.length < packet.systems.length,
-          };
-        }),
+        requests.run(
+          signal,
+          async (requestSignal) => {
+            let packet: CatalogueViewportResponse;
+            try {
+              packet = await getCatalogueViewportSystems(
+                cell.request,
+                requestSignal,
+              );
+            } catch (error) {
+              if (
+                !requestSignal.aborted &&
+                error instanceof ApiError &&
+                (error.status === 404 || error.status === 503)
+              )
+                unavailable = true;
+              throw error;
+            }
+            // Keep twice a cell's share of the rendered band budget for overscan,
+            // and at least the full close-view budget. A dense 40k band therefore
+            // retains <=5k rows/local packet. Wide views keep their full 8k
+            // sample; even an all-wide cache is bounded to 512k rows.
+            const retainedLimit = cell.key.startsWith('wide:')
+              ? cell.request.limit
+              : Math.max(
+                  LOCAL_STAR_CLOSE_LIMIT,
+                  Math.ceil(
+                    (2 * cell.request.limit) / MAX_GALAXY_STAR_ACTIVE_CELLS,
+                  ),
+                );
+            const systems = sampleCatalogueCellSystems(
+              packet.systems,
+              retainedLimit,
+            );
+            return {
+              systems,
+              truncated:
+                packet.truncated || systems.length < packet.systems.length,
+            };
+          },
+          priority,
+        ),
       staleTime: Infinity,
       gcTime: Infinity,
       retry: 0,
     })),
+    // Keep a stable outer property as the cell set grows/shrinks. Publishing a
+    // variable-length createQueries array can strand unrelated Svelte query
+    // observers even though their HTTP requests/cache states have settled.
+    combine: (results) => ({ results }),
   }));
+  const queries = $derived(batch.results);
+  $effect(() => {
+    // A camera settle gets a short idle window as well as foreground priority.
+    // Query abort signals discard the previous view's queued/active work.
+    void getViewport();
+    untrack(() => {
+      requests.defer();
+      prioritizeForeground();
+    });
+  });
   $effect(() => {
     // Pin parents as well as replacements: losing a parent's truncation
     // evidence would fall back to its broad request. At most 32 of 64 cache
@@ -130,7 +191,8 @@ export function createGalaxyStarQuery(
   let assembledPackets: readonly (CatalogueViewportResponse | undefined)[] = [];
   let assembledData: CatalogueViewportResponse | undefined;
   const data = $derived.by((): CatalogueViewportResponse | undefined => {
-    if (!getViewport() || queries.length !== cells.length) return undefined;
+    if (unavailable || !getViewport() || queries.length !== cells.length)
+      return undefined;
     // Keep the accepted view while its replacement loads, then publish all
     // successful cells even if a sibling failed. One failed cell must not
     // strand the camera on its old packet indefinitely.
@@ -166,13 +228,13 @@ export function createGalaxyStarQuery(
       return data;
     },
     get isPending() {
-      return queries.some((query) => query.isPending);
+      return !unavailable && queries.some((query) => query.isPending);
     },
     get isFetching() {
-      return queries.some((query) => query.isFetching);
+      return !unavailable && queries.some((query) => query.isFetching);
     },
     get isError() {
-      return queries.some((query) => query.isError);
+      return unavailable || queries.some((query) => query.isError);
     },
   };
 }
