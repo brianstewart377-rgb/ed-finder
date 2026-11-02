@@ -11,6 +11,29 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-02 — Galaxy vertical travel and anchored touch navigation (M11)
+
+Galaxy navigation adds Alt/Option-drag elevation and accessible Up/Down controls
+that step galactic Y with the current range. The range/grid strip now shows
+rounded X/Y/Z focus coordinates in LY. Wheel zoom holds the focus-plane point
+under the cursor; two fingers zoom around their midpoint and pan together.
+One-finger/default drag still pans, Shift-drag still orbits, and toolbar zoom
+remains centred. Reset preserves the initial anchored Y; Top down and Tilted
+presets remain available.
+
+Camera and gesture maths stay in pure camera helpers. Navigation uses complete
+catalogue density bounds when available, with a finite camera-range safety
+envelope before complete bounds arrive; partial samples do not narrow travel.
+Existing distance and pitch clamps remain. Pointer cancellation and capture loss
+release the gesture. Vitest covers plane-point projection, elevation bounds,
+pinch ratios, pointer lifecycle, controls and the coordinate readout.
+
+Validation passed with Node 24 and pnpm 11.25.0: frozen dependency install, web
+check, lint, formatting, all 1,517 Vitest tests across 75 files, and static build.
+
+This is a user-visible interaction change that needs Product E2E/visual
+validation before production promotion. It is **not deployed**.
+
 ## 2026-11-02 — Galaxy nebula inventory and planetary landmarks (M02)
 
 Explore now distinguishes the 5,842 accepted EDAstro catalogue records from
