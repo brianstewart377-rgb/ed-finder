@@ -374,7 +374,11 @@
 
   function applyScene(nextScene: SpatialSceneContract): void {
     if (!runtime || status.state !== 'ready') return;
-    if (FINDER_F4_ENABLED && recoverCurrentCamera) {
+    // The contract's own overview camera, before any recovery substitution.
+    const contractCamera =
+      nextScene.kind === 'system' ? nextScene.camera : null;
+    const restoring = FINDER_F4_ENABLED && recoverCurrentCamera;
+    if (restoring) {
       // F4 camera receipts do not rebuild the parent's scene snapshot. A
       // context recovery must resume the view currently owned by the canvas.
       const camera = untrack(() =>
@@ -418,12 +422,17 @@
     ) {
       if (!homeCamera && nextScene.kind === 'galaxy')
         homeCamera = nextScene.camera;
-      if (nextScene.kind === 'system') {
-        // Fit the contract's overview to this canvas before anyone moves it.
-        const fitted = fitSystemCameraToViewport(nextScene.camera, viewport());
+      if (nextScene.kind === 'system' && contractCamera) {
+        // Fit the contract's overview to this canvas; Reset view returns to
+        // it. A context recovery resumes the camera the canvas already owns
+        // and must not fit (and compound) that already-fitted distance.
+        const fitted = fitSystemCameraToViewport(contractCamera, viewport());
         homeSystemCamera = fitted;
         currentSystemCamera = nextScene.camera;
-        if (fitted.semanticDistance !== nextScene.camera.semanticDistance)
+        if (
+          !restoring &&
+          fitted.semanticDistance !== nextScene.camera.semanticDistance
+        )
           setSystemCamera({ ...fitted, revision: fitted.revision + 1 });
       }
       lastLoadedRevision = nextScene.revision;
