@@ -40,6 +40,7 @@ import {
   getGalaxyImpact,
   getHealth,
   getCommanderTravelHeatmap,
+  getCommanderJournalSummary,
   getMapHeatmap,
   getSystem,
   searchExploreSystems,
@@ -50,7 +51,7 @@ import {
 // (interceptors) the facade installs, on a route the facade does not wrap.
 import { statusApiStatusGet } from './generated/sdk.gen';
 import * as sdk from './generated/sdk.gen';
-import { v3System } from './v3-system-fixtures';
+import { v3Body, v3System } from './v3-system-fixtures';
 
 const jsonResponse = (body: unknown, init: ResponseInit = {}) =>
   new Response(JSON.stringify(body), {
@@ -181,6 +182,38 @@ describe('typed V3 API facade over the generated Hey API SDK', () => {
     sessionStorage.clear();
   });
 
+  it.each([
+    'Earth-like world',
+    'Unrecognised catalogue class',
+    null,
+    undefined,
+  ])(
+    'preserves the raw published body class %s and its source',
+    async (bodyClass) => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+        const path = new URL((input as Request).url).pathname;
+        if (path === '/api/v1/systems/42')
+          return jsonResponse(v3System({ id64: '42' }));
+        if (path === '/api/v1/systems/42/bodies')
+          return jsonResponse([
+            v3Body({
+              body_type: 'planet',
+              body_class: bodyClass,
+              body_class_source:
+                bodyClass == null ? null : 'ratings-v4-derived',
+            }),
+          ]);
+        return jsonResponse([]);
+      });
+
+      const result = await getSystem(parseId64('42'));
+      expect(result.bodies[0]).toMatchObject({
+        bodyClass: bodyClass ?? null,
+        bodyClassSource: bodyClass == null ? null : 'ratings-v4-derived',
+      });
+    },
+  );
+
   it('loads private galaxy totals through the generated own-account route with cancellation', async () => {
     const summary = {
       systems_discovered: 1302,
@@ -247,6 +280,30 @@ describe('typed V3 API facade over the generated Hey API SDK', () => {
     const failure = await getSystem('42' as never).catch((error) => error);
     expect(failure).toBeInstanceOf(ApiError);
     expect((failure as ApiError).status).toBe(404);
+  });
+
+  it('reads account-wide journal import metadata with session credentials', async () => {
+    const summary = {
+      imported_files: 0,
+      events_stored: 0,
+      systems_observed: 0,
+      unique_bodies: 0,
+      unique_bio_observations: 0,
+      last_imported_at: null,
+      event_counts: {},
+    };
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse(summary));
+    const controller = new AbortController();
+    expect(await getCommanderJournalSummary(controller.signal)).toEqual(
+      summary,
+    );
+    const request = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(new URL(request.url).pathname).toBe('/api/v1/journal/summary');
+    expect(request.credentials).toBe('include');
+    controller.abort();
+    expect(request.signal.aborted).toBe(true);
   });
 
   it('reads the signed-in travel heatmap from the V3 journal route', async () => {
@@ -1027,6 +1084,48 @@ describe('Any (local search) page envelope normalization', () => {
     );
     expect(page.results[0]?.ranking_provenance).toBeNull();
     expect(page.page.total).toBe(1);
+  });
+});
+
+describe('near-system body filters through the generated facade', () => {
+  beforeEach(() => vi.restoreAllMocks());
+  afterEach(() => vi.restoreAllMocks());
+
+  it('sends count ranges exactly once as LocalSearchRequest.body_filters', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({ results: [], total: 0, count: 0 }));
+    await searchExploreSystems({
+      reference_coords: { x: 12, y: -4, z: 3 },
+      filters: { distance: { min: 0, max: 500 }, economy: 'any' },
+      sort_by: 'distance',
+      size: 24,
+      body_filters: {
+        elw_count: { min: 1 },
+        landable_count: { min: 2, max: 5 },
+        ring_count: { max: 3 },
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const request = fetchMock.mock.calls[0][0] as Request;
+    expect(new URL(request.url).pathname).toBe('/api/local/search');
+    expect(request.method).toBe('POST');
+    expect(await request.clone().json()).toMatchObject({
+      body_filters: {
+        elw_count: { min: 1 },
+        landable_count: { min: 2, max: 5 },
+        ring_count: { max: 3 },
+      },
+    });
+  });
+
+  it('omits body_filters when the caller leaves them unset', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({ results: [], total: 0, count: 0 }));
+    await searchExploreSystems({ galaxy_wide: true, size: 24 });
+    const request = fetchMock.mock.calls[0][0] as Request;
+    expect(await request.clone().json()).not.toHaveProperty('body_filters');
   });
 });
 

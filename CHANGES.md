@@ -28,6 +28,97 @@ overlap, range bounds, keyboard actions, raw facts, navigation and axe checks.
 This visible change needs Product E2E/visual validation before production
 promotion and is not deployed.
 
+## 2026-11-02 — Explore Layers separates catalogue density, journeys and nebulae
+
+Explore now has a non-modal **Layers** pop-out with independent Known-system
+density (default on), My journeys (default off) and Nebulae switches, separate
+descriptions, legends and status/retry lines. The button counts enabled layers.
+Density off stops its requests and removes retained density cells without
+changing exact stars, selection or camera; switching it back on fetches at the
+current zoom. Density and journey switch positions persist in browser storage;
+journal content is never persisted. The existing account journal summary
+distinguishes no imported journals from no travel in the current viewport.
+Nebula inventory, rendered-landmark status and attribution are preserved.
+There is no colony-potential switch, API change, renderer change or density
+request/detail-policy change.
+
+ExploreWorkspace component assertions and Product Cypress assertions now open
+Layers before using the retained data selectors and check switch `aria-checked`
+instead of the old inline buttons' `aria-pressed`. Coverage includes query and
+scene independence, preference recovery/storage failures, viewport clamping,
+keyboard/outside dismissal, focus return and axe on the open pop-out.
+
+Local validation passed: frozen pnpm install, `pnpm check` (no errors or
+warnings), lint, formatting, all 1,568 Vitest tests across 78 files, and the
+production build. The Product Cypress assertions were updated but not run.
+
+This user-visible change needs **Product E2E/visual validation before production
+promotion** and is **not deployed**.
+
+## 2026-11-02 — Ninth F2d release `9ff456e0` accepted: body filters and map fixes live
+
+Owner-approved, app-only. Release run 41502217984 (source `9ff456e0`) passed
+preflight run 41502956031 and was accepted by promotion run 41503170717 at
+2026-11-02T18:43:49Z to slot green; no migration, no database writes. Live
+checks: health reports `9ff456e0`; autocomplete answers within a second; the
+Sol bodies route reports factual planet classes; the Ratings V4 public smoke
+passed 8/8. The `a8d1b794` backend is the recorded rollback artifact. Receipts
+under `docs/operations/evidence/2026-11-02-*-4150*`. Records the accepted
+attestation and observed runtime and updates the status lines.
+
+## 2026-11-02 — Galaxy vertical travel and anchored touch navigation (M11)
+
+Galaxy navigation adds Alt/Option-drag elevation and accessible Up/Down controls
+that step galactic Y with the current range. The range/grid strip now shows
+rounded X/Y/Z focus coordinates in LY. Wheel zoom holds the focus-plane point
+under the cursor; two fingers zoom around their midpoint and pan together.
+One-finger/default drag still pans, Shift-drag still orbits, and toolbar zoom
+remains centred. Reset preserves the initial anchored Y; Top down and Tilted
+presets remain available.
+
+Camera and gesture maths stay in pure camera helpers. Navigation uses complete
+catalogue density bounds when available, with a finite camera-range safety
+envelope before complete bounds arrive; partial samples do not narrow travel.
+Existing distance and pitch clamps remain. Pointer cancellation and capture loss
+release the gesture. Vitest covers plane-point projection, elevation bounds,
+pinch ratios, pointer lifecycle, controls and the coordinate readout.
+
+Validation passed with Node 24 and pnpm 11.25.0: frozen dependency install, web
+check, lint, formatting, all 1,517 Vitest tests across 75 files, and static build.
+
+This is a user-visible interaction change that needs Product E2E/visual
+validation before production promotion. It is **not deployed**.
+
+## 2026-11-02 — System Map factual planet classes and body families (M12)
+
+The bodies API now exposes the recorded planet class and its
+`ratings-v4-derived` source from the published derived generation. Missing
+generations, body rows or observed subtypes leave the class unknown. Inspect
+and System Map show the raw class, while a pure presentation classifier gives
+planet families distinct restrained materials and a legend of the families
+present. Unknown classes retain neutral grey with a dim treatment. Stellar
+classification, rings, landability, hierarchy and Ratings V4 scoring are unchanged.
+
+Regenerated the checked-in Svelte and shared OpenAPI client contracts through
+`pnpm generate:api`; added API contract/PostgreSQL, family mapping, scene,
+NullEngine material and component coverage. No SQL migration or workflow change.
+Validation passed: full Python unit suite (8,500 passed, 533 skipped), 34 focused
+API/PostgreSQL checks on disposable PostgreSQL 18, Ruff, frozen web install,
+Svelte check, lint/format, all 1,529 web tests and build.
+This visible change needs Product E2E/visual validation before production
+promotion and is **not deployed**.
+
+## 2026-11-02 — Galaxy Finder markers stay visible independently of catalogue density
+
+Splits `apps/web` Galaxy stars into separate catalogue and Finder/selected
+thin-instance batches. Density cross-fading now changes only catalogue stars
+and their stellar accents; Finder and selected markers remain opaque and
+pickable. Both picking paths preserve system id64 and prefer Finder markers
+on ties. Existing layer receipts retain their fields with additive batch counts.
+
+This is a visible rendering change that needs Product E2E/visual validation
+before production promotion. It is not deployed.
+
 ## 2026-11-02 — Migration 023 applied; eighth F2d release `a8d1b794` accepted: system-name search restored
 
 Owner-approved. The governed plan run 41449585823 listed pending exactly `[023]`
@@ -66,6 +157,22 @@ revisions only with accepted data reduces the non-F4 interaction workload from
 and transitions unchanged. This visible map change needs Product E2E/visual
 validation before production promotion and is not deployed. No API, SQL or
 workflow changes are included.
+
+## 2026-11-01 — Explore body filters and refresh-safe search anchors
+
+Explore keeps the committed search anchor in a bounded, lossless `near` URL
+parameter and restores its name and coordinates on reload or from a shared link.
+Invalid or unresolved anchors are removed with a notice; a plain Explore visit
+still waits for a requested search.
+
+The Body filters pop-out groups the API's 19 body counts into Planets, Stars and
+Features, with whole-count ranges, number inputs and unlimited maxima. Apply
+commits the draft with one search; removable chips and Clear all update results.
+Filters are shared through the bounded `bodies` URL parameter and are paused
+outside an anchored Any search. Both features work with the F4 flag on or off;
+filters are never persisted to local storage. Unit/component coverage exercises
+validation, draft controls, accessibility and history; Product E2E covers Apply,
+the request body, URL-only reload restoration and the open pop-out's accessibility.
 
 ## 2026-11-02 — Galaxy nebula inventory and planetary landmarks (M02)
 
@@ -421,7 +528,6 @@ requires a reviewed code change. Withdrawal still supersedes lineage batches,
 and all consent and export reads remain available. Database-free route tests
 cover the refusals and withdrawal; PostgreSQL integration coverage preserves
 the export-builder and consent flows with the pause explicitly disabled.
-
 
 ## 2026-10-31 — Finder: ranking rows carry their best rival archetype (F4b fit label)
 

@@ -38,6 +38,8 @@ export const v3Body = (overrides: Partial<BodyV1> = {}): BodyV1 => ({
   direct_parent_body_id: null,
   name: 'Reference System',
   body_type: 'star',
+  body_class: null,
+  body_class_source: null,
   is_main_star: true,
   spectral_class: 'G2',
   luminosity_class: 'V',

@@ -331,7 +331,7 @@ describe('SystemOverlay', () => {
     overlay.unmount();
 
     expect(mockedGoto).toHaveBeenLastCalledWith(
-      '/explore?selected=24&view=cards#section',
+      '/explore?selected=24&view=cards&near=24#section',
       {
         replaceState: true,
         state: { ...state, finderRequested: false },
@@ -341,6 +341,7 @@ describe('SystemOverlay', () => {
     );
     expect(mockedPage.state).toEqual({ ...state, finderRequested: false });
     expect(mockedPage.url.searchParams.get('selected')).toBe('24');
+    expect(mockedPage.url.searchParams.get('near')).toBe('24');
     expect(screen.getByRole('combobox', { name: 'System name' })).toHaveValue(
       'Anchor A',
     );
