@@ -30,9 +30,7 @@
   stars, and System Map planet classes with a legend; camera controls, the Layers
   pop-out, hover cards, viewport streaming, scope/radius, hierarchy and Inspect
   freshness are in review.
-- **UI redesign:** the requested design kit, home, Finder, Inspect, Plan and
-  Review & export work has no detailed redesign plan in this tree; the
-  [product journey](#product-journey-and-spatial-north-star) remains its starting point.
+- **UI redesign:** [six-phase plan and PR slices](superpowers/specs/2026-11-02-v3-ui-redesign-plan.md); phase 1 is done-pending-merge in #998, followed by map workspace, Finder, Inspect, Plan/Review & export and home polish.
 - **V2 route retirement:** the [mounted-route inventory](development/v3-v2-route-retirement.md)
   lists the candidates; removal waits on the [owner decision](development/v3-v2-route-retirement.md#owner-decision-and-proposed-response-contract)
   for routes that still have code callers ([residue plan](development/v2-decommission-roadmap.md#track-b--v2-manifest--sql-tree-long-horizon--finish-v3)).
