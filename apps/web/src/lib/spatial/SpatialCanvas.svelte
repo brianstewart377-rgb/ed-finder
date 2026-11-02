@@ -494,6 +494,14 @@
     });
   }
 
+  // A system overview may fit beyond the default ceiling (large hierarchies);
+  // zooming out must always be able to return to that overview distance.
+  const systemZoomCeiling = $derived(
+    Math.max(
+      120,
+      scene?.kind === 'system' ? scene.camera.semanticDistance * 1.5 : 0,
+    ),
+  );
   function zoomSystem(delta: number): void {
     if (!currentSystemCamera) return;
     setSystemCamera({
@@ -501,7 +509,7 @@
       semanticDistance: Math.max(
         6,
         Math.min(
-          120,
+          systemZoomCeiling,
           currentSystemCamera.semanticDistance * Math.exp(delta * 0.0014),
         ),
       ),

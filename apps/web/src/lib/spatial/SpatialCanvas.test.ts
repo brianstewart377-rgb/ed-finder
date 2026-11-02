@@ -669,6 +669,36 @@ describe('SpatialCanvas', () => {
     expect(validate).toHaveBeenCalledOnce();
   });
 
+  it('lets a large system overview zoom back out past the default ceiling', async () => {
+    const scene: SpatialSceneContract = {
+      kind: 'system',
+      revision: 3,
+      systemId64: '42',
+      fidelity: 'S1',
+      camera: {
+        systemId64: '42',
+        focus: { kind: 'system', systemId64: '42' },
+        semanticDistance: 153,
+        bearingRad: -0.85,
+        pitchRad: 0.58,
+        revision: 3,
+      },
+      bodies: [],
+      infrastructure: [],
+      contributions: [],
+    };
+    render(SpatialCanvas, { props: { scene } });
+    await waitFor(() => expect(adapter.runtimes).toHaveLength(1));
+    const runtime = adapter.runtimes[0]!;
+    screen.getByRole('button', { name: 'Zoom out' }).click();
+    const zoomed = runtime.dispatch.mock.calls.findLast(
+      ([command]) => command.type === 'SET_CAMERA',
+    )?.[0];
+    // The old fixed 120 ceiling pulled the camera inward on zoom out.
+    expect(zoomed.camera.semanticDistance).toBeGreaterThan(153);
+    expect(zoomed.camera.semanticDistance).toBeLessThanOrEqual(153 * 1.5);
+  });
+
   it('provides orbit, zoom and click controls for a system scene', async () => {
     const scene: SpatialSceneContract = {
       kind: 'system',
