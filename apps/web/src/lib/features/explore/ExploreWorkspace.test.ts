@@ -6,6 +6,8 @@ import {
   waitFor,
   within,
 } from '@testing-library/svelte';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import axe from 'axe-core';
 import { tick } from 'svelte';
@@ -1109,6 +1111,200 @@ function emitRuntime(event: RuntimeEvent): void {
   const runtime = runtimeAdapter.create.mock.results.at(-1)?.value;
   runtime.subscribe.mock.calls[0][0](event);
 }
+
+describe('ExploreWorkspace nebula inventory status', () => {
+  const publishedNebulae = galaxyNebulae.parseGalaxyNebulaeAsset(
+    JSON.parse(
+      readFileSync(
+        resolve(process.cwd(), 'static/assets/edastro-mapcharts-nebulae.json'),
+        'utf8',
+      ),
+    ) as unknown,
+  );
+  const diffuse = publishedNebulae.nebulae.find(
+    (nebula) => nebula.kind === 'nebula',
+  )!;
+  const planetary = publishedNebulae.nebulae
+    .filter((nebula) => nebula.kind === 'planetary-nebula')
+    .slice(0, 3);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    queryClient.clear();
+    stubRuntime();
+    mockFacadeDefaults();
+    featureGate.enabled = true;
+    vi.mocked(api.getMapHeatmap).mockResolvedValue(legacyFixture);
+    vi.spyOn(
+      galaxyRegions,
+      'fetchAuthoritativeGalaxyRegions',
+    ).mockRejectedValue(new Error('No region geometry in this fixture'));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  async function loadNebulaInventory(
+    nebulae: readonly galaxyNebulae.GalaxyNebula[],
+  ): Promise<void> {
+    vi.spyOn(galaxyNebulae, 'fetchGalaxyNebulae').mockResolvedValue({
+      ...publishedNebulae,
+      nebulae,
+    });
+    render(ExploreWorkspaceTestHost);
+    await waitFor(() => {
+      expect(
+        document.querySelector('[data-nebula-resource-state]'),
+      ).toHaveAttribute('data-nebula-resource-state', 'ready');
+      expect(
+        currentScene()?.contributions.some(
+          (contribution) => contribution.id === 'catalogue:galaxy-nebulae',
+        ),
+      ).toBe(true);
+    });
+  }
+
+  function emitNebulaRendering(
+    renderedTargetCount: number,
+    distanceLy: number,
+    eventType: 'SCENE_APPLIED' | 'CONTRIBUTION_APPLIED' = 'SCENE_APPLIED',
+  ): void {
+    const scene = currentScene();
+    const contribution = scene.contributions.find(
+      (entry) => entry.id === 'catalogue:galaxy-nebulae',
+    )!;
+    const layer = contribution.layers[0];
+    emitRuntime({
+      type: 'CAMERA_CHANGED',
+      camera: { ...scene.camera, distanceLy },
+    });
+    const renderedLayers = [
+      {
+        contributionId: contribution.id,
+        contributionRevision: contribution.revision,
+        layerId: layer.id,
+        layerVersion: layer.version,
+        representation: layer.representation,
+        acceptedTargetCount: layer.targetCount,
+        renderedTargetCount,
+      },
+    ];
+    emitRuntime(
+      eventType === 'SCENE_APPLIED'
+        ? { type: eventType, sceneRevision: scene.revision, renderedLayers }
+        : {
+            type: eventType,
+            contributionId: contribution.id,
+            contributionRevision: contribution.revision,
+            renderedLayers,
+          },
+    );
+  }
+
+  function status(): Element | null {
+    return document.querySelector('[data-nebula-resource-state]');
+  }
+
+  it('distinguishes the complete catalogue from landmarks confirmed in the overview scene', async () => {
+    await loadNebulaInventory(publishedNebulae.nebulae);
+    expect(status()).toHaveTextContent(
+      '5,842 catalogue records · Preparing nebula landmarks…',
+    );
+    expect(status()).not.toHaveTextContent(/landmarks shown/);
+
+    emitNebulaRendering(249, 118_000);
+    await waitFor(() =>
+      expect(status()).toHaveTextContent(
+        '5,842 catalogue records · 249 landmarks shown (diffuse nebulae)',
+      ),
+    );
+    expect(status()).not.toHaveTextContent('5,842 EDAstro nebula landmarks');
+    expect(
+      within(status() as HTMLElement).getByRole('link', {
+        name: publishedNebulae.attribution,
+      }),
+    ).toHaveAttribute('href', 'https://edastro.com/mapcharts/files.html');
+    expect(status()).toHaveTextContent(publishedNebulae.rightsNotice);
+  });
+
+  it('shows current planetary counts and the diffuse fade after zooming in', async () => {
+    await loadNebulaInventory([diffuse, ...planetary]);
+    emitNebulaRendering(1, 118_000);
+    await waitFor(() =>
+      expect(status()).toHaveTextContent(
+        '4 catalogue records · 1 landmark shown (diffuse nebulae)',
+      ),
+    );
+
+    emitNebulaRendering(3, 2_000, 'CONTRIBUTION_APPLIED');
+    await waitFor(() =>
+      expect(status()).toHaveTextContent(
+        '4 catalogue records · 3 landmarks shown (planetary nebulae) · diffuse landmarks faded out',
+      ),
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Hide nebulae' }));
+    expect(status()).toHaveTextContent(
+      '4 catalogue records · Nebula layer hidden',
+    );
+    expect(status()).not.toHaveTextContent(/landmarks shown/);
+    await fireEvent.click(screen.getByRole('button', { name: 'Show nebulae' }));
+    expect(status()).toHaveTextContent('Preparing nebula landmarks…');
+  });
+
+  it('explains planetary-only inventories at overview and shows them at close range', async () => {
+    await loadNebulaInventory(planetary);
+    emitNebulaRendering(0, 118_000);
+    await waitFor(() =>
+      expect(status()).toHaveTextContent(
+        '3 catalogue records · No landmarks at this zoom · planetary nebulae appear at close range',
+      ),
+    );
+    expect(status()).not.toHaveTextContent(/landmarks shown/);
+
+    emitNebulaRendering(3, 3_000, 'CONTRIBUTION_APPLIED');
+    await waitFor(() =>
+      expect(status()).toHaveTextContent(
+        '3 catalogue records · 3 landmarks shown (planetary nebulae)',
+      ),
+    );
+  });
+
+  it('reports diffuse landmarks as faded out when none are shown', async () => {
+    await loadNebulaInventory([diffuse]);
+    emitNebulaRendering(0, 2_000);
+    await waitFor(() =>
+      expect(status()).toHaveTextContent(
+        '1 catalogue record · No landmarks at this zoom · diffuse landmarks faded out',
+      ),
+    );
+    expect(status()).not.toHaveTextContent(/landmarks? shown/);
+  });
+
+  it('makes an empty inventory explicit', async () => {
+    await loadNebulaInventory([]);
+    emitNebulaRendering(0, 118_000);
+    await waitFor(() =>
+      expect(status()).toHaveTextContent(
+        '0 catalogue records · No landmarks at this zoom',
+      ),
+    );
+  });
+
+  it('clears shown counts when renderer resources are lost', async () => {
+    await loadNebulaInventory([diffuse, ...planetary]);
+    emitNebulaRendering(1, 118_000);
+    await waitFor(() => expect(status()).toHaveTextContent('1 landmark shown'));
+    emitRuntime({ type: 'RESOURCE_LOST', detail: 'Test context loss' });
+    await waitFor(() =>
+      expect(status()).toHaveTextContent('Preparing nebula landmarks…'),
+    );
+    expect(status()).not.toHaveTextContent(/landmarks? shown/);
+  });
+});
 
 async function expectPage(index: number): Promise<void> {
   await waitFor(() =>
