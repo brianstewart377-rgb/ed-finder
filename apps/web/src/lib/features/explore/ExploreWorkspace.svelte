@@ -1,7 +1,6 @@
 <script lang="ts">
   import { createQuery } from '@tanstack/svelte-query';
   import { fromStore } from 'svelte/store';
-  import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
   import { onMount, tick, untrack } from 'svelte';
@@ -10,10 +9,12 @@
     ApiError,
     autocompleteSystems,
     getCommanderTravelHeatmap,
+    getCommanderJournalSummary,
     getMapHeatmap,
     getArchetypeRankings,
     getSystem,
     searchExploreSystems,
+    SOL_ID64,
     type AutocompleteSystem,
     type CatalogueViewportResponse,
     type DistanceAnchor,
@@ -21,7 +22,7 @@
     type ExploreSystem,
     type FinderPageEnvelope,
   } from '$lib/api/client';
-  import { queryKeys } from '$lib/api/query';
+  import { queryClient, queryKeys } from '$lib/api/query';
   import { auth } from '$lib/auth/auth';
   import { FINDER_F4_ENABLED } from '$lib/config';
   import { parseId64, type Id64 } from '$lib/domain/id64';
@@ -45,10 +46,23 @@
   import ArchetypePicker from './ArchetypePicker.svelte';
   import ArchetypeExplanation from './ArchetypeExplanation.svelte';
   import FinderResultRanking from './FinderResultRanking.svelte';
+  import BodyFilters from './BodyFilters.svelte';
+  import {
+    normalizeBodyFilters,
+    type BodyFilterKey,
+    type BodyFilterValues,
+  } from './body-filters';
+  import {
+    parseExploreSearchParams,
+    serializeExploreSearchParams,
+  } from './search-state';
   import { usePersistenceContext } from '$lib/persistence/context';
+  import { createMapLayerPreferences } from '$lib/persistence/map-layers';
+  import MapLayers from './MapLayers.svelte';
   import SpatialCanvas from '$lib/spatial/SpatialCanvas.svelte';
   import type {
     CameraState,
+    GalaxySystemPoint,
     RenderedLayerReceipt,
     RuntimeEvent,
     SpatialContribution,
@@ -111,6 +125,10 @@
 
   const { selectedSystem, pins, compare } = usePersistenceContext();
   const watchedSystems = createWatchlistQuery();
+  const layerPreferences = createMapLayerPreferences();
+  // Read before creating the observers: a saved OFF preference must not issue
+  // a default-ON density request during mount. The store catches storage errors.
+  layerPreferences.hydrate();
   const session = fromStore(auth);
   // The travel heatmap is the signed-in account's own V3 journal travel; the
   // cache key carries the account so a sign-out/switch never reuses rows.
@@ -121,9 +139,58 @@
   let query = $state('');
   let activeSuggestion = $state(-1);
   let autocompleteOpen = $state(false);
-  let legacyAnchor = $state<AutocompleteSystem | null>(null);
-  const anchor = $derived(
-    FINDER_F4_ENABLED ? readExploreAnchor(page.state) : legacyAnchor,
+  const parsedSearch = $derived(
+    parseExploreSearchParams(page.url.searchParams),
+  );
+  const historyAnchor = $derived(readExploreAnchor(page.state));
+  // Old history entries still carry coordinates. An explicit URL always wins,
+  // including a malformed near parameter, which must not revive stale state.
+  const nearId = $derived(
+    parsedSearch.near ??
+      (!page.url.searchParams.has('near')
+        ? (historyAnchor?.id64 ?? null)
+        : null),
+  );
+  const anchorDetail = createQuery(() => {
+    const id64 = nearId;
+    return {
+      queryKey: [...queryKeys.all, 'explore', 'selected-point', id64],
+      queryFn: ({ signal }: { signal: AbortSignal }) => {
+        if (!id64) throw new Error('No search anchor');
+        return getSystem(id64, signal);
+      },
+      enabled: id64 !== null && historyAnchor?.id64 !== id64,
+      retry: 0,
+    };
+  });
+  const anchor = $derived.by(() => {
+    if (!nearId) return null;
+    if (historyAnchor?.id64 === nearId) return historyAnchor;
+    const detail = anchorDetail.data;
+    if (detail?.id64 !== nearId) return null;
+    // The legacy facade only guards unknown origins with F4 enabled. A near
+    // anchor requires real coordinates in either build.
+    if (
+      detail.id64 !== SOL_ID64 &&
+      detail.x === 0 &&
+      detail.y === 0 &&
+      detail.z === 0
+    )
+      return null;
+    return readExploreAnchor({ anchor: detail });
+  });
+  const bodyFilters = $derived(parsedSearch.bodyFilters);
+  const mapAnchorPoint = $derived<GalaxySystemPoint | null>(
+    anchor &&
+      typeof anchor.x === 'number' &&
+      typeof anchor.y === 'number' &&
+      typeof anchor.z === 'number'
+      ? {
+          systemId64: anchor.id64,
+          name: anchor.name,
+          positionLy: { x: anchor.x, y: anchor.y, z: anchor.z },
+        }
+      : null,
   );
   let anchorSelectionRevision = $state(0);
   let focusedAnchorRevision = 0;
@@ -141,6 +208,7 @@
   let regionResourceRevision = $state(0);
   let selectedRegionId = $state<string | null>(null);
   let hoveredRegionId = $state<string | null>(null);
+  let hoveredSystemId = $state<string | null>(null);
   let cameraRequest = $state<CameraState | null>(null);
   let cameraRequestRevision = $state(0);
   let spatialCameraTransitionActive = $state(false);
@@ -151,7 +219,6 @@
   let regionLoadAttempt = 0;
   let mapSection = $state<HTMLElement>();
   let resultList = $state<HTMLUListElement>();
-  let focusedResultSet = '';
   let initialGalaxyViewRequested = false;
   let streamCamera = $state<CameraState | null>({
     focusLy: { x: 0, y: 0, z: 0 },
@@ -173,7 +240,8 @@
   let appliedCatalogueRevision = $state(0);
   let appliedFootprintKey = '';
   let layerToggleRevision = $state(0);
-  let showTravelHeatmap = $state(false);
+  const showDensity = $derived($layerPreferences.value.density);
+  const showTravelHeatmap = $derived($layerPreferences.value.journeys);
   let showNebulae = $state(true);
   let nebulae = $state<GalaxyNebulaePayload | null>(null);
   let nebulaState = $state<'loading' | 'ready' | 'failed'>('loading');
@@ -228,6 +296,9 @@
     FINDER_F4_ENABLED ? parseRankingSearchParams(page.url.searchParams) : null,
   );
   const rankingState = $derived(parsedRanking?.state ?? DEFAULT_RANKING_STATE);
+  const bodyFiltersPaused = $derived(
+    !anchor || rankingState.archetype !== 'any',
+  );
   const urlSelection = $derived.by((): Id64 | null => {
     if (!FINDER_F4_ENABLED) return null;
     const values = page.url.searchParams.getAll('selected');
@@ -238,61 +309,69 @@
       return null;
     }
   });
+  // A malformed or duplicated near parameter is rejected before any lookup.
+  // In Any mode its pagination belonged to the nearby search it named, so it
+  // must not survive as a galaxy-wide results intent.
+  const rejectedNear = $derived(
+    page.url.searchParams.has('near') && parsedSearch.near === null,
+  );
   const canonicalSearch = $derived.by(() => {
-    if (!FINDER_F4_ENABLED) return page.url.search;
-    const params = new URLSearchParams(page.url.searchParams);
-    params.delete('selected');
-    if (urlSelection) params.set('selected', urlSelection);
-    const serialized = serializeRankingSearchParams(
-      rankingState,
-      params,
-    ).toString();
+    let params = serializeExploreSearchParams(
+      { near: nearId, bodyFilters },
+      page.url.searchParams,
+    );
+    if (FINDER_F4_ENABLED) {
+      params.delete('selected');
+      if (urlSelection) params.set('selected', urlSelection);
+      params =
+        rejectedNear && rankingState.archetype === 'any'
+          ? stripRankingSearchParams(params)
+          : serializeRankingSearchParams(rankingState, params);
+    } else {
+      params = stripRankingSearchParams(params);
+    }
+    const serialized = params.toString();
     return serialized ? `?${serialized}` : '';
   });
   const invalidAnchorState = $derived(
-    FINDER_F4_ENABLED && page.state?.anchor != null && anchor === null,
+    page.state?.anchor != null && historyAnchor === null,
   );
   const rankingUrlReady = $derived(
-    !FINDER_F4_ENABLED ||
-      (page.url.search === canonicalSearch && !invalidAnchorState),
+    page.url.search === canonicalSearch && !invalidAnchorState,
   );
   const hasResultsIntent = $derived(
-    anchor !== null ||
+    nearId !== null ||
       (FINDER_F4_ENABLED &&
         (rankingState.archetype !== 'any' ||
           hasRankingSearchParams(page.url.searchParams) ||
           page.state.finderRequested === true)),
   );
-  const resultsEnabled = $derived(rankingUrlReady && hasResultsIntent);
-  const finderRequest = $derived(
-    selectFinderRequest(
+  const resultsEnabled = $derived(
+    rankingUrlReady && hasResultsIntent && (!nearId || anchor !== null),
+  );
+  const finderRequest = $derived.by(() => {
+    const selected = selectFinderRequest(
       rankingState,
       anchor ? { x: anchor.x, y: anchor.y, z: anchor.z } : null,
       { enabled: FINDER_F4_ENABLED },
-    ),
-  );
+    );
+    if (
+      selected.kind === 'any' &&
+      !bodyFiltersPaused &&
+      Object.keys(bodyFilters).length
+    )
+      return {
+        ...selected,
+        request: { ...selected.request, body_filters: bodyFilters },
+      };
+    return selected;
+  });
   const anchorReference = $derived<DistanceAnchor | null>(
     anchor ? { id64: anchor.id64, name: anchor.name } : null,
   );
-  // Keep the default-off request shape: no F4 request/state wrapping,
-  // placeholder observer options, or additional response-normalization pass.
-  const searchRequest = $derived.by((): ExploreSearchRequest => {
-    if (
-      anchor &&
-      typeof anchor.x === 'number' &&
-      typeof anchor.y === 'number' &&
-      typeof anchor.z === 'number'
-    ) {
-      return {
-        reference_coords: { x: anchor.x, y: anchor.y, z: anchor.z },
-        filters: { distance: { min: 0, max: 500 }, economy: 'any' },
-        sort_by: 'distance',
-        size: 24,
-        from: 0,
-      };
-    }
-    return { galaxy_wide: true, sort_by: 'development', size: 24, from: 0 };
-  });
+  const searchRequest = $derived<ExploreSearchRequest>(
+    finderRequest.kind === 'any' ? finderRequest.request : {},
+  );
   const finderQueryKey = $derived(
     finderRequest.kind === 'rankings'
       ? queryKeys.rankings(finderRequest.request)
@@ -310,14 +389,17 @@
     finderIdentity?: string;
   };
   const results = createQuery<FinderResponse>(() => {
-    if (!FINDER_F4_ENABLED)
+    if (!FINDER_F4_ENABLED) {
+      const request = searchRequest;
+      const reference = anchorReference;
       return {
-        queryKey: queryKeys.explore(searchRequest, anchorReference),
+        queryKey: queryKeys.explore(request, reference),
         queryFn: ({ signal }) =>
-          searchExploreSystems(searchRequest, signal, anchorReference),
+          searchExploreSystems(request, signal, reference),
         enabled: resultsEnabled,
         retry: 0,
       };
+    }
     // Capture the complete request identity with its envelope. Placeholder rows
     // keep their old mode, floor and offset until the replacement arrives.
     const request = finderRequest;
@@ -399,13 +481,6 @@
   });
 
   $effect(() => {
-    if (!FINDER_F4_ENABLED) {
-      // History can restore an anchor even in the default-off build.
-      const restoredAnchor = readExploreAnchor(page.state);
-      legacyAnchor = restoredAnchor;
-      query = restoredAnchor?.name ?? '';
-      return;
-    }
     const current = page.url;
     const restoredAnchor = anchor;
     const identity = restoredAnchor ? JSON.stringify(restoredAnchor) : '';
@@ -417,30 +492,66 @@
       hydratedExploreUrl = current.href;
       query = restoredAnchor?.name ?? '';
     }
-    if ($selectedSystem.value !== urlSelection) {
+    if (FINDER_F4_ENABLED && $selectedSystem.value !== urlSelection) {
       selectedSystem.set(urlSelection);
       untrack(() => {
         selectionRevision += 1;
       });
     }
     if (!rankingUrlReady) {
-      if (parsedRanking?.issues.length)
-        rankingNotice = 'Unsupported link option removed.';
+      if (parsedSearch.issues.length || parsedRanking?.issues.length)
+        rankingNotice = parsedSearch.issues.length
+          ? 'Invalid search link option removed.'
+          : 'Unsupported link option removed.';
       void navigateWithAnchor(
         `${current.pathname}${canonicalSearch}${current.hash}`,
         {
           replaceState: true,
           state: {
-            ...(invalidAnchorState ? { anchor: null } : {}),
+            ...(invalidAnchorState ||
+            (current.searchParams.has('near') && !parsedSearch.near)
+              ? { anchor: null }
+              : {}),
             // Explicit default/ignored URL parameters can canonicalize away.
             // Keep that link's search intent in its history entry.
             finderRequested:
-              hasRankingSearchParams(current.searchParams) ||
-              page.state.finderRequested === true,
+              FINDER_F4_ENABLED &&
+              !(rejectedNear && rankingState.archetype === 'any') &&
+              (hasRankingSearchParams(current.searchParams) ||
+                page.state.finderRequested === true),
           },
         },
       );
     }
+  });
+
+  $effect(() => {
+    // A lookup can fail, return a different id, or lack usable coordinates.
+    // Never let that turn an intended nearby search into a galaxy-wide one.
+    if (
+      !rankingUrlReady ||
+      !nearId ||
+      anchor ||
+      anchorDetail.isPending ||
+      anchorDetail.isFetching
+    )
+      return;
+    rankingNotice =
+      'Search anchor could not be restored; choose a system again.';
+    // An Any-mode link's pagination belonged to the nearby search; dropping
+    // the anchor must leave no results intent behind, or the page would run a
+    // galaxy-wide search the user never asked for. A picked archetype is a
+    // galaxy-wide ranking in its own right and keeps its parameters.
+    let params = serializeExploreSearchParams(
+      { near: null, bodyFilters },
+      page.url.searchParams,
+    );
+    if (rankingState.archetype === 'any')
+      params = stripRankingSearchParams(params);
+    void navigateWithAnchor(exploreDestination(params), {
+      replaceState: true,
+      state: { anchor: null, finderRequested: false },
+    });
   });
 
   $effect(() => {
@@ -506,7 +617,10 @@
     query = '';
     const params = serializeRankingSearchParams(
       { ...rankingState, offset: 0 },
-      page.url.searchParams,
+      serializeExploreSearchParams(
+        { near: null, bodyFilters },
+        page.url.searchParams,
+      ),
     );
     await navigateWithAnchor(exploreDestination(params), {
       state: { anchor: null, finderRequested: false },
@@ -515,6 +629,60 @@
       ? 'Anchor cleared; searching galaxy-wide.'
       : '';
     searchInput?.focus();
+  }
+
+  async function commitBodyFilters(value: BodyFilterValues): Promise<void> {
+    focusedAnchorRevision = anchorSelectionRevision;
+    const committed = normalizeBodyFilters(value);
+    const params = serializeExploreSearchParams(
+      { near: nearId, bodyFilters: committed },
+      page.url.searchParams,
+    );
+    // Paused chips do not take part in the active search, so clearing them
+    // must not move a ranking off its current page.
+    const nextRankingState = bodyFiltersPaused
+      ? rankingState
+      : { ...rankingState, offset: 0 };
+    if (!bodyFiltersPaused) params.delete('offset');
+    const destination = exploreDestination(
+      FINDER_F4_ENABLED
+        ? serializeRankingSearchParams(nextRankingState, params)
+        : stripRankingSearchParams(params),
+    );
+    // Applying the same draft still means one refresh. A changed query is
+    // fetched by its observer exactly once after URL hydration.
+    if (
+      destination === `${page.url.pathname}${page.url.search}${page.url.hash}`
+    ) {
+      if (resultsEnabled && !bodyFiltersPaused) await results.refetch();
+      return;
+    }
+    if (!bodyFiltersPaused) {
+      const next = selectFinderRequest({ ...rankingState, offset: 0 }, anchor, {
+        enabled: FINDER_F4_ENABLED,
+      });
+      if (next.kind === 'any') {
+        const request = Object.keys(committed).length
+          ? { ...next.request, body_filters: committed }
+          : next.request;
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.explore(
+            request,
+            anchorReference,
+            FINDER_F4_ENABLED ? next.pageSize : null,
+          ),
+          exact: true,
+          refetchType: 'none',
+        });
+      }
+    }
+    await navigateWithAnchor(destination);
+  }
+
+  function removeBodyFilter(key: BodyFilterKey): void {
+    const next = { ...bodyFilters };
+    delete next[key];
+    void commitBodyFilters(next);
   }
 
   function followInspect(event: MouseEvent, id64: Id64): void {
@@ -530,24 +698,6 @@
     event.preventDefault();
     void navigateWithAnchor(inspectHref(id64, page.url));
   }
-
-  // Finder F4 gate (default off). In a disabled build the F4 URL parameters
-  // are never hydrated: they are replace-stripped so a hand-authored archetype
-  // or page URL cannot activate ranking state or the rankings request, while
-  // `selected`, `system` and unrelated parameters are left intact.
-  $effect(() => {
-    if (FINDER_F4_ENABLED) return;
-    const current = page.url;
-    if (!hasRankingSearchParams(current.searchParams)) return;
-    const search = stripRankingSearchParams(current.searchParams).toString();
-    const destination = `${current.pathname}${search ? `?${search}` : ''}${current.hash}`;
-    // eslint-disable-next-line svelte/no-navigation-without-resolve -- current URL is already resolved
-    void goto(destination, {
-      replaceState: true,
-      noScroll: true,
-      keepFocus: true,
-    });
-  });
 
   const starViewport = $derived(
     starViewportSize
@@ -617,11 +767,22 @@
     placeholderData: (previousData, previousQuery) =>
       previousQuery?.queryKey[3] === travelAccountId ? previousData : undefined,
   }));
+  const journalSummary = createQuery(() => ({
+    queryKey: [...queryKeys.auth(), travelAccountId, 'journal-summary'],
+    queryFn: ({ signal }) => getCommanderJournalSummary(signal),
+    enabled: showTravelHeatmap && travelAccountId !== null,
+    staleTime: 20_000,
+    retry: (failureCount, error) =>
+      !(error instanceof ApiError && error.status === 401) && failureCount < 1,
+  }));
   const travelHeatmapState = $derived.by(
     ():
       | 'checking'
       | 'auth-error'
+      | 'summary-error'
       | 'signed-out'
+      | 'off'
+      | 'no-journals'
       | 'zoom'
       | 'loading'
       | 'error'
@@ -632,12 +793,27 @@
       // signed in, so offer a retry rather than a sign-in prompt.
       if (travelAccountId === null)
         return session.current.error ? 'auth-error' : 'signed-out';
-      if (!starViewport) return 'zoom';
+      if (!showTravelHeatmap) return 'off';
+      if (
+        journalSummary.isError &&
+        journalSummary.error instanceof ApiError &&
+        journalSummary.error.status === 401
+      )
+        return 'signed-out';
       if (commanderVisits.isError)
         return commanderVisits.error instanceof ApiError &&
           commanderVisits.error.status === 401
           ? 'signed-out'
           : 'error';
+      if (!commanderVisits.data?.count && journalSummary.isError)
+        return 'summary-error';
+      if (
+        !commanderVisits.data?.count &&
+        !journalSummary.isError &&
+        journalSummary.data?.imported_files === 0
+      )
+        return 'no-journals';
+      if (!starViewport) return 'zoom';
       if (!commanderVisits.data) return 'loading';
       return commanderVisits.data.count === 0 ? 'empty' : 'ready';
     },
@@ -650,7 +826,7 @@
     heatmapVoxelSizeForDistance(streamCamera?.distanceLy ?? 118_000),
   );
   const densityEnabled = $derived(
-    (streamCamera?.distanceLy ?? 0) >= DENSITY_CROSSFADE_NEAR_LY,
+    showDensity && (streamCamera?.distanceLy ?? 0) >= DENSITY_CROSSFADE_NEAR_LY,
   );
   const heatmap = createQuery(() => ({
     queryKey: ['map-heatmap', heatmapVoxelSize],
@@ -695,6 +871,9 @@
   let densityRevision = $state(0);
   let densityRemovalRevision = $state(0);
   $effect(() => {
+    // Query caches may settle after a switch-off. They must never restore a
+    // disabled contribution or the retained cells used after refresh failures.
+    if (!showDensity) return;
     // A placeholder is the already-applied density, not a new empty revision.
     if (heatmap.isPlaceholderData) return;
     const result = densityResult;
@@ -723,19 +902,23 @@
       : null,
   );
   const densityState = $derived(
-    densityFailure
-      ? lastGoodDensity
-        ? 'stale'
-        : densityFailure.kind
-      : heatmap.isPending || heatmap.isPlaceholderData
-        ? 'loading'
-        : densityResult?.kind === 'none'
-          ? 'none'
-          : lastGoodDensity?.area === 'empty'
-            ? 'empty'
-            : lastGoodDensity?.area === 'truncated'
-              ? 'truncated'
-              : 'ready',
+    !showDensity
+      ? 'off'
+      : !densityEnabled
+        ? 'zoom'
+        : densityFailure
+          ? lastGoodDensity
+            ? 'stale'
+            : densityFailure.kind
+          : heatmap.isPending || heatmap.isPlaceholderData
+            ? 'loading'
+            : densityResult?.kind === 'none'
+              ? 'none'
+              : lastGoodDensity?.area === 'empty'
+                ? 'empty'
+                : lastGoodDensity?.area === 'truncated'
+                  ? 'truncated'
+                  : 'ready',
   );
   const densityCellCount = $derived(lastGoodDensity?.payload.cells.length ?? 0);
   const densityTruncated = $derived(lastGoodDensity?.area === 'truncated');
@@ -777,7 +960,9 @@
   const systems = $derived(
     hasResultsIntent
       ? (displayedResults?.results ??
-          (FINDER_F4_ENABLED ? [] : viewportSystems))
+          (FINDER_F4_ENABLED || !anchor || Object.keys(bodyFilters).length
+            ? []
+            : viewportSystems))
       : [],
   );
   let finderSequence = 0;
@@ -796,6 +981,7 @@
     // session keeps the last data alongside a 401).
     showTravelHeatmap &&
       travelAccountId !== null &&
+      travelHeatmapState !== 'signed-out' &&
       !commanderVisits.isError &&
       commanderVisits.data
       ? createCommanderHistoryContribution(
@@ -806,6 +992,13 @@
         )
       : null,
   );
+  let commanderHistorySequence = 0;
+  const commanderHistoryRevision = $derived.by(() => {
+    // Removing cached private visits (for example after a session expires)
+    // does not advance the response timestamp, but must advance the scene.
+    void commanderHistoryContribution;
+    return ++commanderHistorySequence;
+  });
   const nebulaContribution = $derived(
     showNebulae && nebulae
       ? createGalaxyNebulaeContribution(nebulae, nebulaResourceRevision)
@@ -1010,8 +1203,10 @@
         spatialContributions: collectGalaxySpatialContributions({
           regions: regionContribution,
           nebulae: nebulaContribution,
-          density: untrack(
-            () => densityContribution ?? emptyDensityContribution,
+          density: untrack(() =>
+            showDensity
+              ? (densityContribution ?? emptyDensityContribution)
+              : null,
           ),
           catalogueStars: catalogueStarsContribution,
           commanderHistory: commanderHistoryContribution,
@@ -1030,6 +1225,7 @@
         appliedCatalogueRevision +
         (catalogueStarsContribution?.revision ?? 0) +
         commanderVisits.dataUpdatedAt +
+        commanderHistoryRevision +
         nebulaResourceRevision +
         densityRevision,
       {
@@ -1039,7 +1235,7 @@
         spatialContributions: collectGalaxySpatialContributions({
           regions: regionContribution,
           nebulae: nebulaContribution,
-          density: densityContribution,
+          density: showDensity ? densityContribution : null,
           catalogueStars: catalogueStarsContribution,
           commanderHistory: commanderHistoryContribution,
         }),
@@ -1050,20 +1246,14 @@
 
   $effect(() => {
     if (!anchor || !results.data || results.isFetching) return;
-    if (FINDER_F4_ENABLED) {
-      if (
-        rankingState.archetype !== 'any' ||
-        !currentResponse ||
-        anchorSelectionRevision === 0 ||
-        anchorSelectionRevision === focusedAnchorRevision
-      )
-        return;
-      focusedAnchorRevision = anchorSelectionRevision;
-    } else {
-      const resultSet = `${anchor.id64}:${results.dataUpdatedAt}`;
-      if (resultSet === focusedResultSet) return;
-      focusedResultSet = resultSet;
-    }
+    if (
+      rankingState.archetype !== 'any' ||
+      (FINDER_F4_ENABLED && !currentResponse) ||
+      anchorSelectionRevision === 0 ||
+      anchorSelectionRevision === focusedAnchorRevision
+    )
+      return;
+    focusedAnchorRevision = anchorSelectionRevision;
     void tick().then(() =>
       resultList
         ?.querySelector<HTMLButtonElement>('[data-result-select]')
@@ -1079,22 +1269,23 @@
     pendingViewportCamera = null;
     query = hit.name;
     autocompleteOpen = false;
-    if (FINDER_F4_ENABLED) {
-      rankingNotice = '';
-      const params = new URLSearchParams(page.url.searchParams);
-      params.set('selected', hit.id64);
-      const committedAnchor = readExploreAnchor({ anchor: hit });
-      if (committedAnchor && rankingState.archetype === 'any')
-        anchorSelectionRevision += 1;
-      void navigateWithAnchor(
-        exploreDestination(
-          serializeRankingSearchParams({ ...rankingState, offset: 0 }, params),
-        ),
-        { state: { anchor: committedAnchor } },
-      );
-      if (!committedAnchor) return;
-    } else {
-      legacyAnchor = hit;
+    rankingNotice = '';
+    const committedAnchor = readExploreAnchor({ anchor: hit });
+    const params = serializeExploreSearchParams(
+      { near: committedAnchor?.id64 ?? null, bodyFilters },
+      page.url.searchParams,
+    );
+    if (FINDER_F4_ENABLED) params.set('selected', hit.id64);
+    if (committedAnchor && rankingState.archetype === 'any')
+      anchorSelectionRevision += 1;
+    void navigateWithAnchor(
+      exploreDestination(
+        serializeRankingSearchParams({ ...rankingState, offset: 0 }, params),
+      ),
+      { state: { anchor: committedAnchor } },
+    );
+    if (!committedAnchor) return;
+    if (!FINDER_F4_ENABLED) {
       selectedSystem.set(hit.id64);
       selectionRevision += 1;
     }
@@ -1116,8 +1307,7 @@
   }
 
   function handleQueryInput(event: Event): void {
-    if (!FINDER_F4_ENABLED) legacyAnchor = null;
-    else if (!(event.currentTarget as HTMLInputElement).value.trim() && anchor)
+    if (!(event.currentTarget as HTMLInputElement).value.trim() && anchor)
       void clearAnchor();
     autocompleteOpen =
       (event.currentTarget as HTMLInputElement).value.trim().length >= 2;
@@ -1161,6 +1351,26 @@
     commitSelection(system.id64);
     focusTarget = { kind: 'system', systemId64: system.id64 };
     focusRevision += 1;
+  }
+
+  function selectMapSystem(point: GalaxySystemPoint): void {
+    try {
+      selectResult({
+        id64: parseId64(point.systemId64),
+        name: point.name,
+        coords: point.positionLy,
+        main_star_type: point.primaryStar?.type,
+        main_star_subtype: point.primaryStar?.subtype,
+        population: point.summary?.population,
+        primaryEconomy: point.summary?.primaryEconomy,
+        secondaryEconomy: point.summary?.secondaryEconomy,
+        security: point.summary?.security,
+        allegiance: point.summary?.allegiance,
+        government: point.summary?.government,
+      });
+    } catch {
+      // Preserve the same fail-closed identity boundary as canvas picking.
+    }
   }
 
   function handleResultKeydown(
@@ -1214,6 +1424,8 @@
     } else if (event.type === 'TARGET_HOVERED') {
       hoveredRegionId =
         event.target?.kind === 'region' ? event.target.id : null;
+      hoveredSystemId =
+        event.target?.kind === 'system' ? event.target.systemId64 : null;
     } else if (event.type === 'TARGET_PICKED') {
       if (event.target?.kind === 'region') {
         selectRegion(event.target.id);
@@ -1230,7 +1442,30 @@
   }
 
   function toggleTravelHeatmap(): void {
-    showTravelHeatmap = !showTravelHeatmap;
+    layerPreferences.set({
+      ...$layerPreferences.value,
+      journeys: !showTravelHeatmap,
+    });
+    layerToggleRevision += 1;
+  }
+
+  function toggleDensity(): void {
+    const enabled = !showDensity;
+    layerPreferences.set({ ...$layerPreferences.value, density: enabled });
+    if (!enabled) {
+      // Cancel in-flight work/retries and mark all zoom caches stale without
+      // starting requests. Re-enabling fetches at the current zoom, even if it
+      // has a fresh cached response. Only switch positions are persisted.
+      void queryClient.cancelQueries({ queryKey: ['map-heatmap'] });
+      void queryClient.invalidateQueries({
+        queryKey: ['map-heatmap'],
+        refetchType: 'none',
+      });
+      lastGoodDensity = null;
+      densityContribution = null;
+      appliedDensityData = undefined;
+    }
+    densityRemovalRevision += 1;
     layerToggleRevision += 1;
   }
 
@@ -1472,28 +1707,40 @@
     </div>
   </section>
 
-  {#if FINDER_F4_ENABLED}
-    {#if anchor}
-      <p class="committed-anchor">
-        Search anchor: {anchor.name}
-        <button
-          type="button"
-          aria-label={`Clear anchor ${anchor.name}`}
-          onclick={clearAnchor}>Clear</button
-        >
+  {#snippet bodyFilterTools()}
+    <BodyFilters
+      value={bodyFilters}
+      disabled={bodyFiltersPaused}
+      paused={bodyFiltersPaused}
+      onapply={(value) => void commitBodyFilters(value)}
+      onremove={removeBodyFilter}
+      onclear={() => void commitBodyFilters({})}
+    />
+  {/snippet}
+
+  {#if anchor}
+    <p class="committed-anchor">
+      Search anchor: {anchor.name}
+      <button
+        type="button"
+        aria-label={`Clear anchor ${anchor.name}`}
+        onclick={clearAnchor}>Clear</button
+      >
+    </p>
+    {#if FINDER_F4_ENABLED && rankingState.archetype !== 'any'}
+      <p>
+        Archetype ranking is galaxy-wide today; choose Any to search around {anchor.name}.
       </p>
-      {#if rankingState.archetype !== 'any'}
-        <p>
-          Archetype ranking is galaxy-wide today; choose Any to search around {anchor.name}.
-        </p>
-      {/if}
     {/if}
+  {/if}
+  {#if FINDER_F4_ENABLED}
     <ArchetypePicker
       archetype={rankingState.archetype}
       minimumTier={rankingState.minimumTier}
       onArchetypeChange={(archetype) =>
         commitRanking({ archetype, minimumTier: null })}
       onMinimumTierChange={(minimumTier) => commitRanking({ minimumTier })}
+      rankingTools={bodyFilterTools}
     />
     <label class="page-size"
       >Results per page
@@ -1507,6 +1754,12 @@
           commitRanking({ pageSize: event.currentTarget.valueAsNumber })}
       />
     </label>
+  {:else}
+    {@render bodyFilterTools()}
+  {/if}
+
+  {#if rankingNotice}
+    <p role="status" class="ranking-status">{rankingNotice}</p>
   {/if}
 
   <div class="explore-grid">
@@ -1542,7 +1795,6 @@
 
       {#if FINDER_F4_ENABLED && hasResultsIntent}
         <div role="status" aria-live="polite" class="ranking-status">
-          {#if rankingNotice}<p>{rankingNotice}</p>{/if}
           {#if updatingResults}
             <p>
               {displayedResults ? 'Updating… ' : ''}{rankingState.archetype ===
@@ -1754,6 +2006,7 @@
     <section
       class="map-panel"
       aria-labelledby="map-title"
+      data-hovered-system-id={hoveredSystemId ?? ''}
       bind:this={mapSection}
     >
       <div class="panel-heading">
@@ -1828,93 +2081,158 @@
           </div>
         </div>
       {/if}
-      <div class="map-layer-controls" aria-label="Map layers">
-        <button
-          type="button"
-          aria-pressed={showNebulae}
-          data-nebula-toggle
-          onclick={toggleNebulae}
+      <div class="map-layer-toolbar">
+        <MapLayers
+          densityEnabled={showDensity}
+          journeysEnabled={showTravelHeatmap}
+          nebulaeEnabled={showNebulae}
+          onDensityToggle={toggleDensity}
+          onJourneysToggle={toggleTravelHeatmap}
+          onNebulaeToggle={toggleNebulae}
+          densityCellSizeLy={lastGoodDensity?.payload.cellSizeLy ?? null}
+          densityGeneration={lastGoodDensity?.payload.generationId ?? null}
+          journeysMaxVisits={travelHeatmapState === 'ready'
+            ? Math.max(
+                1,
+                ...(commanderVisits.data?.visits.map(
+                  (visit) => visit.visitCount,
+                ) ?? []),
+              )
+            : undefined}
         >
-          {showNebulae ? 'Hide' : 'Show'} nebulae
-        </button>
-        <button
-          type="button"
-          aria-pressed={showTravelHeatmap}
-          data-commander-history-toggle
-          onclick={toggleTravelHeatmap}
-        >
-          {showTravelHeatmap ? 'Hide' : 'Show'} my travel heatmap
-        </button>
-        <span data-nebula-resource-state={nebulaState}>
-          {#if nebulaState === 'loading'}
-            Loading complete nebula inventory…
-          {:else if nebulaState === 'failed'}
-            Nebula layer unavailable · <button
-              type="button"
-              onclick={loadNebulae}>Retry</button
+          {#snippet densityStatus()}
+            <span
+              role="status"
+              aria-label="Catalogue density"
+              data-density-state={densityState}
+              data-density-reason={densityEnabled
+                ? densityFailure?.reason
+                : undefined}
+              data-density-cell-count={densityCellCount}
             >
-          {:else if nebulae}
-            {`${nebulae.nebulae.length.toLocaleString()} catalogue ${
-              nebulae.nebulae.length === 1 ? 'record' : 'records'
-            }`} · {nebulaDisplayStatus} ·
-            <a
-              href="https://edastro.com/mapcharts/files.html"
-              target="_blank"
-              rel="noreferrer">{nebulae.attribution}</a
+              {#if densityState === 'off'}
+                Density layer hidden
+              {:else if densityState === 'zoom'}
+                Zoom out to see known-system density
+              {:else if densityState === 'loading'}
+                Loading catalogue density…{lastGoodDensity
+                  ? ' · showing previous area'
+                  : ''}
+              {:else if densityState === 'stale'}
+                {densityCellCount.toLocaleString()} density cells{densityTruncated
+                  ? ' · bounded view'
+                  : ''} · stale · {densityFailure?.kind === 'invalid'
+                  ? 'density response invalid'
+                  : 'density refresh unavailable'}
+              {:else if densityState === 'unavailable'}
+                Density layer unavailable
+              {:else if densityState === 'invalid'}
+                Density response invalid
+              {:else if densityState === 'none'}
+                No published density pyramid
+              {:else if densityState === 'empty'}
+                No density cells in this area
+              {:else}
+                {densityCellCount.toLocaleString()} density cells{densityTruncated
+                  ? ' · bounded view'
+                  : ''}
+              {/if}
+              {#if densityEnabled && densityFailure}
+                · <button type="button" onclick={() => void heatmap.refetch()}
+                  >Retry</button
+                >
+              {/if}
+            </span>
+          {/snippet}
+          {#snippet journeysStatus()}
+            <span
+              role="status"
+              aria-label="My journeys"
+              data-commander-history-count={travelHeatmapState === 'ready'
+                ? (commanderVisits.data?.count ?? 0)
+                : 0}
+              data-commander-history-state={travelHeatmapState}
             >
-            ·
-            <a
-              href="https://edastro.com/mapcharts/files/nebulae-coordinates.csv"
-              target="_blank"
-              rel="noreferrer">source CSV</a
+              {#if travelHeatmapState === 'checking'}
+                Checking your sign-in…
+              {:else if travelHeatmapState === 'auth-error'}
+                Account check unavailable · <button
+                  type="button"
+                  onclick={() => void auth.bootstrap()}>Retry</button
+                >
+              {:else if travelHeatmapState === 'signed-out'}
+                <a href={resolve('/account')}
+                  >Sign in and import your journals</a
+                >
+              {:else if travelHeatmapState === 'summary-error'}
+                Journal import status unavailable · <button
+                  type="button"
+                  onclick={() => journalSummary.refetch()}>Retry</button
+                >
+              {:else if travelHeatmapState === 'off'}
+                My journeys hidden
+              {:else if travelHeatmapState === 'no-journals'}
+                No imported journals yet
+              {:else if travelHeatmapState === 'zoom'}
+                Travel history appears when individual-star range is active
+              {:else if travelHeatmapState === 'loading'}
+                Reading imported journal visits…
+              {:else if travelHeatmapState === 'error'}
+                Travel heatmap unavailable · <button
+                  type="button"
+                  onclick={() => commanderVisits.refetch()}>Retry</button
+                >
+              {:else if travelHeatmapState === 'empty'}
+                No imported journal travel in this view
+              {:else}
+                {(commanderVisits.data?.count ?? 0).toLocaleString()} visited
+                {commanderVisits.data?.mode === 'density'
+                  ? ' cells'
+                  : ' systems'}{commanderVisits.data?.truncated
+                  ? ' · bounded view'
+                  : ''}
+              {/if}
+            </span>
+          {/snippet}
+          {#snippet nebulaeStatus()}
+            <span
+              role="status"
+              aria-label="Nebulae"
+              data-nebula-resource-state={nebulaState}
             >
-            · {nebulae.rightsNotice}
-          {/if}
-        </span>
-        {#if densityEnabled}
-          <span
-            role="status"
-            aria-label="Catalogue density"
-            data-density-state={densityState}
-            data-density-reason={densityFailure?.reason}
-            data-density-cell-count={densityCellCount}
-          >
-            {#if densityState === 'loading'}
-              Loading catalogue density…{lastGoodDensity
-                ? ' · showing previous area'
-                : ''}
-            {:else if densityState === 'stale'}
-              {densityCellCount.toLocaleString()} density cells{densityTruncated
-                ? ' · bounded view'
-                : ''} · stale · {densityFailure?.kind === 'invalid'
-                ? 'density response invalid'
-                : 'density refresh unavailable'}
-            {:else if densityState === 'unavailable'}
-              Density layer unavailable
-            {:else if densityState === 'invalid'}
-              Density response invalid
-            {:else if densityState === 'none'}
-              No published density pyramid
-            {:else if densityState === 'empty'}
-              No density cells in this area
-            {:else}
-              {densityCellCount.toLocaleString()} density cells{densityTruncated
-                ? ' · bounded view'
-                : ''}
-            {/if}
-            {#if densityFailure}
-              · <button type="button" onclick={() => void heatmap.refetch()}
-                >Retry</button
-              >
-            {/if}
-          </span>
-        {/if}
+              {#if nebulaState === 'loading'}
+                Loading complete nebula inventory…
+              {:else if nebulaState === 'failed'}
+                Nebula layer unavailable · <button
+                  type="button"
+                  onclick={loadNebulae}>Retry</button
+                >
+              {:else if nebulae}
+                {`${nebulae.nebulae.length.toLocaleString()} catalogue ${
+                  nebulae.nebulae.length === 1 ? 'record' : 'records'
+                }`} · {nebulaDisplayStatus} ·
+                <a
+                  href="https://edastro.com/mapcharts/files.html"
+                  target="_blank"
+                  rel="noreferrer">{nebulae.attribution}</a
+                >
+                ·
+                <a
+                  href="https://edastro.com/mapcharts/files/nebulae-coordinates.csv"
+                  target="_blank"
+                  rel="noreferrer">source CSV</a
+                >
+                · {nebulae.rightsNotice}
+              {/if}
+            </span>
+          {/snippet}
+        </MapLayers>
         <span
           data-catalogue-star-count={catalogueStarsContribution?.layers[0]
             ?.targetCount ?? 0}
         >
           {#if !starViewport}
-            Known-system density · zoom in for individual stars
+            Zoom in for individual catalogue stars
           {:else if catalogueStars.isPending && !appliedCataloguePacket}
             Loading exact catalogue stars…
           {:else if catalogueStars.isError}
@@ -1928,40 +2246,6 @@
               : ''}
           {/if}
         </span>
-        {#if showTravelHeatmap}<span
-            data-commander-history-count={commanderVisits.data?.count ?? 0}
-            data-commander-history-state={travelHeatmapState}
-          >
-            {#if travelHeatmapState === 'checking'}
-              Checking your sign-in…
-            {:else if travelHeatmapState === 'auth-error'}
-              Account check unavailable · <button
-                type="button"
-                onclick={() => void auth.bootstrap()}>Retry</button
-              >
-            {:else if travelHeatmapState === 'signed-out'}
-              <a href={resolve('/account')}>Sign in and import your journals</a> to
-              see your travel heatmap
-            {:else if travelHeatmapState === 'zoom'}
-              Travel history appears when individual-star range is active
-            {:else if travelHeatmapState === 'loading'}
-              Reading imported journal visits…
-            {:else if travelHeatmapState === 'error'}
-              Travel heatmap unavailable · <button
-                type="button"
-                onclick={() => commanderVisits.refetch()}>Retry</button
-              >
-            {:else if travelHeatmapState === 'empty'}
-              No imported journal travel in this view
-            {:else}
-              {(commanderVisits.data?.count ?? 0).toLocaleString()} visited
-              {commanderVisits.data?.mode === 'density'
-                ? ' cells'
-                : ' systems'}{commanderVisits.data?.truncated
-                ? ' · bounded view'
-                : ''}
-            {/if}
-          </span>{/if}
       </div>
       <SpatialCanvas
         onViewportChange={(viewport) => {
@@ -1972,11 +2256,22 @@
             starViewportSize = viewport;
         }}
         {scene}
+        anchorPoint={mapAnchorPoint}
+        onSystemSelect={selectMapSystem}
+        systemInspectHref={(point) =>
+          FINDER_F4_ENABLED
+            ? inspectHref(parseId64(point.systemId64), page.url)
+            : resolve(`/inspect?system=${point.systemId64}`)}
+        onSystemInspect={FINDER_F4_ENABLED
+          ? (event, point) => followInspect(event, parseId64(point.systemId64))
+          : undefined}
         {cameraRequest}
         {cameraRequestRevision}
         {focusTarget}
         {focusRevision}
-        contributionPatch={FINDER_F4_ENABLED ? densityContribution : null}
+        contributionPatch={FINDER_F4_ENABLED && showDensity
+          ? densityContribution
+          : null}
         contributionPatchRevision={FINDER_F4_ENABLED
           ? (densityContribution?.revision ?? 0)
           : 0}

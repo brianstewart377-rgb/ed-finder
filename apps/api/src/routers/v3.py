@@ -71,6 +71,8 @@ class BodyV1(V1Model):
     direct_parent_body_id: str | None
     name: str
     body_type: str | None
+    body_class: str | None = None
+    body_class_source: Literal["ratings-v4-derived"] | None = None
     is_main_star: bool | None
     spectral_class: str | None
     luminosity_class: str | None
@@ -193,18 +195,34 @@ async def system(system_id: SystemId, pool: asyncpg.Pool = Depends(get_readonly_
 @router.get("/systems/{system_id}/bodies", response_model=list[BodyV1], operation_id="listV3SystemBodies")
 async def bodies(system_id: SystemId, pool: asyncpg.Pool = Depends(get_readonly_pool)) -> list[BodyV1]:
     numeric_id = _numeric_system_id(system_id)
-    schema, _ = await current_canonical_generation(pool)
+    schema, generation = await current_canonical_generation(pool)
+    # Subtype enrichment is optional: an absent published derived generation or
+    # mechanics row must never make the canonical body inventory unavailable.
+    # Match canonical lineage because body_pk is local to its generation, and
+    # require subtype_present so broad fallback values are not reported as facts.
+    # Finder product publication is unrelated to these published mechanics.
     rows = await _bounded(pool.fetch(
         f"""SELECT body.body_pk,body.source_body_id64,body.frontier_body_id,
                    body.direct_parent_body_pk,body.name,body_type.public_code AS body_type,
                    body.is_main_star,body.spectral_class,body.luminosity_class,body.is_landable,
                    body.radius_km,body.planet_mass_earth,body.stellar_mass_solar,
                    body.surface_pressure_atm,body.semi_major_axis_km,body.distance_from_arrival_ls,
-                   body.lifecycle_state
+                   body.lifecycle_state,mechanics.body_class
               FROM {schema}.bodies body
               LEFT JOIN v3_vocab.body_type body_type USING(body_type_id)
+              LEFT JOIN LATERAL (
+                  SELECT mechanics.body_class
+                    FROM v3_meta.current_derived_generation current
+                    JOIN v3_meta.derived_generation derived USING(derived_generation_id)
+                    JOIN v3_derived.body_mechanics mechanics USING(derived_generation_id)
+                   WHERE current.singleton AND derived.lifecycle_state='PUBLISHED'
+                     AND derived.canonical_generation_id=$2::uuid
+                     AND mechanics.system_id64=body.system_id64
+                     AND mechanics.body_pk=body.body_pk AND mechanics.subtype_present
+              ) mechanics ON true
              WHERE body.system_id64=$1 ORDER BY body.body_pk""",
         numeric_id,
+        generation.generation_id,
     ))
     signal_rows = await _bounded(pool.fetch(
         f"""SELECT signal.body_pk,signal_type.public_code AS signal_type,signal.signal_count
@@ -226,6 +244,8 @@ async def bodies(system_id: SystemId, pool: asyncpg.Pool = Depends(get_readonly_
         frontier_body_id=str(row["frontier_body_id"]) if row["frontier_body_id"] is not None else None,
         direct_parent_body_id=str(row["direct_parent_body_pk"]) if row["direct_parent_body_pk"] is not None else None,
         name=row["name"], body_type=row["body_type"],
+        body_class=row["body_class"],
+        body_class_source="ratings-v4-derived" if row["body_class"] is not None else None,
         is_main_star=row["is_main_star"], spectral_class=row["spectral_class"],
         luminosity_class=row["luminosity_class"], is_landable=row["is_landable"],
         radius_km=row["radius_km"],

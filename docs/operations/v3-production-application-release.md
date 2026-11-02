@@ -364,6 +364,23 @@ rollback artifact. It does not require product READY, receipts, counts,
 (apply run 39113822236) and the 18 Search constraints are validated. The first
 F2d release, source `f667bb4d` (release run 39149556699), was accepted by
 promotion run 39149980927 and remains the minimum schema-compatible image.
+**Status (2026-11-02, second release).** The ninth F2d release, source `9ff456e0`
+(release run 41502217984), passed preflight run 41502956031 and was accepted by
+promotion run 41503170717 at 2026-11-02T18:43:49Z to slot green. App-only, no
+migration, no database writes; the operator-code identity `7008c681…` is
+unchanged. It carries the Explore body-count filters and refresh-safe `near`
+anchor (#983, #988), the density/local-star hand-off with its density error
+state (#982), Finder markers rendered separately from catalogue stars (#984),
+and System Map factual planet classes with body-family materials and a legend,
+including the additive `body_class` field on the V1 bodies route (#986). Its
+attestation is the accepted release in `deploy/v3-production/target-authority.json`,
+with the `a8d1b794` backend as the recorded rollback artifact. Public checks:
+health reports `9ff456e0`; autocomplete returns within a second; the live Sol
+bodies route reports factual planet classes; the Ratings V4 public smoke passed
+8/8 (`docs/operations/evidence/2026-11-02-ratings-v4-public-smoke-9ff456e0.json`).
+Receipts:
+`docs/operations/evidence/2026-11-02-v3-production-preflight-receipt-run-41502956031.json`
+and `docs/operations/evidence/2026-11-02-v3-production-promotion-receipt-run-41503170717.json`.
 **Status (2026-11-02).** The eighth F2d release, source `a8d1b794` (release
 run 41462330572), passed preflight run 41463550705 and was accepted by
 promotion run 41465888068 at 2026-11-02T14:52:15Z to slot blue. It is the first
@@ -377,7 +394,8 @@ system-name search (#978), renders catalogue stars in their spectral colours
 (#980) and reports the nebula inventory honestly (#981). Its attestation
 (operator-code identity `7008c681…`, changed only by 023's migration timeout
 envelope in `scripts/operator/`; attested for the through-022 and through-023
-sets) is the accepted release in `deploy/v3-production/target-authority.json`,
+sets) was the accepted release in `deploy/v3-production/target-authority.json`
+until the ninth release above superseded it the same evening,
 with the `293bc72b` backend as the recorded rollback artifact and `f667bb4d`
 unchanged as the minimum schema-compatible image. Public checks after
 promotion: `/api/health` reports build `a8d1b794`; autocomplete for Sol,

@@ -154,6 +154,8 @@
       : null;
 
   function bodyClass(body: SystemDetailBody): string {
+    if (body.bodyType === 'planet' && body.bodyClass != null)
+      return body.bodyClass;
     const label = bodyTypeLabel(body.bodyType) ?? 'Unknown body type';
     const classification = stellarClassification(body);
     return classification ? `${label} · ${classification}` : label;
@@ -334,9 +336,10 @@
           <span>{systemScene.bodies.length} catalogue bodies</span>
         </div>
         <p class="system-map-truth-note">
-          Body classes, radii, arrival distances, and known ring state come from
-          the catalogue. Orbit positions and display sizes are a semantic 3D
-          layout—not physical scale or observed orbital phase.
+          Planet classes come from the published Ratings V4 derived catalogue;
+          colours group those classes for display. Radii, arrival distances, and
+          known ring state come from the canonical catalogue. Orbit positions
+          and display sizes are schematic.
         </p>
         <SpatialCanvas
           scene={systemScene}
@@ -372,6 +375,12 @@
                   <dt>Class</dt>
                   <dd>{bodyClass(selectedBody)}</dd>
                 </div>
+                {#if selectedBody.bodyType === 'planet' && selectedBody.bodyClass != null && selectedBody.bodyClassSource === 'ratings-v4-derived'}
+                  <div>
+                    <dt>Class source</dt>
+                    <dd>Ratings V4 derived catalogue</dd>
+                  </div>
+                {/if}
                 {#if selectedBody.distanceFromArrivalLs != null}
                   <div>
                     <dt>Arrival distance</dt>

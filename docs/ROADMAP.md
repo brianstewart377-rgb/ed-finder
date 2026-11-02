@@ -2,8 +2,8 @@
 
 ## Where things stand (2026-11-02)
 
-- **Production:** app `a8d1b794`, the eighth F2d release, was accepted on
-  2026-11-02 in slot blue; rollback artifact `293bc72b`. The Finder archetype UI
+- **Production:** app `9ff456e0`, the ninth F2d release, was accepted on
+  2026-11-02 in slot green; rollback artifact `a8d1b794`. The Finder archetype UI
   is **ON**, per owner decision #974 ([release evidence](operations/v3-production-application-release.md#f3-finder-cutover--product-publish-promotion-gate)).
 - **Database:** installed schema is [through-023](operations/evidence/2026-11-02-v3-production-migration-apply-023-receipt-run-41449682997.json)
   (023 = the Search name-prefix index, applied 2026-11-02).
@@ -22,9 +22,14 @@
 - **Live system-name search works again** (2026-11-02): migration `023` and the V3
   autocomplete route (#978) are live in `a8d1b794`; the Galaxy map shows stars in
   their spectral colours (#980) and reports the nebula inventory honestly (#981).
-- **Finder next:** [body-count filters](#programme-status--2026-09-26) and a
-  refresh-safe search anchor are implemented on a branch and in review; anchored
-  picked-archetype filters still need a probe and re-attestation.
+- **Finder:** [body-count filters](#programme-status--2026-09-26) for anchored
+  Any searches and the refresh-safe `near` search anchor are live in `9ff456e0`;
+  anchored picked-archetype filters still need a probe and re-attestation.
+- **Galaxy and System Map fixes live in `9ff456e0`:** the density/local-star
+  hand-off and density error state, Finder markers independent of catalogue
+  stars, and System Map planet classes with a legend; camera controls, the Layers
+  pop-out, hover cards, viewport streaming, scope/radius, hierarchy and Inspect
+  freshness are in review.
 - **UI redesign:** the requested design kit, home, Finder, Inspect, Plan and
   Review & export work has no detailed redesign plan in this tree; the
   [product journey](#product-journey-and-spatial-north-star) remains its starting point.
@@ -396,6 +401,14 @@ newer dated source wins).
   then the post-go-live work recorded in the 2026-10-21 entries. Known
   follow-ups: the dense-window development sort is slow near the galactic core,
   and the PR #877 visual polish list.
+- **Production app promoted to `9ff456e0`, the ninth F2d release (2026-11-02).**
+  Owner-approved. Release run 41502217984, preflight run 41502956031, promote
+  run 41503170717 (receipt `created_at` `2026-11-02T18:43:49Z`, active slot
+  blue→green, `status: accepted`); app-only, no migration, no database writes.
+  Carries the body filters and refresh-safe anchor (#983, #988), the density
+  hand-off and error state (#982), the Finder/catalogue star split (#984) and
+  System Map planet classes (#986). The `a8d1b794` backend is the recorded
+  rollback artifact. Receipts under `docs/operations/evidence/2026-11-02-v3-production-*-run-4150*`.
 - **Production app promoted to `a8d1b794`, the eighth F2d release (2026-11-02).**
   Owner-approved. Migration `023` applied first (plan run 41449585823 pending
   exactly `[023]`; apply run 41449682997, about seven minutes, index only, no

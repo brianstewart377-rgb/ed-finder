@@ -24,17 +24,17 @@
     }
   },
   "observed_runtime": {
-    "api_container": "edfinder-v3-production-api-blue",
-    "api_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:77d2cc306dc53b39ea429e48787f109dff8a8709a5873d17e74e1a156184f3b2",
-    "api_build_sha": "a8d1b794acf12f5f81b3d8c76c50592b14e84f11",
-    "web_slot_container": "edfinder-v3-production-web-blue",
-    "web_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:157da8f1b71038734f980b8ffc73b996d5f129306aafa318b0675dd418166fe5",
+    "api_container": "edfinder-v3-production-api-green",
+    "api_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:0c263810ebfd7ae0a96d4ff4c1eb8cd41c6055488bb2f891ec8e3004a39b7ec6",
+    "api_build_sha": "9ff456e01a8613e4563ff6ec875ba22e2e968a66",
+    "web_slot_container": "edfinder-v3-production-web-green",
+    "web_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:2685c5a6df77ca31105e14dbee2b9ec3452a197e89cf211253d5f65a3b692e25",
     "accepted_promotion": {
-      "received_at": "2026-11-02T14:52:15Z",
-      "release_run_id": "41462330572",
-      "source_sha": "a8d1b794acf12f5f81b3d8c76c50592b14e84f11",
+      "received_at": "2026-11-02T18:43:49Z",
+      "release_run_id": "41502217984",
+      "source_sha": "9ff456e01a8613e4563ff6ec875ba22e2e968a66",
       "mode": "upgrade",
-      "active_slot": "blue",
+      "active_slot": "green",
       "rollback_kind": "recorded-schema-compatible-release"
     },
     "retired_legacy_containers": [
@@ -51,24 +51,24 @@
     "redis_container": "edfinder-v3-support-redis",
     "nats_container": "edfinder-v3-support-nats",
     "octopus_and_unrelated_containers": "preserve-all",
-    "public_ui": "svelte-release-a8d1b794",
-    "live_topology_note": "Accepted upgrade receipt from promotion run 41465888068 at 2026-11-02T14:52:15Z binds release run 41462330572 and source a8d1b794acf12f5f81b3d8c76c50592b14e84f11 to active slot blue, promoted from the seventh F2d release 293bc72b16f69a9735d165c628426b9c7ac9a98c (green), which is the recorded rollback artifact; the first F2d release f667bb4d remains the minimum schema-compatible image. Preflight run 41463550705 passed. Staging, active and public smoke returned 200; the F2d image contract, OpenAPI bounds, hard-filter 422 rejections and behavioural probes passed; both Finder products are READY/VERIFIED and published on ratings_v4_prod_p4_parallel_v1 (seq 1). This is the first release for the installed through-023 schema (migration 023, the Search name-prefix index, applied 2026-11-02 by apply run 41449682997) and it restores the live system-name search. migrations_performed, database_writes_performed, edge_recreated and protected_resources_changed are false and the retained database, edge, redis and nats containers were preserved. Retired and retained legacy-container records above remain historical inventory facts."
+    "public_ui": "svelte-release-9ff456e0",
+    "live_topology_note": "Accepted upgrade receipt from promotion run 41503170717 at 2026-11-02T18:43:49Z binds release run 41502217984 and source 9ff456e01a8613e4563ff6ec875ba22e2e968a66 to active slot green, promoted from the eighth F2d release a8d1b794acf12f5f81b3d8c76c50592b14e84f11 (blue), which is the recorded rollback artifact; the first F2d release f667bb4d remains the minimum schema-compatible image. Preflight run 41502956031 passed. Staging, active and public smoke returned 200; the F2d image contract, OpenAPI bounds, hard-filter 422 rejections and behavioural probes passed; both Finder products are READY/VERIFIED and published on ratings_v4_prod_p4_parallel_v1 (seq 1). Second release on the installed through-023 schema; no migration, no database writes. migrations_performed, database_writes_performed, edge_recreated and protected_resources_changed are false and the retained database, edge, redis and nats containers were preserved. Retired and retained legacy-container records above remain historical inventory facts."
   },
   "accepted_release_schema_compatibility": {
     "schema_version": "ed-finder/v3-production-accepted-release-schema-compatibility/v1",
-    "source_sha": "a8d1b794acf12f5f81b3d8c76c50592b14e84f11",
-    "release_run_id": "41462330572",
-    "manifest_sha256": "3f705db46d088fe1aea78ce3928a2794c1e0ea4c2ca03e954099fe92db3e96af",
+    "source_sha": "9ff456e01a8613e4563ff6ec875ba22e2e968a66",
+    "release_run_id": "41502217984",
+    "manifest_sha256": "4f0626d0663a1f6cf94c55b3463743addf46f5f902fb2084872fd627a3d6bb8c",
     "images": {
-      "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:77d2cc306dc53b39ea429e48787f109dff8a8709a5873d17e74e1a156184f3b2",
-      "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:157da8f1b71038734f980b8ffc73b996d5f129306aafa318b0675dd418166fe5"
+      "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:0c263810ebfd7ae0a96d4ff4c1eb8cd41c6055488bb2f891ec8e3004a39b7ec6",
+      "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:2685c5a6df77ca31105e14dbee2b9ec3452a197e89cf211253d5f65a3b692e25"
     },
     "compatible_migration_sets": [
       "sha256:3b7d5eef5a451fc79315758541e694d3f5e7791590caa4159bca27a5d698e3cf",
       "sha256:828bf02d263d7ab27b3764cbfa3457859aeb229ccf16cb9929d586136f8e83d7",
       "sha256:9999dbe691edfed5406977f670d3768a27997d9991c116ccc104f6f1265ba623"
     ],
-    "evidence": "Release run 41462330572 built source a8d1b794acf12f5f81b3d8c76c50592b14e84f11. Eighth F2d release, the first for the installed through-023 schema (migration set sha256:9999dbe691edfed5406977f670d3768a27997d9991c116ccc104f6f1265ba623; 023 applied 2026-11-02 by apply run 41449682997 after plan run 41449585823 listed pending exactly [023]; 023 adds only the system_search_name_prefix index, no payload change). sql/ and scripts/operator changes since the accepted 293bc72b are 023 and its migration timeout envelope only (978); no purge, ranking or payload change. App changes: V3 autocomplete reads v3_derived.system_search through the name-prefix index, restoring the live system-name search (978); Galaxy star-class classifier handles numeric catalogue subclasses so stars render in their spectral colours (980); honest nebula inventory with planetary nebulae as their own close-range class (981); audit leftovers: Windows shared lint, public Ratings V4 smoke check, roadmap summary, V2 route inventory (979). Compatible with the through-022 and through-023 schemas; the previous backend remains a recorded rollback target. The F2d operator-code identity changed from 8696feb8\u2026 to 7008c681\u2026 because 978 added migration 023's bounded timeout envelope to scripts/operator/v3_production_migrate.py and v3_production_deploy.py; no F2d operator program logic changed. Promotion run 41465888068 accepted this release to slot blue at 2026-11-02T14:52:15Z (preflight run 41463550705); public checks: /api/health reports build a8d1b794, autocomplete for Sol/Achenar/Alioth returns 200 in under a second, stars near Sol render in spectral colours, and the Ratings V4 public smoke passed 8/8 (docs/operations/evidence/2026-11-02-ratings-v4-public-smoke-a8d1b794.json).",
+    "evidence": "Release run 41502217984 built source 9ff456e01a8613e4563ff6ec875ba22e2e968a66. Ninth F2d release for the installed through-023 schema (migration set sha256:9999dbe691edfed5406977f670d3768a27997d9991c116ccc104f6f1265ba623; 023 applied 2026-11-02 by apply run 41449682997). No sql/, scripts/operator, scripts/rehearsal, purge, ranking or payload change since the accepted a8d1b794; the F2d operator-code identity is unchanged. App changes: Explore body-count filters pop-out and a refresh-safe near search anchor (983, 988); Galaxy density/local-star hand-off with hysteresis and a density error state (982); Finder markers rendered separately from catalogue stars so the density cross-fade only affects catalogue stars (984); System Map factual planet classes with body-family materials and a legend, with an additive nullable body_class on the V1 bodies route read from the published Ratings V4 derived generation (986); changelog marker fix (989). Compatible with the through-022 and through-023 schemas; the a8d1b794 backend remains a recorded rollback target. Promotion run 41503170717 accepted this release to slot green at 2026-11-02T18:43:49Z (preflight run 41502956031); public checks: /api/health reports build 9ff456e0, autocomplete for Sol returns 200 in 0.66 s, the live Sol bodies route reports factual planet classes, and the Ratings V4 public smoke passed 8/8 (docs/operations/evidence/2026-11-02-ratings-v4-public-smoke-9ff456e0.json).",
     "ranking_version": "v3-colony-potential-2",
     "ranking_sha256": "ec3533063f422f5859a26baf422974f9d330466f2ad675505fac2743bbca89e4",
     "f2d_operator_code_sha256": "7008c6817c79ebbba8a9b8a46cc7fa9f256c307d2c797074c1b9c41de2278d9f",
@@ -81,7 +81,8 @@
       "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:7d446a8982e17bfbd211cbc300820e2b44072505a8556b55cf22581c067709c3",
       "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:986ea8969c927a06848b5646d9313d91b9e60d56944f91cb64f77a19c9485ba8",
       "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:f7e82138532e97a0cac8d652ae72161ec2a4689032bfbd52e3b42b59c84a2b98",
-      "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:77d2cc306dc53b39ea429e48787f109dff8a8709a5873d17e74e1a156184f3b2"
+      "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:77d2cc306dc53b39ea429e48787f109dff8a8709a5873d17e74e1a156184f3b2",
+      "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:0c263810ebfd7ae0a96d4ff4c1eb8cd41c6055488bb2f891ec8e3004a39b7ec6"
     ]
   },
   "schema_transition": {

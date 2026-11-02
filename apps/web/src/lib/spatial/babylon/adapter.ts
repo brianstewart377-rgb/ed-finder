@@ -104,7 +104,11 @@ import {
   stellarPresentation,
   type StellarPresentation,
 } from '../stellar-presentation';
-import { systemBodyLayout, type SystemBodyLayout } from '../system-scene';
+import {
+  bodyFamilyPresentation,
+  systemBodyLayout,
+  type SystemBodyLayout,
+} from '../system-scene';
 
 const disposeEngine = (engine: AbstractEngine): void => {
   try {
@@ -168,20 +172,24 @@ const createDiagnosticScene = (engine: AbstractEngine): Scene => {
   return scene;
 };
 
+export type BabylonGalaxyStarBatch = Readonly<{
+  kind: 'catalogue' | 'finder';
+  mesh: Mesh;
+  points: readonly GalaxySystemPoint[];
+  instanceMatrices: Float32Array;
+  instanceColours: Float32Array;
+  stellarPresentations: readonly StellarPresentation[];
+  accentMeshes: readonly Mesh[];
+}>;
+
 export type BabylonGalaxyProduct = Readonly<{
   scene: Scene;
   camera: FreeCamera;
   cameraState: CameraState;
   points: readonly GalaxySystemPoint[];
-  starMesh: ReturnType<typeof CreateSphere>;
-  // Whether `starMesh` carries any FINDER search-result instances. When it
-  // does, the density cross-fade must keep the mesh fully opaque so finder
-  // markers never vanish; only a catalogue-only mesh may fade into density.
-  starMeshHasFinderInstances: boolean;
+  catalogueStars: BabylonGalaxyStarBatch;
+  finderStars: BabylonGalaxyStarBatch;
   starVertexPositions: Float32Array;
-  starInstanceMatrices: Float32Array;
-  starInstanceColours: Float32Array;
-  stellarPresentations: readonly StellarPresentation[];
   stellarAccentMeshes: readonly Mesh[];
   densityMesh: Mesh | null;
   commanderHistoryMesh: ReturnType<typeof CreateSphere> | null;
@@ -328,18 +336,74 @@ function uniqueGalaxySystemPoints(
   layers: readonly GalaxySystemsSceneLayer[],
 ): readonly GalaxySystemPoint[] {
   const points = new Map<string, GalaxySystemPoint>();
+  const finderIds = new Set<string>();
   for (const layer of layers) {
     for (const point of layer.points) {
-      // Finder results carry the richer summary and are intentionally ordered
-      // before the viewport catalogue layer.
+      // Finder results carry the richer summary, independent of layer order.
+      // A reserved flag from any layer is kept on the merged point.
+      const finder = layer.layerId === 'finder-systems';
       const existing = points.get(point.systemId64);
-      if (!existing) points.set(point.systemId64, point);
-      else if (point.reserved && !existing.reserved) {
+      if (!existing || (finder && !finderIds.has(point.systemId64))) {
+        points.set(
+          point.systemId64,
+          existing?.reserved && !point.reserved
+            ? { ...point, reserved: true }
+            : point,
+        );
+      } else if (point.reserved && !existing.reserved) {
         points.set(point.systemId64, { ...existing, reserved: true });
       }
+      if (finder) finderIds.add(point.systemId64);
     }
   }
   return [...points.values()];
+}
+
+function partitionGalaxyStars(
+  points: readonly GalaxySystemPoint[],
+  layers: readonly GalaxySystemsSceneLayer[],
+  selection: GalaxySceneContract['selection'],
+): { catalogue: GalaxySystemPoint[]; finder: GalaxySystemPoint[] } {
+  // Finder contributions also carry retained selections/reference markers.
+  // A selected catalogue target joins the same always-visible batch.
+  const finderIds = new Set(
+    layers.flatMap((layer) =>
+      layer.layerId === 'finder-systems'
+        ? layer.points.map((point) => point.systemId64)
+        : [],
+    ),
+  );
+  for (const target of selection) {
+    if (target.kind === 'system') finderIds.add(target.systemId64);
+  }
+  const catalogue: GalaxySystemPoint[] = [];
+  const finder: GalaxySystemPoint[] = [];
+  for (const point of points) {
+    (finderIds.has(point.systemId64) ? finder : catalogue).push(point);
+  }
+  return { catalogue, finder };
+}
+
+function galaxySystemsReceipts(
+  layers: readonly GalaxySystemsSceneLayer[],
+  finderPoints: readonly GalaxySystemPoint[],
+): RenderedLayerReceipt[] {
+  const finderIds = new Set(finderPoints.map((point) => point.systemId64));
+  return layers.map((layer) => {
+    const finder = layer.points.filter((point) =>
+      finderIds.has(point.systemId64),
+    ).length;
+    return {
+      contributionId: layer.contributionId,
+      contributionRevision: layer.contributionRevision,
+      layerId: layer.layerId,
+      layerVersion: layer.layerVersion,
+      representation: layer.representation,
+      acceptedTargetCount: layer.points.length,
+      renderedTargetCount: layer.points.length,
+      renderedBatchCounts: { catalogue: layer.points.length - finder, finder },
+    };
+  });
 }
 
 function isCommanderHistoryPayload(
@@ -586,68 +650,40 @@ function refreshGalaxyReferenceGrid(
   return createGalaxyReferenceGrid(product.scene, camera);
 }
 
-// Applies the density<->star cross-fade opacity derived from the current
-// camera distance. Must be called both whenever the camera moves AND
-// whenever the density mesh (or star mesh) is (re)built on a scene-build
-// path, so a freshly-created mesh never briefly renders at its creation-time
-// alpha before the next camera move corrects it.
-//
-// Inert-until-publish contract: while `/api/map/heatmap` still reports
-// `legacy-fallback`, no density layer exists (`product.densityMesh` is
-// null). In that case stars must carry the whole view at full opacity,
-// exactly as today — never fade them without a density layer to blend in.
-function setStellarAccentAlpha(
-  product: BabylonGalaxyProduct,
-  alpha: number,
-): void {
-  for (const accent of product.stellarAccentMeshes) {
-    const material = accent.material as StandardMaterial | undefined;
-    if (material) material.alpha = alpha;
+function setStarBatchAlpha(batch: BabylonGalaxyStarBatch, alpha: number): void {
+  (batch.mesh.material as StandardMaterial).alpha = alpha;
+  // The glow layer must fade stellar accents with their owning markers.
+  for (const accent of batch.accentMeshes) {
+    (accent.material as StandardMaterial).alpha = alpha;
   }
+  batch.mesh.isPickable = alpha > 1e-3;
+  batch.mesh.thinInstanceEnablePicking = batch.mesh.isPickable;
 }
 
-function setStarPickable(
-  product: BabylonGalaxyProduct,
-  pickable: boolean,
-): void {
-  if (!product.starMesh) return;
-  product.starMesh.isPickable = pickable;
-  product.starMesh.thinInstanceEnablePicking = pickable;
-}
-
+// Reapply on camera changes and scene/density builds, before their first frame.
+// Without factual density, catalogue stars still carry the full view.
 function applyDensityCrossfade(product: BabylonGalaxyProduct): void {
-  const starMat = product.starMesh?.material as StandardMaterial | undefined;
-  if (!product.densityMesh?.material) {
-    // Inert-until-publish: with no density layer, stars carry the whole view
-    // at full opacity and stay fully pickable, exactly as before.
-    if (starMat) starMat.alpha = 1;
-    setStellarAccentAlpha(product, 1);
-    setStarPickable(product, true);
-    return;
+  const crossfadeT = product.densityMesh?.material
+    ? densityCrossfadeT(
+        product.cameraState.distanceLy,
+        DENSITY_CROSSFADE_NEAR_LY,
+        DENSITY_CROSSFADE_FAR_LY,
+      )
+    : 0;
+  if (product.densityMesh?.material) {
+    // Preserve the density material's 0.9 maximum opacity.
+    (product.densityMesh.material as StandardMaterial).alpha = 0.9 * crossfadeT;
   }
-  const crossfadeT = densityCrossfadeT(
-    product.cameraState.distanceLy,
-    DENSITY_CROSSFADE_NEAR_LY,
-    DENSITY_CROSSFADE_FAR_LY,
+  setStarBatchAlpha(product.catalogueStars, 1 - crossfadeT);
+  setStarBatchAlpha(product.finderStars, 1);
+}
+
+function interactiveStarBatch(batch: BabylonGalaxyStarBatch): boolean {
+  return (
+    batch.mesh.isEnabled() &&
+    batch.mesh.isPickable &&
+    (batch.mesh.material?.alpha ?? 1) > 1e-3
   );
-  // Density tops out at 0.9 (its material base alpha), not 1.0 — intentional.
-  (product.densityMesh.material as StandardMaterial).alpha = 0.9 * crossfadeT;
-  // `starMesh` merges FINDER results with CATALOGUE viewport stars, but only
-  // catalogue stars may cross-fade into the density field. When finder results
-  // are present, keep the mesh fully opaque so search markers never disappear
-  // at wide zoom; only a catalogue-only mesh follows the fade.
-  const catalogueStarAlpha = product.starMeshHasFinderInstances
-    ? 1
-    : 1 - crossfadeT;
-  if (starMat) starMat.alpha = catalogueStarAlpha;
-  // Stellar accent rings (e.g. black-hole halos) live in the glow layer; fade
-  // them with their markers so glowing rings never float over the density
-  // field once the stars themselves have faded out.
-  setStellarAccentAlpha(product, catalogueStarAlpha);
-  // A fully-faded star mesh must not intercept picks (neither the exact ray
-  // nor the nearest-projected-star fallback), so invisible stars can't capture
-  // clicks and block region selection.
-  setStarPickable(product, catalogueStarAlpha > 1e-3);
 }
 
 function createGalaxyRegionBoundaryMesh(
@@ -1310,7 +1346,6 @@ function nearestStarPointByScreen(
   deviceY: number,
   tolerancePx: number,
 ): GalaxySystemPoint | undefined {
-  if (product.points.length === 0) return undefined;
   const scene = product.scene;
   const transform = scene.getTransformMatrix();
   const viewport = new Viewport(
@@ -1321,35 +1356,42 @@ function nearestStarPointByScreen(
   );
   const identity = Matrix.Identity();
   const projected = Vector3.Zero();
-  let bestIndex = -1;
+  let best: GalaxySystemPoint | undefined;
   let bestDistanceSq = tolerancePx * tolerancePx;
   let bestReserved = false;
-  for (let index = 0; index < product.points.length; index += 1) {
-    const point = product.points[index]!;
-    Vector3.ProjectToRef(
-      new Vector3(point.positionLy.x, point.positionLy.y, point.positionLy.z),
-      identity,
-      transform,
-      viewport,
-      projected,
-    );
-    if (projected.z < 0 || projected.z > 1) continue;
-    const dx = projected.x - deviceX;
-    const dy = projected.y - deviceY;
-    const distanceSq = dx * dx + dy * dy;
-    if (distanceSq > tolerancePx * tolerancePx) continue;
-    const reserved = point.reserved === true;
-    if (
-      (reserved && !bestReserved) ||
-      (reserved === bestReserved && distanceSq <= bestDistanceSq)
-    ) {
-      bestDistanceSq = distanceSq;
-      bestIndex = index;
-      bestReserved = reserved;
+  const toleranceSq = tolerancePx * tolerancePx;
+  // Visit the always-visible batch first and retain it on an equal distance.
+  // Reserved application targets (selected, reference, results) win an
+  // overlapping catalogue star within the same tolerance.
+  for (const batch of [product.finderStars, product.catalogueStars]) {
+    if (!interactiveStarBatch(batch)) continue;
+    for (const point of batch.points) {
+      Vector3.ProjectToRef(
+        new Vector3(point.positionLy.x, point.positionLy.y, point.positionLy.z),
+        identity,
+        transform,
+        viewport,
+        projected,
+      );
+      if (projected.z < 0 || projected.z > 1) continue;
+      const dx = projected.x - deviceX;
+      const dy = projected.y - deviceY;
+      const distanceSq = dx * dx + dy * dy;
+      if (distanceSq > toleranceSq) continue;
+      const reserved = point.reserved === true;
+      if (
+        (reserved && !bestReserved) ||
+        (reserved === bestReserved &&
+          (distanceSq < bestDistanceSq ||
+            (!best && distanceSq <= bestDistanceSq)))
+      ) {
+        bestDistanceSq = distanceSq;
+        best = point;
+        bestReserved = reserved;
+      }
     }
   }
-  if (bestIndex < 0) return undefined;
-  return product.points[bestIndex];
+  return best;
 }
 
 function pickGalaxyTarget(
@@ -1357,7 +1399,10 @@ function pickGalaxyTarget(
   product: BabylonGalaxyProduct,
   screenX: number,
   screenY: number,
-  allowNearestStar = false,
+  options: Readonly<{
+    allowNearestStar?: boolean;
+    includeSystemName?: boolean;
+  }> = {},
 ): SpatialTarget | undefined {
   const canvas = engine.getRenderingCanvas();
   const scaleX = canvas?.clientWidth
@@ -1366,56 +1411,72 @@ function pickGalaxyTarget(
   const scaleY = canvas?.clientHeight
     ? engine.getRenderHeight() / canvas.clientHeight
     : 1;
-  // A fully-faded star mesh (density-dominant, no finder results) must not
-  // capture picks; treat it as non-interactive so clicks reach region planes.
-  const starMat = product.starMesh?.material as StandardMaterial | undefined;
-  const starsInteractive =
-    (product.starMesh?.isEnabled() ?? false) && (starMat?.alpha ?? 1) > 1e-3;
-  // Translucent region planes must not intercept a visible system target. A
-  // supplied predicate bypasses Babylon's own `isPickable` gate, so exclude
-  // the star mesh here whenever it is not interactive.
-  const systemHit = product.scene.pick(
-    screenX * scaleX,
-    screenY * scaleY,
-    (mesh) =>
-      (starsInteractive && mesh === product.starMesh) ||
-      mesh === product.selectedMarker,
-  );
-  if (systemHit?.pickedMesh === product.selectedMarker) {
-    const selected = product.points.find((point) =>
-      product.selectedMarker?.position.equalsWithEpsilon(
-        new Vector3(point.positionLy.x, point.positionLy.y, point.positionLy.z),
-      ),
+  let nearestHit:
+    | {
+        distance: number;
+        systemId64: string;
+        name: string | undefined;
+        reserved: boolean;
+      }
+    | undefined;
+  // Separate ray picks make batch tie-breaking independent of scene mesh order.
+  // A predicate bypasses Babylon's isPickable gate, so gate each batch here.
+  for (const batch of [product.finderStars, product.catalogueStars]) {
+    const interactive = interactiveStarBatch(batch);
+    const selectedMarker =
+      batch.kind === 'finder' ? product.selectedMarker : null;
+    if (!interactive && !selectedMarker) continue;
+    const hit = product.scene.pick(
+      screenX * scaleX,
+      screenY * scaleY,
+      (mesh) => (interactive && mesh === batch.mesh) || mesh === selectedMarker,
     );
-    if (selected) return { kind: 'system', systemId64: selected.systemId64 };
+    if (!hit?.hit) continue;
+    const point =
+      hit.pickedMesh === selectedMarker
+        ? batch.points.find(
+            (candidate) => candidate.systemId64 === product.selectedSystemId64,
+          )
+        : hit.pickedMesh === batch.mesh && hit.thinInstanceIndex >= 0
+          ? batch.points[hit.thinInstanceIndex]
+          : undefined;
+    const systemId64 =
+      hit.pickedMesh === selectedMarker
+        ? product.selectedSystemId64
+        : point?.systemId64;
+    if (systemId64 && (!nearestHit || hit.distance < nearestHit.distance)) {
+      nearestHit = {
+        distance: hit.distance,
+        systemId64,
+        name: point?.name,
+        reserved: hit.pickedMesh === selectedMarker || point?.reserved === true,
+      };
+    }
   }
-  const exactPoint =
-    systemHit?.hit &&
-    systemHit.pickedMesh === product.starMesh &&
-    typeof systemHit.thinInstanceIndex === 'number' &&
-    systemHit.thinInstanceIndex >= 0
-      ? product.points[systemHit.thinInstanceIndex]
-      : undefined;
   // Stars render only a few pixels wide, so an exact ray can narrowly miss.
   // Fall back to the nearest projected star within a small screen tolerance
   // before considering a region plane, keeping individual stars clickable.
-  const nearestStar =
-    allowNearestStar && starsInteractive
-      ? nearestStarPointByScreen(
-          engine,
-          product,
-          screenX * scaleX,
-          screenY * scaleY,
-          12 * Math.max(scaleX, scaleY),
-        )
-      : undefined;
-  // Known application targets win an overlapping catalogue click, within the
-  // same screen tolerance already used for star picking. Exact selected
-  // markers above retain precedence and hover still uses exact rays only.
-  const point = nearestStar?.reserved
-    ? nearestStar
-    : (exactPoint ?? nearestStar);
-  if (point) return { kind: 'system', systemId64: point.systemId64 };
+  // Known application targets win an overlapping catalogue click within that
+  // same tolerance; exact selected markers and reserved hits keep precedence.
+  const nearestStar = options.allowNearestStar
+    ? nearestStarPointByScreen(
+        engine,
+        product,
+        screenX * scaleX,
+        screenY * scaleY,
+        12 * Math.max(scaleX, scaleY),
+      )
+    : undefined;
+  const chosen =
+    nearestStar?.reserved && !nearestHit?.reserved
+      ? { systemId64: nearestStar.systemId64, name: nearestStar.name }
+      : (nearestHit ?? nearestStar);
+  if (chosen)
+    return {
+      kind: 'system',
+      systemId64: chosen.systemId64,
+      ...(options.includeSystemName && chosen.name ? { name: chosen.name } : {}),
+    };
   const hit = product.scene.pick(screenX * scaleX, screenY * scaleY, (mesh) =>
     product.regionFillMeshes.some((fill) => fill.mesh === mesh),
   );
@@ -1432,6 +1493,147 @@ function pickGalaxyTarget(
     : undefined;
 }
 
+function setGalaxyStarInstances(
+  starMesh: Mesh,
+  points: readonly GalaxySystemPoint[],
+): Pick<
+  BabylonGalaxyStarBatch,
+  'instanceMatrices' | 'instanceColours' | 'stellarPresentations'
+> {
+  const stellarPresentations = points.map((point) =>
+    stellarPresentation(point.primaryStar),
+  );
+  const matrices = new Float32Array(points.length * 16);
+  const colours = new Float32Array(points.length * 4);
+  points.forEach((point, index) => {
+    const presentation = stellarPresentations[index]!;
+    Matrix.Compose(
+      new Vector3(
+        presentation.relativeScale,
+        presentation.relativeScale,
+        presentation.relativeScale,
+      ),
+      Quaternion.Identity(),
+      new Vector3(point.positionLy.x, point.positionLy.y, point.positionLy.z),
+    ).copyToArray(matrices, index * 16);
+    colours.set([...presentation.coreRgb, 1], index * 4);
+  });
+  starMesh.thinInstanceSetBuffer('matrix', matrices, 16, true);
+  starMesh.thinInstanceSetBuffer('color', colours, 4, true);
+  starMesh.thinInstanceRefreshBoundingInfo(true);
+  starMesh.setEnabled(points.length > 0);
+  return {
+    instanceMatrices: matrices,
+    instanceColours: colours,
+    stellarPresentations,
+  };
+}
+
+function createGalaxyStarBatch(
+  scene: Scene,
+  kind: BabylonGalaxyStarBatch['kind'],
+  points: readonly GalaxySystemPoint[],
+  markerSizeLy: number,
+): BabylonGalaxyStarBatch {
+  const starMesh = CreateSphere(
+    kind === 'catalogue'
+      ? 'finder-system-instances'
+      : 'finder-result-instances',
+    { diameter: markerSizeLy * 1.25, segments: 8, updatable: true },
+    scene,
+  );
+  const starMaterial = new StandardMaterial(`${kind}-system-material`, scene);
+  starMaterial.disableLighting = true;
+  starMaterial.emissiveColor = Color3.White();
+  starMaterial.diffuseColor = Color3.White();
+  starMaterial.specularColor = Color3.Black();
+  starMaterial.alpha = 1;
+  starMaterial.transparencyMode = Material.MATERIAL_ALPHABLEND;
+  Object.assign(starMaterial, { useVertexColors: true });
+  starMesh.material = starMaterial;
+  starMesh.hasVertexAlpha = true;
+  starMesh.thinInstanceEnablePicking = true;
+  starMesh.metadata = {
+    spatialLayer: {
+      id: kind === 'catalogue' ? 'catalogue-systems' : 'finder-systems',
+      batch: kind,
+    },
+  };
+  const instances = setGalaxyStarInstances(starMesh, points);
+  const stellarAccentMeshes = points.flatMap((point, index) => {
+    const presentation = instances.stellarPresentations[index]!;
+    if (!presentation.ring) return [];
+    const ring = CreateTorus(
+      `stellar-icon-ring-${point.systemId64}`,
+      {
+        diameter: markerSizeLy * presentation.relativeScale * 2.25,
+        thickness: markerSizeLy * 0.18,
+        tessellation: 28,
+      },
+      scene,
+    );
+    ring.position.set(
+      point.positionLy.x,
+      point.positionLy.y,
+      point.positionLy.z,
+    );
+    ring.rotation.x = Math.PI / 2;
+    ring.isPickable = false;
+    const material = new StandardMaterial(
+      `stellar-icon-ring-material-${point.systemId64}`,
+      scene,
+    );
+    material.disableLighting = true;
+    material.emissiveColor = Color3.FromArray(presentation.haloRgb);
+    material.diffuseColor = Color3.Black();
+    material.specularColor = Color3.Black();
+    ring.material = material;
+    ring.onDisposeObservable.addOnce(() => material.dispose());
+    ring.metadata = {
+      spatialLayer: {
+        id: 'finder-systems',
+        batch: kind,
+        systemId64: point.systemId64,
+        stellarGlyph: presentation.glyph,
+        presentationOnly: true,
+      },
+    };
+    return [ring];
+  });
+  return {
+    kind,
+    mesh: starMesh,
+    points,
+    ...instances,
+    accentMeshes: stellarAccentMeshes,
+  };
+}
+
+function repartitionGalaxyStarBatch(
+  batch: BabylonGalaxyStarBatch,
+  points: readonly GalaxySystemPoint[],
+  accents: readonly Mesh[],
+): BabylonGalaxyStarBatch {
+  // Preserve GPU buffers for the common selection-only update among Finder rows.
+  if (
+    points.length === batch.points.length &&
+    points.every((point, index) => point === batch.points[index])
+  )
+    return batch;
+  const ids = new Set(points.map((point) => point.systemId64));
+  const accentMeshes = accents.filter((accent) =>
+    ids.has(accent.metadata.spatialLayer.systemId64),
+  );
+  for (const accent of accentMeshes)
+    accent.metadata.spatialLayer.batch = batch.kind;
+  return {
+    ...batch,
+    points,
+    ...setGalaxyStarInstances(batch.mesh, points),
+    accentMeshes,
+  };
+}
+
 export const createBabylonGalaxyScene = (
   engine: AbstractEngine,
   contract: GalaxySceneContract,
@@ -1443,9 +1645,6 @@ export const createBabylonGalaxyScene = (
   scene.clearColor = new Color4(0.008, 0.014, 0.028, 1);
   const systemLayers = galaxySystemsSceneLayers(contract);
   const points = uniqueGalaxySystemPoints(systemLayers);
-  const starMeshHasFinderInstances = systemLayers.some(
-    (layer) => layer.layerId === 'finder-systems' && layer.points.length > 0,
-  );
   const density = catalogueDensitySceneLayer(contract);
   const commanderHistory = commanderHistorySceneLayer(contract);
   const nebulae = galaxyNebulaeSceneLayer(contract);
@@ -1506,46 +1705,29 @@ export const createBabylonGalaxyScene = (
   );
   const regionBoundaryMesh = createGalaxyRegionBoundaryMesh(scene, regions);
 
-  const starMesh = CreateSphere(
-    'finder-system-instances',
-    { diameter: markerSizeLy * 1.25, segments: 8, updatable: true },
+  const batches = partitionGalaxyStars(
+    points,
+    systemLayers,
+    contract.selection,
+  );
+  const catalogueStars = createGalaxyStarBatch(
     scene,
+    'catalogue',
+    batches.catalogue,
+    markerSizeLy,
   );
-  const starMaterial = new StandardMaterial('finder-system-material', scene);
-  starMaterial.disableLighting = true;
-  starMaterial.emissiveColor = Color3.White();
-  starMaterial.diffuseColor = Color3.White();
-  starMaterial.specularColor = Color3.Black();
-  starMaterial.alpha = 1;
-  starMaterial.transparencyMode = Material.MATERIAL_ALPHABLEND;
-  Object.assign(starMaterial, { useVertexColors: true });
-  starMesh.material = starMaterial;
-  starMesh.hasVertexAlpha = true;
-  starMesh.thinInstanceEnablePicking = true;
-  const stellarPresentations = points.map((point) =>
-    stellarPresentation(point.primaryStar),
+  const finderStars = createGalaxyStarBatch(
+    scene,
+    'finder',
+    batches.finder,
+    markerSizeLy,
   );
-  const matrices = new Float32Array(points.length * 16);
-  const colours = new Float32Array(points.length * 4);
-  points.forEach((point, index) => {
-    const presentation = stellarPresentations[index]!;
-    Matrix.Compose(
-      new Vector3(
-        presentation.relativeScale,
-        presentation.relativeScale,
-        presentation.relativeScale,
-      ),
-      Quaternion.Identity(),
-      new Vector3(point.positionLy.x, point.positionLy.y, point.positionLy.z),
-    ).copyToArray(matrices, index * 16);
-    colours.set([...presentation.coreRgb, 1], index * 4);
-  });
-  starMesh.thinInstanceSetBuffer('matrix', matrices, 16, true);
-  starMesh.thinInstanceSetBuffer('color', colours, 4, true);
-  starMesh.thinInstanceRefreshBoundingInfo(true);
-  starMesh.setEnabled(points.length > 0);
+  const stellarAccentMeshes = [
+    ...catalogueStars.accentMeshes,
+    ...finderStars.accentMeshes,
+  ];
   const starVertexPositions = Float32Array.from(
-    starMesh.getVerticesData('position') ?? [],
+    catalogueStars.mesh.getVerticesData('position') ?? [],
   );
 
   const selectedSystemId64 = selectedGalaxySystemId64(contract);
@@ -1555,46 +1737,6 @@ export const createBabylonGalaxyScene = (
   const selectedMarker = selectedPoint
     ? createSelectedSystemMarker(scene, selectedPoint, markerSizeLy)
     : null;
-
-  const stellarAccentMeshes = points.flatMap((point, index) => {
-    const presentation = stellarPresentations[index]!;
-    if (!presentation.ring) return [];
-    const ring = CreateTorus(
-      `stellar-icon-ring-${point.systemId64}`,
-      {
-        diameter: markerSizeLy * presentation.relativeScale * 2.25,
-        thickness: markerSizeLy * 0.18,
-        tessellation: 28,
-      },
-      scene,
-    );
-    ring.position.set(
-      point.positionLy.x,
-      point.positionLy.y,
-      point.positionLy.z,
-    );
-    ring.rotation.x = Math.PI / 2;
-    ring.isPickable = false;
-    const material = new StandardMaterial(
-      `stellar-icon-ring-material-${point.systemId64}`,
-      scene,
-    );
-    material.disableLighting = true;
-    material.emissiveColor = Color3.FromArray(presentation.haloRgb);
-    material.diffuseColor = Color3.Black();
-    material.specularColor = Color3.Black();
-    ring.material = material;
-    ring.onDisposeObservable.addOnce(() => material.dispose());
-    ring.metadata = {
-      spatialLayer: {
-        id: 'finder-systems',
-        systemId64: point.systemId64,
-        stellarGlyph: presentation.glyph,
-        presentationOnly: true,
-      },
-    };
-    return [ring];
-  });
 
   const visualGlow = createGalaxyVisualFinish(
     scene,
@@ -1623,17 +1765,9 @@ export const createBabylonGalaxyScene = (
       sourceGeneration: regions.payload.source.sha256,
     });
   }
-  for (const systemLayer of systemLayers) {
-    renderedLayers.push({
-      contributionId: systemLayer.contributionId,
-      contributionRevision: systemLayer.contributionRevision,
-      layerId: systemLayer.layerId,
-      layerVersion: systemLayer.layerVersion,
-      representation: systemLayer.representation,
-      acceptedTargetCount: systemLayer.points.length,
-      renderedTargetCount: systemLayer.points.length,
-    });
-  }
+  renderedLayers.push(
+    ...galaxySystemsReceipts(systemLayers, finderStars.points),
+  );
   if (commanderHistory)
     renderedLayers.push(commanderHistoryReceipt(commanderHistory));
   if (nebulae && nebulaeMetadata)
@@ -1657,17 +1791,14 @@ export const createBabylonGalaxyScene = (
     },
   };
 
-  return {
+  const product: BabylonGalaxyProduct = {
     scene,
     camera,
     cameraState,
     points,
-    starMesh,
-    starMeshHasFinderInstances,
+    catalogueStars,
+    finderStars,
     starVertexPositions,
-    starInstanceMatrices: matrices,
-    starInstanceColours: colours,
-    stellarPresentations,
     stellarAccentMeshes,
     densityMesh,
     commanderHistoryMesh,
@@ -1685,11 +1816,17 @@ export const createBabylonGalaxyScene = (
     markerSizeLy,
     renderedLayers,
   };
+  applyDensityCrossfade(product);
+  return product;
 };
 
-function systemBodyColour(
-  body: BodyVisualDescriptor,
-): Readonly<{ diffuse: Color3; emissive: Color3; darkCore: boolean }> {
+function systemBodyColour(body: BodyVisualDescriptor): Readonly<{
+  diffuse: Color3;
+  emissive: Color3;
+  darkCore: boolean;
+  banded: boolean;
+  unknown: boolean;
+}> {
   const identity =
     `${body.class?.value ?? ''} ${body.subtype?.value ?? ''}`.toLowerCase();
   if (identity.includes('star') || identity.includes('black hole')) {
@@ -1701,48 +1838,50 @@ function systemBodyColour(
       diffuse: Color3.FromArray(star.coreRgb),
       emissive: Color3.FromArray(star.haloRgb),
       darkCore: star.darkCore,
+      banded: false,
+      unknown: false,
     };
   }
-  if (identity.includes('earth-like') || identity.includes('water world')) {
-    return {
-      diffuse: new Color3(0.18, 0.56, 0.8),
-      emissive: new Color3(0.02, 0.08, 0.12),
-      darkCore: false,
-    };
-  }
-  if (identity.includes('ammonia')) {
-    return {
-      diffuse: new Color3(0.58, 0.62, 0.28),
-      emissive: new Color3(0.04, 0.05, 0.01),
-      darkCore: false,
-    };
-  }
-  if (identity.includes('gas giant')) {
-    return {
-      diffuse: new Color3(0.76, 0.52, 0.3),
-      emissive: new Color3(0.05, 0.025, 0.01),
-      darkCore: false,
-    };
-  }
-  if (identity.includes('ice') || identity.includes('icy')) {
-    return {
-      diffuse: new Color3(0.62, 0.78, 0.86),
-      emissive: new Color3(0.03, 0.05, 0.07),
-      darkCore: false,
-    };
-  }
-  if (identity.includes('belt')) {
+  if (body.class?.value === 'Belt cluster') {
     return {
       diffuse: new Color3(0.46, 0.42, 0.38),
       emissive: Color3.Black(),
       darkCore: false,
+      banded: false,
+      unknown: false,
     };
   }
+  const bodyFamily = body.bodyFamily ?? { family: 'unknown' };
+  const diffuse = Color3.FromArray(bodyFamilyPresentation(bodyFamily).colour);
+  const unknown =
+    bodyFamily.family === 'unknown' &&
+    (body.bodyFamily !== undefined || body.class?.value === 'Planet');
   return {
-    diffuse: new Color3(0.48, 0.48, 0.52),
-    emissive: new Color3(0.025, 0.025, 0.035),
+    diffuse,
+    emissive: unknown ? diffuse.scale(0.01) : diffuse.scale(0.055),
     darkCore: false,
+    banded:
+      bodyFamily.family === 'gas-giant' ||
+      bodyFamily.family === 'gas-giant-life' ||
+      bodyFamily.family === 'helium-gas-giant' ||
+      bodyFamily.family === 'water-giant',
+    unknown,
   };
+}
+
+/** Illustrative latitude bands; no surface texture or observed weather is implied. */
+function applyGiantBands(mesh: Mesh, radius: number): void {
+  const positions = mesh.getVerticesData('position');
+  if (!positions) return;
+  const colours = new Float32Array((positions.length / 3) * 4);
+  for (let vertex = 0; vertex < positions.length / 3; vertex += 1) {
+    const latitude = Math.asin(
+      Math.max(-1, Math.min(1, positions[vertex * 3 + 1]! / radius)),
+    );
+    const tone = 0.9 + Math.cos(latitude * 12) * 0.1;
+    colours.set([tone, tone, tone, 1], vertex * 4);
+  }
+  mesh.setVerticesData('color', colours);
 }
 
 function systemCameraTarget(
@@ -1839,12 +1978,15 @@ export const createBabylonSystemScene = (
       scene,
     );
     mesh.position.set(layout.position.x, layout.position.y, layout.position.z);
+    if (visual.banded) applyGiantBands(mesh, body.displayRadius);
     mesh.metadata = {
       spatialTarget: {
         kind: 'body',
         ref: body.ref,
       },
       bodyName: body.name,
+      bodyFamily: body.bodyFamily,
+      classTreatment: visual.unknown ? 'unknown-dim' : 'known',
       representation: {
         position: 'SCHEMATIC',
         bodyFacts: 'AUTHORITATIVE',
@@ -1862,6 +2004,10 @@ export const createBabylonSystemScene = (
       ? new Color3(0.08, 0.08, 0.1)
       : new Color3(0.24, 0.24, 0.26);
     material.specularPower = 48;
+    if (visual.unknown) {
+      material.alpha = 0.42;
+      material.specularColor = new Color3(0.06, 0.06, 0.07);
+    }
     mesh.material = material;
     mesh.onDisposeObservable.addOnce(() => material.dispose());
 
@@ -2018,12 +2164,13 @@ export const createBabylonSession = (
       galaxyStarMarkerSizeLy(camera.distanceLy) / product.markerSizeLy;
     if (scale !== lastAppliedStarScale) {
       lastAppliedStarScale = scale;
-      product.starMesh.updateVerticesData(
-        'position',
-        product.starVertexPositions.map((value) => value * scale),
-        true,
+      const positions = product.starVertexPositions.map(
+        (value) => value * scale,
       );
-      product.starMesh.thinInstanceRefreshBoundingInfo(true);
+      for (const batch of [product.catalogueStars, product.finderStars]) {
+        batch.mesh.updateVerticesData('position', positions, true);
+        batch.mesh.thinInstanceRefreshBoundingInfo(true);
+      }
       product.selectedMarker?.scaling.setAll(scale);
       for (const accent of product.stellarAccentMeshes)
         accent.scaling.setAll(scale);
@@ -2221,17 +2368,56 @@ export const createBabylonSession = (
             );
             product.visualGlow.addIncludedOnlyMesh(selectedMarker);
           }
+          const systemLayers = galaxySystemsSceneLayers(command.scene);
+          const batches = partitionGalaxyStars(
+            product.points,
+            systemLayers,
+            command.scene.selection,
+          );
+          const catalogueStars = repartitionGalaxyStarBatch(
+            product.catalogueStars,
+            batches.catalogue,
+            product.stellarAccentMeshes,
+          );
+          const finderStars = repartitionGalaxyStarBatch(
+            product.finderStars,
+            batches.finder,
+            product.stellarAccentMeshes,
+          );
+          const systemReceipts = galaxySystemsReceipts(
+            systemLayers,
+            finderStars.points,
+          );
+          const renderedLayers = product.renderedLayers.map(
+            (receipt) =>
+              systemReceipts.find(
+                (next) =>
+                  next.contributionId === receipt.contributionId &&
+                  next.layerId === receipt.layerId,
+              ) ?? receipt,
+          );
           product = {
             ...product,
+            catalogueStars,
+            finderStars,
+            renderedLayers,
             selectedMarker,
             selectedSystemId64,
             selectedRegionId: selectedGalaxyRegionId(command.scene),
           };
           productContract = command.scene;
+          applyDensityCrossfade(product);
           updateGalaxyRegionFillAppearance(product, null);
           const spatialScene = product.scene.metadata?.spatialScene as
-            { revision?: number } | undefined;
-          if (spatialScene) spatialScene.revision = command.scene.revision;
+            | {
+                revision?: number;
+                renderedLayers?: readonly RenderedLayerReceipt[];
+              }
+            | undefined;
+          if (spatialScene) {
+            spatialScene.revision = command.scene.revision;
+            spatialScene.renderedLayers = renderedLayers;
+          }
           hoveredTargetKey = '';
           warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
           readinessAttemptsRemaining = 120;
@@ -2410,7 +2596,12 @@ export const createBabylonSession = (
           const nextKey = targetKey(target);
           if (nextKey !== hoveredTargetKey) {
             hoveredTargetKey = nextKey;
-            emit({ type: 'TARGET_HOVERED', target });
+            emit({
+              type: 'TARGET_HOVERED',
+              target,
+              screenX: command.screenX,
+              screenY: command.screenY,
+            });
           }
           return { status: 'executed' };
         }
@@ -2420,6 +2611,7 @@ export const createBabylonSession = (
           product,
           command.screenX,
           command.screenY,
+          { includeSystemName: true },
         );
         const nextKey = targetKey(target);
         warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
@@ -2430,7 +2622,12 @@ export const createBabylonSession = (
         );
         if (nextKey !== hoveredTargetKey) {
           hoveredTargetKey = nextKey;
-          emit({ type: 'TARGET_HOVERED', target });
+          emit({
+            type: 'TARGET_HOVERED',
+            target,
+            screenX: command.screenX,
+            screenY: command.screenY,
+          });
         }
         return { status: 'executed' };
       }
@@ -2471,7 +2668,7 @@ export const createBabylonSession = (
           product,
           command.screenX,
           command.screenY,
-          true,
+          { allowNearestStar: true },
         );
         emit({
           type: 'TARGET_PICKED',

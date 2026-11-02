@@ -73,9 +73,18 @@ const waitForInspectSettled = () => {
   );
 };
 
+let anchorAutocompleteCount = 0;
 const keyboardChooseAnchor = (query: string) => {
+  // Wait for the complete query only: typing cancels the shorter prefix
+  // requests, and a cancelled request has no response to assert on.
+  const alias = `anchorAutocomplete${++anchorAutocompleteCount}`;
+  cy.intercept({
+    method: 'GET',
+    pathname: '/api/local/autocomplete',
+    query: { q: query },
+  }).as(alias);
   cy.get('#system-search').clear().type(query);
-  cy.wait('@autocomplete').its('response.statusCode').should('eq', 200);
+  cy.wait(`@${alias}`).its('response.statusCode').should('eq', 200);
   cy.get('[role="listbox"] [role="option"]', { timeout: 10_000 }).should(
     'have.length.greaterThan',
     0,
@@ -313,15 +322,33 @@ const assertRetainedSelection = () => {
     .and('contain.text', selected.name);
 };
 
+const openMapLayers = () => {
+  cy.get('[data-map-layers-toggle]').then(($trigger) => {
+    if ($trigger.attr('aria-expanded') !== 'true') cy.wrap($trigger).click();
+  });
+  cy.get('[data-map-layers-dialog]')
+    .should('be.visible')
+    .and('have.attr', 'aria-modal', 'false');
+};
+
+const closeMapLayers = () => {
+  cy.get('[data-map-layers-toggle]')
+    .should('have.attr', 'aria-expanded', 'true')
+    .click()
+    .should('have.attr', 'aria-expanded', 'false');
+};
+
 const captureFinder = (state: 'any' | 'flexible' | 'flexible-explanation') => {
   cy.get('[data-region-resource-state="ready"]', { timeout: 20_000 }).should(
     'contain.text',
     '42/42 regions',
   );
+  openMapLayers();
   cy.get('[data-nebula-resource-state="ready"]', { timeout: 20_000 }).should(
     'contain.text',
     '5,842 catalogue records',
   );
+  closeMapLayers();
   cy.document().then((document) => {
     const style = document.createElement('style');
     style.textContent =
@@ -358,6 +385,146 @@ const captureFinder = (state: 'any' | 'flexible' | 'flexible-explanation') => {
 };
 
 describe('V3 Explore to Inspect product checkpoint', () => {
+  it('applies body counts near a system and restores the shared search on reload', () => {
+    const anchorId = '10477373803000';
+    const dialog = '[role="dialog"][data-testid="body-filters-dialog"]';
+    let anchoredRequest: Record<string, unknown>;
+    cy.viewport(1280, 800);
+    // All responses come from the normal Product API and its published V3
+    // fixture generation. The anchor is chosen through the shared keyboard
+    // helper, which waits for the complete autocomplete query and the search.
+    cy.intercept('GET', `/api/v1/systems/${anchorId}`).as('bodyFilterAnchor');
+    visitExplore();
+    cy.contains('button', /^Body filters$/).should('be.disabled');
+    cy.get('@search.all').should('have.length', 0);
+    keyboardChooseAnchor('Achenar');
+    cy.get('@search.all')
+      .should('have.length', 1)
+      .then((calls) => {
+        const { request, response } = (
+          calls as unknown as Array<{
+            request: {
+              body: Record<string, unknown> & {
+                sort_by?: string;
+                filters?: { distance?: unknown };
+              };
+            };
+            response?: { statusCode: number };
+          }>
+        )[0]!;
+        expect(response?.statusCode).to.equal(200);
+        expect(request.body.sort_by).to.equal('distance');
+        expect(request.body.filters.distance).to.deep.equal({
+          min: 0,
+          max: 500,
+        });
+        expect(request.body).not.to.have.property('body_filters');
+        anchoredRequest = request.body;
+      });
+    waitForExploreSettled();
+    cy.get('#results-title').should('contain.text', 'Near Achenar');
+    cy.contains('button', /^Body filters$/).click();
+    cy.get(dialog).should('be.visible').and('have.attr', 'aria-modal', 'false');
+    cy.get(`${dialog} [aria-label="Earth-like minimum slider"]`)
+      .invoke('val', '1')
+      .trigger('input');
+    cy.get(`${dialog} [aria-label="Earth-like minimum"]`)
+      .should('have.value', '1')
+      .clear()
+      .type('1')
+      .blur();
+    cy.get(`${dialog} [aria-label="Earth-like Any maximum"]`).should(
+      'be.checked',
+    );
+    cy.contains(`${dialog} [role="tab"]`, 'Planets').should(
+      'contain.text',
+      '1',
+    );
+    cy.injectAxe();
+    cy.checkA11y(dialog);
+    // Finish on the desktop viewport so the pop-out is not still repositioning
+    // when Apply is clicked.
+    for (const [width, height] of [
+      [390, 844],
+      [1280, 800],
+    ]) {
+      cy.viewport(width, height);
+      cy.get(`${dialog} [role="tabpanel"]:visible`).scrollTo('top');
+      cy.get(dialog).should(($dialog) => {
+        const bounds = $dialog[0].getBoundingClientRect();
+        const viewport = $dialog[0].ownerDocument.defaultView?.visualViewport;
+        expect(bounds.top).to.be.at.least(viewport?.offsetTop ?? 0);
+        expect(bounds.bottom).to.be.at.most(
+          (viewport?.offsetTop ?? 0) + (viewport?.height ?? height) + 1,
+        );
+        expect(bounds.left).to.be.at.least(0);
+        expect(bounds.right).to.be.at.most(width);
+      });
+      cy.screenshot(
+        `product/explore-body-filters-${Cypress.browser.name}-${width}x${height}`,
+        {
+          capture: 'viewport',
+          overwrite: true,
+          disableTimersAndAnimations: true,
+        },
+      );
+    }
+    cy.get('@search.all').should('have.length', 1);
+    cy.contains(`${dialog} button`, /^Apply$/).click({
+      scrollBehavior: false,
+    });
+    cy.wait('@search', { requestTimeout }).then(({ request, response }) => {
+      expect(request.body).to.deep.equal({
+        ...anchoredRequest,
+        body_filters: { elw_count: { min: 1 } },
+      });
+      expect(response?.statusCode).to.equal(200);
+      expect(response?.body.results.length).to.be.greaterThan(0);
+    });
+    cy.get(dialog).should('not.exist');
+    cy.contains('button', /^Body filters$/).should('be.focused');
+    waitForExploreSettled();
+    cy.get('@search.all').should('have.length', 2);
+    cy.contains('Earth-like ≥ 1').should('be.visible');
+    cy.location('search', { timeout: 15_000 }).should((search) => {
+      const params = new URLSearchParams(search);
+      expect(params.getAll('near')).to.deep.equal([anchorId]);
+      expect(params.getAll('bodies')).to.deep.equal(['elw_count:1-']);
+    });
+    // Clear persisted state and SvelteKit's history payload so restoration can
+    // only use the URL, even in browsers that retain history state on reload.
+    cy.window().then((window) => {
+      window.localStorage.clear();
+      window.sessionStorage.clear();
+      window.history.replaceState({}, '', window.location.href);
+    });
+    cy.reload();
+    cy.wait('@bodyFilterAnchor', { requestTimeout })
+      .its('response.statusCode')
+      .should('eq', 200);
+    cy.wait('@search', { requestTimeout }).then(({ request, response }) => {
+      expect(request.body).to.deep.equal({
+        ...anchoredRequest,
+        body_filters: { elw_count: { min: 1 } },
+      });
+      expect(response?.statusCode).to.equal(200);
+      expect(response?.body.results.length).to.be.greaterThan(0);
+    });
+    waitForExploreSettled();
+    cy.get('@search.all').should('have.length', 3);
+    cy.get('#system-search').should('have.value', 'Achenar');
+    cy.get('#results-title').should('contain.text', 'Near Achenar');
+    cy.get('[data-system-result]').should('have.length.greaterThan', 0);
+    cy.contains('Earth-like ≥ 1').should('be.visible');
+    cy.get('[aria-label="Remove Earth-like filter"]').should('be.visible');
+    cy.contains('button', /^Clear all$/).should('be.visible');
+    cy.location('search', { timeout: 15_000 }).should((search) => {
+      const params = new URLSearchParams(search);
+      expect(params.getAll('near')).to.deep.equal([anchorId]);
+      expect(params.getAll('bodies')).to.deep.equal(['elw_count:1-']);
+    });
+  });
+
   it('ranks the pinned Flexible B corpus, retains URL selection and restores Finder history', () => {
     const selectedId = FLEXIBLE_B_FIXTURE_ROWS[0].id64;
     let copiedExploreUrl = '';
@@ -686,10 +853,12 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       'contain.text',
       '42/42 regions',
     );
+    openMapLayers();
     cy.get('[data-nebula-resource-state="ready"]', { timeout: 20_000 })
       .should('contain.text', '5,842 catalogue records')
       .and('contain.text', 'EDAstro / CMDR Orvidius')
       .and('contain.text', 'source CSV');
+    closeMapLayers();
     cy.get('[data-galaxy-region-option]').should('have.length', 42);
     cy.get('.spatial-canvas')
       .should('have.attr', 'data-rendered-layer-ids')
@@ -807,13 +976,26 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       .should('be.visible')
       .and('contain.text', 'Achenar')
       .and('contain.text', 'Primary star');
+    openMapLayers();
+    cy.get('[data-density-toggle]')
+      .should('have.attr', 'role', 'switch')
+      .and('have.attr', 'aria-checked', 'true');
     cy.get('[data-commander-history-toggle]')
-      .should('have.attr', 'aria-pressed', 'false')
+      .should('have.attr', 'role', 'switch')
+      .and('have.attr', 'aria-checked', 'false')
       .click()
-      .should('have.attr', 'aria-pressed', 'true');
+      .should('have.attr', 'aria-checked', 'true');
+    cy.get('[data-nebula-toggle]')
+      .should('have.attr', 'role', 'switch')
+      .and('have.attr', 'aria-checked', 'true');
 
     cy.injectAxe();
     cy.checkA11y();
+    cy.screenshot(`product/explore-layers-${Cypress.browser.name}-1280x800`, {
+      capture: 'viewport',
+      overwrite: true,
+    });
+    closeMapLayers();
     cy.document().then((document) => {
       const style = document.createElement('style');
       style.textContent =
@@ -844,7 +1026,7 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       .and('contain.text', '10477373803000');
     cy.contains('h2', 'Explore Achenar').should('be.visible');
     cy.contains(
-      'Body classes, radii, arrival distances, and known ring state come from the catalogue.',
+      'Planet classes come from the published Ratings V4 derived catalogue',
     ).should('be.visible');
     cy.get('[aria-label="System camera controls"]').should('be.visible');
     cy.get('[aria-label="System bodies"] button')

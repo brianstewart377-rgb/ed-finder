@@ -39,7 +39,7 @@ export type FacilityRef = Readonly<{
 }>;
 
 export type SpatialTarget =
-  | Readonly<{ kind: 'system'; systemId64: string }>
+  | Readonly<{ kind: 'system'; systemId64: string; name?: string }>
   | Readonly<{ kind: 'body'; ref: BodyRef }>
   | Readonly<{ kind: 'facility'; ref: FacilityRef }>
   | Readonly<{ kind: 'region' | 'route' | 'cluster'; id: string }>;
@@ -137,12 +137,33 @@ export type RingDescriptor = Readonly<{
   >;
 }>;
 
+/** Presentation derived only from a catalogued planet class; never a new fact. */
+export type BodyFamily =
+  | Readonly<{
+      family:
+        | 'earth-like'
+        | 'water-world'
+        | 'ammonia-world'
+        | 'high-metal-content'
+        | 'metal-rich'
+        | 'rocky'
+        | 'rocky-ice'
+        | 'icy'
+        | 'helium-gas-giant'
+        | 'water-giant'
+        | 'unknown';
+    }>
+  | Readonly<{ family: 'gas-giant'; variant: 'I' | 'II' | 'III' | 'IV' | 'V' }>
+  | Readonly<{ family: 'gas-giant-life'; variant: 'water' | 'ammonia' }>;
+
 export type BodyVisualDescriptor = Readonly<{
   ref: BodyRef;
   name: string;
   parent?: BodyRef;
   class?: Truth<string>;
   subtype?: Truth<string>;
+  bodyClass?: Truth<string>;
+  bodyFamily?: BodyFamily;
   physicalRadiusM?: Truth<number>;
   distanceFromArrivalLs?: Truth<number>;
   displayRadius: number;
@@ -220,7 +241,13 @@ export type RuntimeEvent =
       type: 'CAMERA_CHANGED';
       camera: CameraState | SystemCameraState;
     }>
-  | Readonly<{ type: 'TARGET_HOVERED'; target?: SpatialTarget }>
+  | Readonly<{
+      type: 'TARGET_HOVERED';
+      target?: SpatialTarget;
+      /** Pointer position in canvas-local CSS pixels, when pointer initiated. */
+      screenX?: number;
+      screenY?: number;
+    }>
   | Readonly<{ type: 'TARGET_PICKED'; target?: SpatialTarget }>
   | Readonly<{ type: 'TRANSITION_FINISHED'; target?: SpatialTarget }>
   | Readonly<{
@@ -244,6 +271,8 @@ export type RenderedLayerReceipt = Readonly<{
   representation: RepresentationClass;
   acceptedTargetCount: number;
   renderedTargetCount: number;
+  /** Layer targets by presentation batch; shared identities can occur in multiple layers. */
+  renderedBatchCounts?: Readonly<{ catalogue: number; finder: number }>;
   sourceGeneration?: string;
 }>;
 

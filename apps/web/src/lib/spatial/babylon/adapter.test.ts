@@ -1,10 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
+import { PickingInfo } from '@babylonjs/core/Collisions/pickingInfo.js';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
 import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
-import type { ExploreSystem } from '$lib/api/client';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import { systemDetailFromV3, type ExploreSystem } from '$lib/api/client';
+import { v3Body, v3System } from '$lib/api/v3-system-fixtures';
 import { parseId64 } from '$lib/domain/id64';
 
-import type { GalaxySceneContract, SystemSceneContract } from '../contracts';
+import type {
+  GalaxySceneContract,
+  GalaxySystemPoint,
+  SpatialContribution,
+  SystemSceneContract,
+} from '../contracts';
 import { buildFixtureCatalogueDensity } from '../galaxy-density.fixture';
 import { createCatalogueDensityContribution } from '../galaxy-density';
 import { createCatalogueStarsContribution } from '../galaxy-star-stream';
@@ -22,6 +30,7 @@ import {
   type GalaxyNebulaePayload,
 } from '../galaxy-nebulae';
 import type { SpatialBackendSession } from '../lifecycle';
+import { buildSystemScene } from '../system-scene';
 import {
   createBabylonGalaxyScene,
   createBabylonSession,
@@ -41,6 +50,77 @@ const createSession = (backend: 'WEBGPU' | 'WEBGL2') =>
     render: vi.fn(),
     dispose: vi.fn(),
   }) satisfies SpatialBackendSession;
+
+const batchCataloguePoint: GalaxySystemPoint = {
+  systemId64: '42',
+  name: 'Catalogue black hole',
+  positionLy: { x: 0, y: 0, z: 0 },
+  primaryStar: { type: 'Black Hole' },
+};
+const batchFinderPoint: GalaxySystemPoint = {
+  systemId64: '9007199254740993',
+  name: 'Finder black hole',
+  positionLy: { x: 0, y: 0, z: 0 },
+  primaryStar: { type: 'Black Hole' },
+};
+
+function batchSystemContribution(
+  owner: 'CATALOGUE' | 'FINDER',
+  systems: readonly GalaxySystemPoint[],
+): SpatialContribution {
+  return {
+    id: owner === 'FINDER' ? 'finder-results' : 'catalogue-viewport-stars',
+    owner,
+    revision: 1,
+    layers: [
+      {
+        id: owner === 'FINDER' ? 'finder-systems' : 'catalogue-systems',
+        version: 1,
+        representation: 'AUTHORITATIVE',
+        targetCount: systems.length,
+        truncated: false,
+        payload: { systems },
+      },
+    ],
+  };
+}
+
+function densityBatchScene(
+  distanceLy: number,
+  catalogue: readonly GalaxySystemPoint[] = [batchCataloguePoint],
+  finder: readonly GalaxySystemPoint[] = [batchFinderPoint],
+): GalaxySceneContract {
+  const density = buildFixtureCatalogueDensity(catalogue, {
+    generationId: 'fixture:adapter-independent-batches-v1',
+    pyramidVersion: 'fixture-pyramid-v1',
+    level: 2,
+    cellSizeLy: 100,
+    cellOriginLy: { x: -1_000, y: -1_000, z: -1_000 },
+    boundsLy: {
+      min: { x: -1_000, y: -1_000, z: -1_000 },
+      max: { x: 1_000, y: 1_000, z: 1_000 },
+    },
+    coverageAsOf: '2026-09-13T00:00:00Z',
+  });
+  return {
+    kind: 'galaxy',
+    revision: 1,
+    camera: {
+      focusLy: { x: 0, y: 0, z: 0 },
+      distanceLy,
+      bearingRad: 0,
+      pitchRad: 0.5,
+      projection: 'perspective',
+      revision: 1,
+    },
+    selection: [],
+    contributions: [
+      createCatalogueDensityContribution(density, 1),
+      batchSystemContribution('CATALOGUE', catalogue),
+      batchSystemContribution('FINDER', finder),
+    ],
+  };
+}
 
 describe('Babylon spatial adapter boundary', () => {
   it.each([
@@ -146,6 +226,134 @@ describe('Babylon spatial adapter boundary', () => {
     engine.dispose();
   });
 
+  it.each(['CATALOGUE', 'FINDER'] as const)(
+    'reports the id64 and name when hovering a pickable %s system',
+    (owner) => {
+      const engine = new NullEngine({
+        renderWidth: 640,
+        renderHeight: 360,
+        textureSize: 512,
+        deterministicLockstep: true,
+        lockstepMaxSteps: 1,
+      });
+      const session = createBabylonSession(engine, 'WEBGL2');
+      const events = vi.fn();
+      const point = {
+        systemId64: '9007199254740993',
+        name: 'Hover catalogue star',
+        positionLy: { x: 0, y: 0, z: 0 },
+        primaryStar: { type: 'G2' },
+      };
+      const density = buildFixtureCatalogueDensity([point], {
+        generationId: 'fixture:hover-star-density',
+        pyramidVersion: 'fixture-pyramid-v1',
+        level: 2,
+        cellSizeLy: 100,
+        cellOriginLy: { x: -1_000, y: -1_000, z: -1_000 },
+        boundsLy: {
+          min: { x: -1_000, y: -1_000, z: -1_000 },
+          max: { x: 1_000, y: 1_000, z: 1_000 },
+        },
+        coverageAsOf: '2026-11-02T00:00:00Z',
+      });
+      const contract: GalaxySceneContract = {
+        kind: 'galaxy',
+        revision: 1,
+        camera: {
+          focusLy: point.positionLy,
+          distanceLy: 500,
+          bearingRad: 0,
+          pitchRad: 0.5,
+          projection: 'perspective',
+          revision: 1,
+        },
+        selection: [],
+        contributions: [
+          createCatalogueDensityContribution(density, 1),
+          {
+            id: 'hover-systems',
+            owner,
+            revision: 1,
+            layers: [
+              {
+                id:
+                  owner === 'CATALOGUE'
+                    ? 'catalogue-systems'
+                    : 'finder-systems',
+                version: 1,
+                representation: 'AUTHORITATIVE',
+                targetCount: 1,
+                truncated: false,
+                payload: { systems: [point] },
+              },
+            ],
+          },
+        ],
+      };
+      try {
+        session.execute?.({ type: 'LOAD_SCENE', scene: contract }, events);
+        const scene = engine.scenes.at(-1)!;
+        const updateTransforms = () => {
+          scene.updateTransformMatrix(true);
+          for (const mesh of scene.meshes) mesh.computeWorldMatrix(true);
+        };
+        updateTransforms();
+        const hover = { type: 'HOVER', screenX: 320, screenY: 180 } as const;
+        events.mockClear();
+        session.execute?.(hover, events);
+        expect(events).toHaveBeenCalledWith({
+          type: 'TARGET_HOVERED',
+          target: {
+            kind: 'system',
+            systemId64: point.systemId64,
+            name: point.name,
+          },
+          screenX: 320,
+          screenY: 180,
+        });
+        // Stable pointer movement does not repeatedly invalidate label candidates.
+        events.mockClear();
+        session.execute?.(hover, events);
+        expect(events).not.toHaveBeenCalled();
+        session.execute?.({ type: 'CLEAR_HOVER' }, events);
+        expect(events).toHaveBeenCalledWith({ type: 'TARGET_HOVERED' });
+
+        session.execute?.(
+          {
+            type: 'SET_CAMERA',
+            camera: {
+              ...contract.camera,
+              distanceLy: DENSITY_CROSSFADE_FAR_LY + 1,
+              revision: 2,
+            },
+          },
+          events,
+        );
+        updateTransforms();
+        events.mockClear();
+        session.execute?.(hover, events);
+        if (owner === 'CATALOGUE') {
+          // Fully faded catalogue stars cannot intercept hover through density.
+          expect(events).not.toHaveBeenCalled();
+        } else {
+          expect(events).toHaveBeenCalledWith(
+            expect.objectContaining({
+              type: 'TARGET_HOVERED',
+              target: {
+                kind: 'system',
+                systemId64: point.systemId64,
+                name: point.name,
+              },
+            }),
+          );
+        }
+      } finally {
+        session.dispose();
+        engine.dispose();
+      }
+    },
+  );
+
   it('keeps the selected marker when a replacement page omits the selected Finder system', () => {
     const selected = {
       id64: parseId64('9007199254740993'),
@@ -232,6 +440,7 @@ describe('Babylon spatial adapter boundary', () => {
           ref: { systemId64: '42', bodyId: 2 },
           name: 'Test Giant',
           class: { value: 'Planet', representation: 'AUTHORITATIVE' },
+          bodyFamily: { family: 'gas-giant-life', variant: 'water' },
           subtype: {
             value: 'Gas giant with water based life',
             representation: 'AUTHORITATIVE',
@@ -270,6 +479,62 @@ describe('Babylon spatial adapter boundary', () => {
       },
     });
 
+    product.scene.dispose();
+    engine.dispose();
+  });
+
+  it('renders family colours, illustrative giant bands and a dim unknown class', () => {
+    const engine = new NullEngine();
+    const contract = buildSystemScene(
+      systemDetailFromV3(
+        v3System(),
+        ['Earth-like world', 'Class I gas giant', 'Icy body', null].map(
+          (bodyClass, index) =>
+            v3Body({
+              body_id: String(index),
+              frontier_body_id: String(index),
+              body_type: 'planet',
+              // Even a suggestive name must not invent a class.
+              name: 'Earth-like world',
+              body_class: bodyClass,
+              body_class_source: bodyClass ? 'ratings-v4-derived' : null,
+            }),
+        ),
+        [],
+        [],
+      ),
+      1,
+    );
+    const product = createBabylonSystemScene(engine, contract);
+    const [earth, giant, icy, unknown] = product.bodies;
+    const materials = product.bodies.map((body) => {
+      expect(body.mesh.material).toBeInstanceOf(StandardMaterial);
+      return body.mesh.material as StandardMaterial;
+    });
+    expect(
+      new Set(materials.map((material) => material.diffuseColor.toHexString()))
+        .size,
+    ).toBe(4);
+    expect(
+      materials.slice(0, 3).every((material) => material.alpha === 1),
+    ).toBe(true);
+    expect(materials[3]!.diffuseColor.asArray()).toEqual([0.48, 0.48, 0.52]);
+    expect(materials[3]!.alpha).toBe(0.42);
+    expect(materials[3]!.needAlphaBlendingForMesh(unknown!.mesh)).toBe(true);
+    expect(unknown!.mesh.metadata).toMatchObject({
+      bodyFamily: { family: 'unknown' },
+      classTreatment: 'unknown-dim',
+    });
+    expect(unknown!.mesh.isPickable).toBe(true);
+    expect(earth!.mesh.getVerticesData('color')).toBeNull();
+    expect(icy!.mesh.getVerticesData('color')).toBeNull();
+    const bands = giant!.mesh.getVerticesData('color')!;
+    expect(bands).not.toBeNull();
+    const tones = bands.filter((_, index) => index % 4 === 0);
+    expect(Math.min(...tones)).toBeGreaterThanOrEqual(0.79);
+    expect(Math.max(...tones)).toBeLessThanOrEqual(1);
+    expect(Math.max(...tones) - Math.min(...tones)).toBeGreaterThan(0.15);
+    expect(giant!.mesh.getTotalVertices()).toBe(earth!.mesh.getTotalVertices());
     product.scene.dispose();
     engine.dispose();
   });
@@ -717,7 +982,7 @@ describe('Babylon spatial adapter boundary', () => {
 
     const scene = engine.scenes[engine.scenes.length - 1]!;
     const densityMesh = scene.getMeshByName('catalogue-density-cells');
-    const starMesh = scene.getMeshByName('finder-system-instances');
+    const starMesh = scene.getMeshByName('finder-result-instances');
 
     // Zoom fully out into the density-dominant band.
     expect(
@@ -740,6 +1005,350 @@ describe('Babylon spatial adapter boundary', () => {
     expect(starMesh?.material?.alpha).toBeCloseTo(1, 5);
 
     session.dispose();
+    engine.dispose();
+  });
+
+  it.each([
+    [(DENSITY_CROSSFADE_NEAR_LY + DENSITY_CROSSFADE_FAR_LY) / 2, 0.5],
+    [DENSITY_CROSSFADE_FAR_LY + 1, 0],
+  ])(
+    'keeps catalogue alpha at %s ly independent of Finder rows and their accent rings',
+    (distanceLy, catalogueAlpha) => {
+      const engine = new NullEngine();
+      const session = createBabylonSession(engine, 'WEBGL2');
+      const events = vi.fn();
+
+      for (const [index, finder] of [[], [batchFinderPoint], []].entries()) {
+        const contract = {
+          ...densityBatchScene(distanceLy, [batchCataloguePoint], finder),
+          revision: index + 1,
+        };
+        expect(
+          session.execute?.({ type: 'LOAD_SCENE', scene: contract }, events),
+        ).toEqual({ status: 'executed' });
+        const scene = engine.scenes.at(-1)!;
+        const catalogueMesh = scene.getMeshByName('finder-system-instances');
+        const finderMesh = scene.getMeshByName('finder-result-instances');
+        expect(catalogueMesh?.material).not.toBe(finderMesh?.material);
+        expect(catalogueMesh?.material?.alpha).toBeCloseTo(catalogueAlpha, 5);
+        expect(finderMesh?.material?.alpha).toBe(1);
+        expect(catalogueMesh?.isPickable).toBe(catalogueAlpha > 0);
+        expect(finderMesh?.isPickable).toBe(true);
+        expect(finderMesh?.isEnabled()).toBe(finder.length > 0);
+        expect(
+          scene.getMeshByName('stellar-icon-ring-42')?.material?.alpha,
+        ).toBeCloseTo(catalogueAlpha, 5);
+        if (finder.length) {
+          expect(
+            scene.getMeshByName('stellar-icon-ring-9007199254740993')?.material
+              ?.alpha,
+          ).toBe(1);
+          expect(finderMesh?.metadata).toMatchObject({
+            spatialLayer: { id: 'finder-systems', batch: 'finder' },
+          });
+        }
+        expect(catalogueMesh?.metadata).toMatchObject({
+          spatialLayer: { id: 'catalogue-systems', batch: 'catalogue' },
+        });
+        expect(events).toHaveBeenCalledWith({
+          type: 'CAMERA_CHANGED',
+          camera: contract.camera,
+        });
+      }
+
+      session.dispose();
+    },
+  );
+
+  it('moves a selected catalogue star into the opaque batch after zoom without changing unrelated stars', () => {
+    const selectedPoint = {
+      ...batchFinderPoint,
+      positionLy: { x: 30, y: 0, z: 0 },
+    };
+    const base = densityBatchScene(
+      DENSITY_CROSSFADE_NEAR_LY - 1,
+      [batchCataloguePoint, selectedPoint],
+      [],
+    );
+    const initial = {
+      ...base,
+      camera: { ...base.camera, focusLy: selectedPoint.positionLy },
+    };
+    const engine = new NullEngine();
+    const session = createBabylonSession(engine, 'WEBGL2');
+    const events = vi.fn();
+    session.execute?.({ type: 'LOAD_SCENE', scene: initial }, events);
+    const scene = engine.scenes.at(-1)!;
+    const starGeometry = [
+      'finder-system-instances',
+      'finder-result-instances',
+    ].map((name) => {
+      const mesh = scene.getMeshByName(name)!;
+      return {
+        mesh,
+        vertices: Float32Array.from(mesh.getVerticesData('position') ?? []),
+        halfHeight: mesh.getBoundingInfo().boundingBox.extendSize.y,
+      };
+    });
+    const farCamera = {
+      ...initial.camera,
+      distanceLy: DENSITY_CROSSFADE_FAR_LY + 1,
+      revision: 2,
+    };
+    expect(
+      session.execute?.({ type: 'SET_CAMERA', camera: farCamera }, events),
+    ).toEqual({ status: 'executed' });
+    const scale =
+      galaxyStarMarkerSizeLy(farCamera.distanceLy) /
+      galaxyStarMarkerSizeLy(initial.camera.distanceLy);
+    for (const { mesh, vertices, halfHeight } of starGeometry) {
+      expect(Array.from(mesh.getVerticesData('position') ?? [])).toEqual(
+        Array.from(vertices.map((value) => value * scale)),
+      );
+      expect(mesh.getBoundingInfo().boundingBox.extendSize.y).toBeCloseTo(
+        halfHeight * scale,
+        4,
+      );
+    }
+
+    for (const [index, selection] of [
+      [{ kind: 'system' as const, systemId64: selectedPoint.systemId64 }],
+      [],
+    ].entries()) {
+      expect(
+        session.execute?.(
+          {
+            type: 'LOAD_SCENE',
+            scene: {
+              ...initial,
+              camera: farCamera,
+              revision: index + 2,
+              selection,
+            },
+          },
+          events,
+        ),
+      ).toEqual({ status: 'executed' });
+      expect(engine.scenes.at(-1)).toBe(scene);
+      expect(
+        scene.getMeshByName('finder-system-instances')?.material?.alpha,
+      ).toBe(0);
+      expect(scene.getMeshByName('stellar-icon-ring-42')?.material?.alpha).toBe(
+        0,
+      );
+      expect(
+        scene.getMeshByName('stellar-icon-ring-9007199254740993')?.material
+          ?.alpha,
+      ).toBe(selection.length ? 1 : 0);
+      const finderMesh = scene.getMeshByName('finder-result-instances');
+      expect(finderMesh?.isEnabled()).toBe(selection.length > 0);
+      expect(finderMesh?.material?.alpha).toBe(1);
+      expect(finderMesh?.isPickable).toBe(true);
+      expect(scene.getMeshByName('selected-system-marker') !== null).toBe(
+        selection.length > 0,
+      );
+      expect(scene.metadata.spatialScene.renderedLayers).toContainEqual({
+        contributionId: 'catalogue-viewport-stars',
+        contributionRevision: 1,
+        layerId: 'catalogue-systems',
+        layerVersion: 1,
+        representation: 'AUTHORITATIVE',
+        acceptedTargetCount: 2,
+        renderedTargetCount: 2,
+        renderedBatchCounts: {
+          catalogue: 2 - selection.length,
+          finder: selection.length,
+        },
+      });
+      scene.updateTransformMatrix(true);
+      for (const mesh of scene.meshes) mesh.computeWorldMatrix(true);
+      if (selection.length) {
+        // Replacing thin-instance buffers must retain the geometry and bounds
+        // already scaled for this camera, so exact rays still hit the star.
+        expect(
+          finderMesh?.getBoundingInfo().boundingBox.center.asArray(),
+        ).toEqual([30, 0, 0]);
+        expect(
+          finderMesh?.getBoundingInfo().boundingBox.extendSize.y,
+        ).toBeCloseTo(starGeometry[0]!.halfHeight * scale, 4);
+        session.execute?.(
+          {
+            type: 'HOVER',
+            screenX: engine.getRenderWidth() / 2,
+            screenY: engine.getRenderHeight() / 2,
+          },
+          events,
+        );
+        expect(events).toHaveBeenLastCalledWith({
+          type: 'TARGET_HOVERED',
+          target: {
+            kind: 'system',
+            systemId64: selectedPoint.systemId64,
+            name: selectedPoint.name,
+          },
+          screenX: engine.getRenderWidth() / 2,
+          screenY: engine.getRenderHeight() / 2,
+        });
+      }
+      session.execute?.(
+        {
+          type: 'PICK',
+          screenX: engine.getRenderWidth() / 2,
+          screenY: engine.getRenderHeight() / 2,
+        },
+        events,
+      );
+      expect(events).toHaveBeenLastCalledWith({
+        type: 'TARGET_PICKED',
+        target: selection.length
+          ? { kind: 'system', systemId64: selectedPoint.systemId64 }
+          : undefined,
+      });
+    }
+
+    session.dispose();
+  });
+
+  it.each([
+    ['exact', DENSITY_CROSSFADE_NEAR_LY - 1],
+    ['exact', DENSITY_CROSSFADE_FAR_LY + 1],
+    ['fallback', DENSITY_CROSSFADE_NEAR_LY - 1],
+    ['fallback', DENSITY_CROSSFADE_FAR_LY + 1],
+  ] as const)(
+    'prioritizes Finder identity on a %s picking tie at %s ly and excludes faded catalogue stars',
+    (path, distanceLy) => {
+      const engine = new NullEngine({
+        renderWidth: 640,
+        renderHeight: 360,
+        textureSize: 512,
+        deterministicLockstep: true,
+        lockstepMaxSteps: 1,
+      });
+      const session = createBabylonSession(engine, 'WEBGL2');
+      const events = vi.fn();
+      const contract = densityBatchScene(distanceLy);
+      session.execute?.({ type: 'LOAD_SCENE', scene: contract }, events);
+      const scene = engine.scenes.at(-1)!;
+      scene.updateTransformMatrix(true);
+      for (const mesh of scene.meshes) mesh.computeWorldMatrix(true);
+      const pick = vi.spyOn(scene, 'pick');
+      if (path === 'fallback') pick.mockReturnValue(new PickingInfo());
+      // HOVER only performs exact ray picks; PICK also enables the projected
+      // fallback, which the ray miss above isolates deliberately.
+      session.execute?.(
+        {
+          type: path === 'exact' ? 'HOVER' : 'PICK',
+          screenX: 320,
+          screenY: 180,
+        },
+        events,
+      );
+      expect(events).toHaveBeenLastCalledWith(
+        path === 'exact'
+          ? {
+              type: 'TARGET_HOVERED',
+              target: {
+                kind: 'system',
+                systemId64: batchFinderPoint.systemId64,
+                name: batchFinderPoint.name,
+              },
+              screenX: 320,
+              screenY: 180,
+            }
+          : {
+              type: 'TARGET_PICKED',
+              target: {
+                kind: 'system',
+                systemId64: batchFinderPoint.systemId64,
+              },
+            },
+      );
+      pick.mockRestore();
+
+      // Move the Finder target well outside the click tolerance: catalogue
+      // stars can be picked at close zoom, but cannot intercept at wide zoom.
+      session.execute?.(
+        {
+          type: 'LOAD_SCENE',
+          scene: {
+            ...densityBatchScene(
+              distanceLy,
+              [batchCataloguePoint],
+              [
+                {
+                  ...batchFinderPoint,
+                  positionLy: { x: distanceLy, y: 0, z: 0 },
+                },
+              ],
+            ),
+            revision: 2,
+          },
+        },
+        events,
+      );
+      const replacement = engine.scenes.at(-1)!;
+      replacement.updateTransformMatrix(true);
+      for (const mesh of replacement.meshes) mesh.computeWorldMatrix(true);
+      const replacementPick = vi.spyOn(replacement, 'pick');
+      if (path === 'fallback')
+        replacementPick.mockReturnValue(new PickingInfo());
+      session.execute?.({ type: 'PICK', screenX: 320, screenY: 180 }, events);
+      expect(events).toHaveBeenLastCalledWith({
+        type: 'TARGET_PICKED',
+        target:
+          distanceLy < DENSITY_CROSSFADE_FAR_LY
+            ? { kind: 'system', systemId64: batchCataloguePoint.systemId64 }
+            : undefined,
+      });
+      replacementPick.mockRestore();
+      session.dispose();
+    },
+  );
+
+  it('preserves layer receipt fields and shared id64 identity while adding batch counts', () => {
+    const contract = densityBatchScene(
+      DENSITY_CROSSFADE_FAR_LY + 1,
+      [batchCataloguePoint, { ...batchFinderPoint, name: 'Catalogue copy' }],
+      [batchFinderPoint],
+    );
+    const engine = new NullEngine();
+    const product = createBabylonGalaxyScene(engine, contract);
+
+    expect(product.points.map(({ systemId64 }) => systemId64)).toEqual([
+      batchCataloguePoint.systemId64,
+      batchFinderPoint.systemId64,
+    ]);
+    expect(product.catalogueStars.points).toEqual([batchCataloguePoint]);
+    expect(product.finderStars.points).toEqual([batchFinderPoint]);
+    expect(product.catalogueStars.mesh.thinInstanceCount).toBe(1);
+    expect(product.finderStars.mesh.thinInstanceCount).toBe(1);
+    expect(product.renderedLayers.slice(1)).toEqual([
+      {
+        contributionId: 'catalogue-viewport-stars',
+        contributionRevision: 1,
+        layerId: 'catalogue-systems',
+        layerVersion: 1,
+        representation: 'AUTHORITATIVE',
+        acceptedTargetCount: 2,
+        renderedTargetCount: 2,
+        renderedBatchCounts: { catalogue: 1, finder: 1 },
+      },
+      {
+        contributionId: 'finder-results',
+        contributionRevision: 1,
+        layerId: 'finder-systems',
+        layerVersion: 1,
+        representation: 'AUTHORITATIVE',
+        acceptedTargetCount: 1,
+        renderedTargetCount: 1,
+        renderedBatchCounts: { catalogue: 0, finder: 1 },
+      },
+    ]);
+    expect(product.scene.metadata).toMatchObject({
+      spatialScene: { renderedLayers: product.renderedLayers },
+    });
+
+    product.scene.dispose();
     engine.dispose();
   });
 
@@ -915,14 +1524,12 @@ describe('Babylon spatial adapter boundary', () => {
     };
 
     const product = createBabylonGalaxyScene(engine, sceneContract);
-    const matrixBuffer = product.starInstanceMatrices;
-    const colourBuffer = product.starInstanceColours;
+    const matrixBuffer = product.finderStars.instanceMatrices;
+    const colourBuffer = product.finderStars.instanceColours;
 
-    expect(product.stellarPresentations.map(({ glyph }) => glyph)).toEqual([
-      'main-sequence-g',
-      'giant-blue',
-      'black-hole',
-    ]);
+    expect(
+      product.finderStars.stellarPresentations.map(({ glyph }) => glyph),
+    ).toEqual(['main-sequence-g', 'giant-blue', 'black-hole']);
     expect(Array.from(colourBuffer.slice(0, 4))).not.toEqual(
       Array.from(colourBuffer.slice(4, 8)),
     );

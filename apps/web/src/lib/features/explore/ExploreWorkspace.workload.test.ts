@@ -48,6 +48,7 @@ vi.mock('$lib/api/client', async (loadOriginal) => ({
   getSystem: vi.fn(),
   getCatalogueViewportSystems: vi.fn(),
   getCommanderTravelHeatmap: vi.fn(),
+  getCommanderJournalSummary: vi.fn(),
   getAuthSession: vi.fn(),
   getMapHeatmap: vi.fn(),
 }));
@@ -333,6 +334,8 @@ describe('Explore load and interaction work budget', () => {
           selected: vi.mocked(api.getSystem).mock.calls.length,
           autocomplete: vi.mocked(api.autocompleteSystems).mock.calls.length,
           travel: vi.mocked(api.getCommanderTravelHeatmap).mock.calls.length,
+          journalSummary: vi.mocked(api.getCommanderJournalSummary).mock.calls
+            .length,
           auth: vi.mocked(api.getAuthSession).mock.calls.length,
         },
       });
@@ -410,9 +413,8 @@ describe('Explore load and interaction work budget', () => {
         screen.getByRole('button', { name: 'All 42 regions' }),
       );
       await settle();
-      await fireEvent.click(
-        screen.getByRole('button', { name: 'Hide nebulae' }),
-      );
+      await fireEvent.click(screen.getByRole('button', { name: /^Layers · / }));
+      await fireEvent.click(screen.getByRole('switch', { name: 'Nebulae' }));
       await settle();
       const interacted = work();
       // A quiescent page must not restart work while the browser checks its URL.
@@ -446,6 +448,7 @@ describe('Explore load and interaction work budget', () => {
         selected: 0,
         autocomplete: 0,
         travel: 0,
+        journalSummary: 0,
         auth: 0,
       };
       expect(loaded).toEqual({
@@ -453,7 +456,9 @@ describe('Explore load and interaction work budget', () => {
         rendererScenes: enabled ? 3 : 4,
         loads: enabled ? 3 : 7,
         patches: enabled ? 1 : 0,
-        activeQueries: enabled ? 15 : 14,
+        // Viewport catalogue cells add their observers; the Layers pop-out adds
+        // the disabled account-summary observer in both modes.
+        activeQueries: enabled ? 16 : 15,
         transitions: 1,
         api: { ...idleApi, finder: 0, catalogue: 25, density: 2 },
       });
@@ -467,7 +472,9 @@ describe('Explore load and interaction work budget', () => {
         rendererScenes: enabled ? 6 : 7,
         loads: enabled ? 7 : 13,
         patches: enabled ? 1 : 0,
-        activeQueries: enabled ? 15 : 14,
+        // The committed anchor and selected result have separate query
+        // identities; the account-summary observer adds one in both modes.
+        activeQueries: enabled ? 16 : 15,
         transitions: 4,
         api: {
           ...idleApi,
@@ -561,7 +568,8 @@ describe('Explore load and interaction work budget', () => {
         rendererScenes: 9,
         loads: 10,
         patches: 1,
-        activeQueries: 15,
+        // Includes the disabled account-summary observer from the Layers pop-out.
+        activeQueries: 16,
         transitions: 4,
         api: {
           ...idleApi,

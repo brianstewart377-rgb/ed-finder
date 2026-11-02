@@ -75,6 +75,28 @@ governed release, with the previous release as the recorded rollback artifact.
 This decision does not itself deploy anything: the flag reaches production only
 through the next owner-approved governed application release.
 
+**Owner amendment — 2026-11-01: body filters and shareable anchors.** The owner
+chose body-count filters instead of weight sliders. A bounded, lossless
+`near=<id64>` URL parameter now owns the committed search anchor on reload and
+shared links; SvelteKit page-state anchors remain supported for browser history.
+This supersedes the statements below that anchors are not URL state and shared
+links become unanchored. Valid `near` links request results after resolving the
+system's name and coordinates; invalid or unresolved anchors canonicalize away
+with a notice. A plain `/explore` still requests no results, as established in
+#975.
+
+The non-modal Body filters pop-out has Planets, Stars and Features tabs and uses
+the API's 19 `BodyFilters` keys (the request's title said 18, but its enumerated
+list and the API contain 19). Whole-count min/max bounds are limited to 999;
+maximum may be Any. Apply commits once, Cancel discards, and Reset clears the
+draft. Applied filters use removable chips and Clear all, and live only in a
+bounded `bodies` URL parameter, never local storage. Invalid entries are removed
+by canonicalization. Filters apply only to anchored Any-mode local search;
+without an anchor or with a selected archetype the control is disabled with
+“Body filters work when you search near a system.” Existing filters remain in
+the URL as paused chips. These anchor and filter controls work with the F4 flag
+both on and off; selected archetype rankings still accept no body filters.
+
 F4a and F4b are code-only increments validated against disposable fixtures.
 They remain hidden behind a default-off build feature gate until the governed
 production sequence has applied the pending migrations (rewritten `011` and

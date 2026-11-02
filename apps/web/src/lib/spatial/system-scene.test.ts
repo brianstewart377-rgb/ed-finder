@@ -10,15 +10,115 @@ import {
 } from '$lib/api/v3-system-fixtures';
 
 import {
+  bodyFamilyFromClass,
   buildSystemScene,
   stellarPresentationSubtype,
   systemBodyLayout,
 } from './system-scene';
 import { stellarPresentation } from './stellar-presentation';
+import type { BodyFamily } from './contracts';
 
 const fixture = referenceSystemDetail();
 
+describe('planet class presentation', () => {
+  it.each<[string | null, BodyFamily]>([
+    ['Earth-like world', { family: 'earth-like' }],
+    ['Water world', { family: 'water-world' }],
+    ['Ammonia world', { family: 'ammonia-world' }],
+    ['High metal content world', { family: 'high-metal-content' }],
+    ['Metal-rich body', { family: 'metal-rich' }],
+    ['Rocky body', { family: 'rocky' }],
+    ['Rocky Ice world', { family: 'rocky-ice' }],
+    ['Rocky ice body', { family: 'rocky-ice' }],
+    ['Icy body', { family: 'icy' }],
+    ['Class I gas giant', { family: 'gas-giant', variant: 'I' }],
+    ['Class II gas giant', { family: 'gas-giant', variant: 'II' }],
+    ['Class III gas giant', { family: 'gas-giant', variant: 'III' }],
+    ['Class IV gas giant', { family: 'gas-giant', variant: 'IV' }],
+    ['Class V gas giant', { family: 'gas-giant', variant: 'V' }],
+    [
+      'Gas giant with water-based life',
+      { family: 'gas-giant-life', variant: 'water' },
+    ],
+    [
+      'Gas giant with ammonia-based life',
+      { family: 'gas-giant-life', variant: 'ammonia' },
+    ],
+    [
+      'Gas giant with water based life',
+      { family: 'gas-giant-life', variant: 'water' },
+    ],
+    [
+      'Gas giant with ammonia based life',
+      { family: 'gas-giant-life', variant: 'ammonia' },
+    ],
+    ['Helium-rich gas giant', { family: 'helium-gas-giant' }],
+    ['Helium gas giant', { family: 'helium-gas-giant' }],
+    ['Water giant', { family: 'water-giant' }],
+    [null, { family: 'unknown' }],
+    ['', { family: 'unknown' }],
+    ['Uncatalogued gas giant', { family: 'unknown' }],
+    ['Earth', { family: 'unknown' }],
+  ])('maps the retained class %s without guessing', (bodyClass, family) => {
+    expect(bodyFamilyFromClass(bodyClass)).toEqual(family);
+  });
+});
+
 describe('system scene', () => {
+  it('gives Sol-like planets distinct families while retaining the raw class and provenance', () => {
+    const detail = systemDetailFromV3(
+      v3System({ name: 'Sol' }),
+      [
+        v3Body({
+          name: 'Sol',
+          body_class: 'G (White-Yellow) Star',
+          body_class_source: 'ratings-v4-derived',
+        }),
+        ...[
+          ['Earth', 'Earth-like world'],
+          ['Jupiter', 'Class I gas giant'],
+          ['Europa', 'Icy body'],
+          ['Earth-like world', null],
+          ['Unfamiliar', '  Unrecognised class  '],
+        ].map(([name, bodyClass], index) =>
+          v3Body({
+            body_id: String(index + 1),
+            frontier_body_id: String(index + 1),
+            body_type: 'planet',
+            name: name!,
+            body_class: bodyClass,
+            body_class_source: bodyClass ? 'ratings-v4-derived' : null,
+            radius_km: 6_371,
+            planet_mass_earth: 1,
+          }),
+        ),
+      ],
+      [],
+      [],
+    );
+    const scene = buildSystemScene(detail, 1);
+    const bodies = [...scene.bodies].sort(
+      (a, b) => a.ref.bodyId - b.ref.bodyId,
+    );
+    expect(bodies.map((body) => body.bodyFamily)).toEqual([
+      undefined,
+      { family: 'earth-like' },
+      { family: 'gas-giant', variant: 'I' },
+      { family: 'icy' },
+      { family: 'unknown' },
+      { family: 'unknown' },
+    ]);
+    expect(bodies[1]?.bodyClass).toEqual({
+      value: 'Earth-like world',
+      representation: 'AUTHORITATIVE',
+      provenance: [{ source: 'ratings-v4-derived' }],
+    });
+    expect(bodies[4]?.bodyClass).toBeUndefined();
+    expect(bodies[5]?.bodyClass?.value).toBe('  Unrecognised class  ');
+    expect(bodies[0]?.subtype?.value).toBe('G (G2 V) Star');
+    expect(bodies[0]?.bodyClass).toBeUndefined();
+  });
+
   it('keeps V3 body facts authoritative and layout explicitly schematic', () => {
     const scene = buildSystemScene(fixture, 4);
     expect(scene.kind).toBe('system');
@@ -35,6 +135,7 @@ describe('system scene', () => {
     expect(scene.bodies[1]).toMatchObject({
       name: 'Reference System 3',
       class: { value: 'Planet', representation: 'AUTHORITATIVE' },
+      bodyFamily: { family: 'unknown' },
       distanceFromArrivalLs: {
         value: 11_450,
         representation: 'AUTHORITATIVE',
