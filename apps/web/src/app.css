@@ -1839,7 +1839,9 @@ footer {
   background: radial-gradient(circle, var(--text-dim) 1px, transparent 1.5px) 0
     0 / 6px 3px;
 }
-:where(#main-content, .overlay) [role='switch'] {
+/* Opt-in switch skin: existing switches (MapLayers' .layer-switch) keep
+   their own track and thumb markup. */
+:where(#main-content, .overlay) .kit-switch[role='switch'] {
   position: relative;
   width: 2.6rem;
   min-width: 2.6rem;
@@ -1849,7 +1851,7 @@ footer {
   border-radius: var(--radius-pill);
   background: var(--panel-sunken);
 }
-:where(#main-content, .overlay) [role='switch']::after {
+:where(#main-content, .overlay) .kit-switch[role='switch']::after {
   content: '';
   position: absolute;
   top: 2px;
@@ -1859,11 +1861,13 @@ footer {
   border-radius: var(--radius-pill);
   background: var(--text);
 }
-:where(#main-content, .overlay) [role='switch'][aria-checked='true'] {
+:where(#main-content, .overlay)
+  .kit-switch[role='switch'][aria-checked='true'] {
   border-color: var(--accent-hi);
   background: var(--accent);
 }
-:where(#main-content, .overlay) [role='switch'][aria-checked='true']::after {
+:where(#main-content, .overlay)
+  .kit-switch[role='switch'][aria-checked='true']::after {
   left: auto;
   right: 2px;
   background: var(--accent-text);

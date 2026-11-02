@@ -462,4 +462,29 @@ describe('design-kit action opt-in', () => {
       );
     },
   );
+
+  it('keeps the generated switch thumb opt-in so existing switches keep one indicator', () => {
+    main.innerHTML =
+      '<button class="layer-switch" role="switch" aria-checked="true">' +
+      '<span class="switch-track" aria-hidden="true"><span></span></span>Known-system density</button>' +
+      '<button class="kit-switch" role="switch" aria-checked="false">Kit</button>';
+    const existing = main.querySelector('.layer-switch')!;
+    const kit = main.querySelector('.kit-switch')!;
+    const switchSelectors = stylesheet.children.flatMap((rule) => {
+      if (rule.type !== 'Rule') return [];
+      return rule.prelude.children.flatMap((part) => {
+        const ruleSelector = appCss.slice(part.start, part.end);
+        return ruleSelector.includes("[role='switch']") ? [ruleSelector] : [];
+      });
+    });
+    expect(switchSelectors.length).toBeGreaterThan(0);
+    for (const selector of switchSelectors) {
+      const base = selector.replace(/::after$/, '');
+      expect(existing.matches(base)).toBe(false);
+      expect(base.includes('.kit-switch')).toBe(true);
+    }
+    expect(
+      kit.matches(":where(#main-content, .overlay) .kit-switch[role='switch']"),
+    ).toBe(true);
+  });
 });
