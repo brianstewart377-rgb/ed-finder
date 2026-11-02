@@ -242,6 +242,8 @@ export type RenderedLayerReceipt = Readonly<{
   representation: RepresentationClass;
   acceptedTargetCount: number;
   renderedTargetCount: number;
+  /** Layer targets by presentation batch; shared identities can occur in multiple layers. */
+  renderedBatchCounts?: Readonly<{ catalogue: number; finder: number }>;
   sourceGeneration?: string;
 }>;
 

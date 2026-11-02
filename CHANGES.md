@@ -11,6 +11,17 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-02 — Galaxy Finder markers stay visible independently of catalogue density
+
+Splits `apps/web` Galaxy stars into separate catalogue and Finder/selected
+thin-instance batches. Density cross-fading now changes only catalogue stars
+and their stellar accents; Finder and selected markers remain opaque and
+pickable. Both picking paths preserve system id64 and prefer Finder markers
+on ties. Existing layer receipts retain their fields with additive batch counts.
+
+This is a visible rendering change that needs Product E2E/visual validation
+before production promotion. It is not deployed.
+
 ## 2026-11-01 — Cross-platform shared-package lint command
 
 `pnpm shared:lint` now uses a Node launcher and ESLint's API, removing the POSIX
