@@ -502,7 +502,7 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.wait('@search', { requestTimeout }).then(({ request, response }) => {
       expect(request.body).to.deep.equal({
         ...anchoredRequest,
-        filters: { distance: { min: 0, max: 1000 } },
+        filters: { distance: { min: 0, max: 1000 }, economy: 'any' },
         body_filters: { elw_count: { min: 1 } },
       });
       expect(response?.statusCode).to.equal(200);
