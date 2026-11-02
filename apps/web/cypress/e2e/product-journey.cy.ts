@@ -1118,10 +1118,13 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       .and('contain.text', 'Ratings V4 potentials')
       .and('contain.text', 'Commander data');
     cy.checkA11y('[role="dialog"][aria-modal="false"]');
-    cy.get('[role="dialog"][aria-modal="false"]').screenshot(
-      `product/inspect-sources-freshness-${Cypress.browser.name}`,
-      { overwrite: true },
-    );
+    // Viewport capture: the pop-out can extend past the viewport edge, and an
+    // element crop then fails on Firefox with a negative buffer size.
+    cy.get('[role="dialog"][aria-modal="false"]').scrollIntoView();
+    cy.screenshot(`product/inspect-sources-freshness-${Cypress.browser.name}`, {
+      capture: 'viewport',
+      overwrite: true,
+    });
     cy.get('[role="dialog"][aria-modal="false"]')
       .contains('button', 'Close')
       .click();
@@ -1132,9 +1135,12 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     );
     cy.contains('button', 'Sources & freshness').click();
     cy.checkA11y('[role="dialog"][aria-modal="false"]');
-    cy.get('[role="dialog"][aria-modal="false"]').screenshot(
+    // Viewport capture: the pop-out can extend past the viewport edge, and an
+    // element crop then fails on Firefox with a negative buffer size.
+    cy.get('[role="dialog"][aria-modal="false"]').scrollIntoView();
+    cy.screenshot(
       `product/inspect-sources-freshness-${Cypress.browser.name}-375w`,
-      { overwrite: true },
+      { capture: 'viewport', overwrite: true },
     );
     cy.get('[role="dialog"][aria-modal="false"]')
       .contains('button', 'Close')
