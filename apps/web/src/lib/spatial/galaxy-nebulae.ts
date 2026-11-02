@@ -89,8 +89,8 @@ export function parseGalaxyNebulaeAsset(value: unknown): GalaxyNebulaePayload {
   if (asset.schemaVersion !== 2) {
     throw new Error('Nebula asset schema version is unsupported');
   }
-  if (!Array.isArray(asset.nebulae) || asset.nebulae.length === 0) {
-    throw new Error('Nebula asset must contain at least one landmark');
+  if (!Array.isArray(asset.nebulae)) {
+    throw new Error('Nebula asset must contain a landmark array');
   }
   if (asset.count !== asset.nebulae.length) {
     throw new Error('Nebula asset count does not match its landmarks');

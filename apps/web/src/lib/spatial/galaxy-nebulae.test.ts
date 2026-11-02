@@ -73,6 +73,29 @@ describe('galaxy nebulae', () => {
     ).toThrow(/rightsNotice/);
   });
 
+  it('accepts an explicitly empty catalogue without accepting malformed inventories', () => {
+    const parsed = parseGalaxyNebulaeAsset({ ...asset, count: 0, nebulae: [] });
+    expect(parsed.nebulae).toEqual([]);
+    expect(createGalaxyNebulaeContribution(parsed, 1).layers[0]).toMatchObject({
+      targetCount: 0,
+      truncated: false,
+    });
+    expect(() =>
+      parseGalaxyNebulaeAsset({ ...asset, count: 0, nebulae: null }),
+    ).toThrow(/landmark array/);
+    expect(() =>
+      parseGalaxyNebulaeAsset({ ...asset, count: 1, nebulae: [] }),
+    ).toThrow(/count does not match/);
+    expect(() =>
+      parseGalaxyNebulaeAsset({
+        ...asset,
+        count: 0,
+        nebulae: [],
+        attribution: '',
+      }),
+    ).toThrow(/attribution/);
+  });
+
   it('ships the complete attributed Mapcharts nebula inventory', () => {
     const publishedAsset = JSON.parse(
       readFileSync(
@@ -93,6 +116,9 @@ describe('galaxy nebulae', () => {
     expect(
       parsed.nebulae.filter((nebula) => nebula.kind === 'planetary-nebula'),
     ).toHaveLength(5_496);
+    expect(
+      parsed.nebulae.filter((nebula) => nebula.kind === 'nebula'),
+    ).toHaveLength(346);
     expect(new Set(parsed.nebulae.map((nebula) => nebula.id)).size).toBe(5_842);
   });
 });
