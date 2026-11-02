@@ -37,6 +37,33 @@ are not Product E2E acceptance evidence.
 Product E2E screenshots and visual validation are required before any production
 promotion. This change is **not deployed**.
 
+## 2026-11-02 — Inspect source freshness and saved comparison capture times (A04)
+
+Inspect adds a compact, non-modal **Sources & freshness** pop-out beside the
+catalogue date. It identifies the canonical catalogue, Ratings V4 potentials,
+station economies when displayed, and the Commander data/development-fit
+integration gap. Canonical generation labels and rating generation/scorer
+identities come from the requests already used by the page. The current
+responses do not supply a ratings publication date or a station observation
+timestamp; the UI states those limits instead of reusing the catalogue date.
+
+Missing values, product gaps and failed requests now use **Unknown**, **Not
+integrated yet** and **Temporarily unavailable**, with Retry for failed reads.
+The `data-unavailable-fields` hook remains and carries `data-availability`.
+Pins and comparison expose capture times; comparison Refresh explicitly
+refetches the saved systems. Saved reference distances retain their own capture
+time when the existing response cannot refresh that reference.
+
+Component/facade tests cover source identities, availability, retries, capture
+times, explicit refresh and accessibility of the open pop-out. Existing
+SystemDetail/compare assertions and the Product E2E assertion that pinned
+“Not available yet” are updated for the new wording and capture rows. The
+Product E2E spec includes desktop/mobile source-panel screenshots and axe
+checks; that browser lane has not been run for this change. This user-visible
+change needs Product E2E/visual validation before production
+promotion and is **not deployed**. Changes are confined to `apps/web` and this
+entry; no backend API changes.
+
 ## 2026-11-02 — Galaxy system hover cards and nearby labels (M10)
 
 Catalogue stars and Finder markers now expose hover/focus cards with their

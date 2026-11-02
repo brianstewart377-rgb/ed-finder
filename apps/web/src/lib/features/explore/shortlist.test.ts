@@ -110,6 +110,29 @@ describe('Finder shortlist actions', () => {
     expect(snapshot.elw_count).toBeUndefined();
   });
 
+  it('records new capture times and preserves the original capture when copying a pin', () => {
+    const capturedAt = '2026-11-01T10:11:12Z';
+    const snapshot = snapshotFromPin({
+      id64: system.id64,
+      name: 'Older pin',
+      pinned_at: capturedAt,
+    });
+    toggleComparison(compare, snapshot);
+    expect(get(compare).value[0].captured_at).toBe(capturedAt);
+    expect(get(compare).value[0].captured_at).not.toBe(
+      new Date().toISOString(),
+    );
+    togglePin(pins, snapshotFromExplore(system));
+    const capture = get(pins).value[0].captured_at;
+    expect(typeof capture).toBe('string');
+    expect(Number.isFinite(Date.parse(capture as string))).toBe(true);
+    toggleComparison(compare, snapshot);
+    toggleComparison(compare, snapshotFromExplore(system));
+    expect(
+      Number.isFinite(Date.parse(get(compare).value[0].captured_at as string)),
+    ).toBe(true);
+  });
+
   it('reports storage failures instead of claiming durable success', () => {
     const spy = vi
       .spyOn(Storage.prototype, 'setItem')
@@ -189,7 +212,10 @@ describe('Finder shortlist actions', () => {
       });
       compare.hydrate();
       pins.hydrate();
-      expect(get(compare).value[0]).toEqual(selected);
+      expect(get(compare).value[0]).toEqual({
+        ...selected,
+        captured_at: expect.any(String),
+      });
       expect(snapshotFromPin(get(pins).value[0])).toMatchObject(selected);
     },
   );

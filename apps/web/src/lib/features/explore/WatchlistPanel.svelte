@@ -11,6 +11,8 @@
     comparableOverallScores,
     COMPARE_MAX,
     distanceReferenceLabel,
+    formatCaptureTime,
+    snapshotCapturedAt,
     snapshotDistance,
     snapshotProvenanceSummary,
     snapshotScoreSummary,
@@ -212,6 +214,7 @@
   {/if}
 
   <section aria-labelledby="pinned-systems-title">
+    <p>Pin values reflect the capture time shown.</p>
     <header class="list-heading">
       <h3 id="pinned-systems-title">
         Pinned <span>({$pins.value.length})</span>
@@ -279,7 +282,7 @@
                 >{FINDER_F4_ENABLED ? 'Saved scores' : 'Development'}</th
               ><th scope="col">Archetype</th><th scope="col"
                 >{FINDER_F4_ENABLED ? 'Saved distance' : 'Dist. from ref.'}</th
-              ><th scope="col">Pinned</th><th scope="col">Links</th><th
+              ><th scope="col">Captured at</th><th scope="col">Links</th><th
                 scope="col">Actions</th
               ></tr
             ></thead
@@ -341,7 +344,15 @@
                       : 'Unknown'}
                   {/if}
                 </td>
-                <td>{formattedDate(entry.pinned_at)}</td>
+                <td>
+                  {#if snapshotCapturedAt(entry)}
+                    <time datetime={snapshotCapturedAt(entry)!}
+                      >{formatCaptureTime(snapshotCapturedAt(entry))}</time
+                    >
+                  {:else}
+                    Unknown
+                  {/if}
+                </td>
                 <td
                   ><div class="row-actions">
                     <a
