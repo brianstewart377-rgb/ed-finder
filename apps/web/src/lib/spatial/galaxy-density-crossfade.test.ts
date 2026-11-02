@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
+import { densityCrossfadeT } from './galaxy-density-crossfade';
 import {
-  densityCrossfadeT,
   DENSITY_CROSSFADE_NEAR_LY,
   DENSITY_CROSSFADE_FAR_LY,
-} from './galaxy-density-crossfade';
+} from './galaxy-detail-policy';
 
 describe('galaxy density cross-fade band + ramp', () => {
   it('ramps density in as the camera zooms out', () => {

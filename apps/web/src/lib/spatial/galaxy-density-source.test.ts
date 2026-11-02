@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  classifyDensityError,
   densityContributionFrom,
   heatmapVoxelSizeForDistance,
   mapHeatmapToDensityPayload,
+  type GalaxyDensityResult,
 } from './galaxy-density-source';
-import type { MapHeatmapResponse } from '$lib/api/client';
+import { ApiError, type MapHeatmapPyramidResponse } from '$lib/api/client';
 
-const pyramid = {
-  source: 'pyramid' as const,
+const pyramid: MapHeatmapPyramidResponse = {
+  source: 'pyramid',
   generation_id: 'g1',
   spatial_generation_id: 's1',
   spatial_pyramid_version: 'v1',
@@ -45,35 +47,61 @@ const pyramid = {
     },
   ],
   count: 2,
-  max_cells: 40000,
+  max_cells: 40_000,
   truncated: false,
 };
 
+function readyResult(value: unknown) {
+  const result = mapHeatmapToDensityPayload(value);
+  expect(result.kind).toBe('ready');
+  if (result.kind !== 'ready') throw new Error('Expected valid density');
+  return result;
+}
+
 describe('mapHeatmapToDensityPayload', () => {
-  it('maps a pyramid response into a validated payload', () => {
-    const p = mapHeatmapToDensityPayload(pyramid)!;
-    expect(p.generationId).toBe('g1');
-    expect(p.cellSizeLy).toBe(100);
-    expect(p.coveredSystemCount).toBe(3);
-    expect(p.complete).toBe(true);
-    expect(p.cells).toHaveLength(2);
-    expect(p.cells[1].index).toEqual({ x: 1, y: 0, z: 0 });
+  it('maps a pyramid response into an explicitly ready validated payload', () => {
+    const result = readyResult(pyramid);
+    expect(result.area).toBe('complete');
+    expect(result.payload.generationId).toBe('g1');
+    expect(result.payload.cellSizeLy).toBe(100);
+    expect(result.payload.coveredSystemCount).toBe(3);
+    expect(result.payload.complete).toBe(true);
+    expect(result.payload.cells).toHaveLength(2);
+    expect(result.payload.cells[1].index).toEqual({ x: 1, y: 0, z: 0 });
   });
 
-  it('returns null on legacy-fallback', () => {
+  it('reports no published pyramid when the endpoint returns its fallback', () => {
     expect(
       mapHeatmapToDensityPayload({ source: 'legacy-fallback', cells: [] }),
-    ).toBeNull();
+    ).toEqual({ kind: 'none' });
   });
 
-  it('returns null (fail-closed) on a malformed pyramid payload', () => {
+  it('never accepts a legacy non-pyramid response even when it has cells', () => {
     expect(
-      mapHeatmapToDensityPayload({ ...pyramid, cell_size_ly: 0 }),
-    ).toBeNull();
+      mapHeatmapToDensityPayload({ ...pyramid, source: 'legacy-fallback' }),
+    ).toEqual({ kind: 'none' });
   });
 
-  it('maps a multi-cell pyramid with null bounds.max_* to a non-null payload whose boundsLy.max covers all cell centroids', () => {
-    const nullMaxBounds: MapHeatmapResponse = {
+  it.each([
+    ['null response', null],
+    ['missing source', {}],
+    ['unrecognized source', { source: 'unknown', cells: [] }],
+    ['zero cell size', { ...pyramid, cell_size_ly: 0 }],
+    ['missing bounds', { ...pyramid, bounds: undefined }],
+    ['missing cells', { ...pyramid, cells: undefined }],
+    ['malformed cells', { ...pyramid, cells: 'not-an-array' }],
+    ['missing truncation', { ...pyramid, truncated: undefined }],
+    ['mismatched cell count', { ...pyramid, count: 0 }],
+  ])('reports invalid without throwing for %s', (_label, value) => {
+    expect(() => mapHeatmapToDensityPayload(value)).not.toThrow();
+    expect(mapHeatmapToDensityPayload(value)).toMatchObject({
+      kind: 'invalid',
+      reason: expect.any(String),
+    });
+  });
+
+  it('infers null maximum bounds from all cells while retaining validation', () => {
+    const result = readyResult({
       ...pyramid,
       bounds: {
         min_x: 0,
@@ -83,39 +111,106 @@ describe('mapHeatmapToDensityPayload', () => {
         min_z: 0,
         max_z: null,
       },
-    };
-    const p = mapHeatmapToDensityPayload(nullMaxBounds);
-    expect(p).not.toBeNull();
-    // max origin (100) + cell_size_ly (100) = 200 on x; y/z stay at origin + cell size (100)
-    expect(p!.boundsLy.max).toEqual({ x: 200, y: 100, z: 100 });
-    for (const cell of p!.cells) {
-      expect(cell.centroidLy.x).toBeLessThanOrEqual(p!.boundsLy.max.x);
-      expect(cell.centroidLy.y).toBeLessThanOrEqual(p!.boundsLy.max.y);
-      expect(cell.centroidLy.z).toBeLessThanOrEqual(p!.boundsLy.max.z);
+    });
+    const payload = result.payload;
+    expect(payload.boundsLy.max).toEqual({ x: 200, y: 100, z: 100 });
+    for (const cell of payload.cells) {
+      expect(cell.centroidLy.x).toBeLessThanOrEqual(payload.boundsLy.max.x);
+      expect(cell.centroidLy.y).toBeLessThanOrEqual(payload.boundsLy.max.y);
+      expect(cell.centroidLy.z).toBeLessThanOrEqual(payload.boundsLy.max.z);
     }
   });
 
-  it('returns null for an empty cells pyramid response', () => {
-    const empty: MapHeatmapResponse = { ...pyramid, cells: [] };
-    expect(mapHeatmapToDensityPayload(empty)).toBeNull();
+  it('reports a valid empty published area separately from no pyramid', () => {
+    const result = readyResult({
+      ...pyramid,
+      cells: [],
+      count: 0,
+      source_system_count: 0,
+    });
+    expect(result.area).toBe('empty');
+    expect(result.payload.cells).toEqual([]);
+    expect(result.payload.coveredSystemCount).toBe(0);
+    expect(result.payload.complete).toBe(true);
   });
 
-  it('fails closed (null, no throw) when a pyramid response is missing bounds', () => {
-    const malformed = {
+  it('accepts an empty published pyramid with null bounds as zero extent', () => {
+    const result = readyResult({
       ...pyramid,
-      bounds: undefined,
-    } as unknown as MapHeatmapResponse;
-    expect(() => mapHeatmapToDensityPayload(malformed)).not.toThrow();
-    expect(mapHeatmapToDensityPayload(malformed)).toBeNull();
+      cells: [],
+      count: 0,
+      source_system_count: 0,
+      bounds: {
+        min_x: null,
+        max_x: null,
+        min_y: null,
+        max_y: null,
+        min_z: null,
+        max_z: null,
+      },
+    });
+    expect(result.area).toBe('empty');
+    expect(result.payload.boundsLy).toEqual({
+      min: { x: 0, y: 0, z: 0 },
+      max: { x: 0, y: 0, z: 0 },
+    });
   });
 
-  it('fails closed (null, no throw) when a pyramid response has malformed cells', () => {
-    const malformed = {
+  it.each([
+    ['unreconciled source count', { source_system_count: 3 }],
+    ['invalid metadata', { generation_id: '' }],
+    ['invalid bounds', { bounds: {} }],
+  ])('still rejects empty payloads with %s', (_label, invalidField) => {
+    expect(
+      mapHeatmapToDensityPayload({
+        ...pyramid,
+        cells: [],
+        count: 0,
+        source_system_count: 0,
+        ...invalidField,
+      }).kind,
+    ).toBe('invalid');
+  });
+
+  it('reports a valid truncated area without pretending coverage is complete', () => {
+    const result = readyResult({
       ...pyramid,
-      cells: 'not-an-array',
-    } as unknown as MapHeatmapResponse;
-    expect(() => mapHeatmapToDensityPayload(malformed)).not.toThrow();
-    expect(mapHeatmapToDensityPayload(malformed)).toBeNull();
+      cells: pyramid.cells.slice(0, 1),
+      count: 1,
+      truncated: true,
+    });
+    expect(result.area).toBe('truncated');
+    expect(result.payload.complete).toBe(false);
+    expect(result.payload.coveredSystemCount).toBe(2);
+    expect(result.payload.sourceSystemCount).toBe(3);
+  });
+});
+
+describe('classifyDensityError', () => {
+  it('reports HTTP 503 as unavailable', () => {
+    expect(
+      classifyDensityError(new ApiError(503, '/api/map/heatmap', {})),
+    ).toEqual({ kind: 'unavailable', reason: 'http-503' });
+  });
+
+  it.each([
+    new TypeError('Failed to fetch'),
+    new ApiError(0, '/api/map/heatmap', new TypeError('Failed to fetch')),
+  ])('reports network failures as unavailable', (error) => {
+    expect(classifyDensityError(error)).toEqual({
+      kind: 'unavailable',
+      reason: 'network',
+    });
+  });
+
+  it.each([
+    new SyntaxError('Unexpected token'),
+    new ApiError(200, '/api/map/heatmap', new SyntaxError('Unexpected token')),
+  ])('reports malformed JSON as invalid', (error) => {
+    expect(classifyDensityError(error)).toEqual({
+      kind: 'invalid',
+      reason: 'malformed-json',
+    });
   });
 });
 
@@ -135,20 +230,24 @@ describe('heatmapVoxelSizeForDistance', () => {
 });
 
 describe('densityContributionFrom', () => {
-  it('returns null when data is undefined', () => {
-    expect(densityContributionFrom(undefined, 1)).toBeNull();
-  });
+  it.each<GalaxyDensityResult>([
+    { kind: 'none' },
+    { kind: 'unavailable', reason: 'http-503' },
+    { kind: 'invalid', reason: 'Invalid bounds' },
+  ])(
+    'retains the explicit $kind result without making a contribution',
+    (result) => {
+      expect(densityContributionFrom(result, 1)).toEqual(result);
+    },
+  );
 
-  it('returns null when the response maps to null (legacy-fallback)', () => {
-    const legacy: MapHeatmapResponse = { source: 'legacy-fallback', cells: [] };
-    expect(densityContributionFrom(legacy, 1)).toBeNull();
-  });
-
-  it('returns a non-null contribution for a valid pyramid response', () => {
-    const contribution = densityContributionFrom(pyramid, 1);
-    expect(contribution).not.toBeNull();
-    expect(contribution?.owner).toBe('CATALOGUE');
-    expect(contribution?.revision).toBe(1);
-    expect(contribution?.layers[0]?.id).toBe('catalogue-density');
+  it('returns a ready contribution for a validated pyramid', () => {
+    const result = densityContributionFrom(readyResult(pyramid), 1);
+    expect(result.kind).toBe('ready');
+    if (result.kind !== 'ready')
+      throw new Error('Expected density contribution');
+    expect(result.contribution.owner).toBe('CATALOGUE');
+    expect(result.contribution.revision).toBe(1);
+    expect(result.contribution.layers[0]?.id).toBe('catalogue-density');
   });
 });

@@ -444,10 +444,12 @@ describe('Explore load and interaction work budget', () => {
       });
       // The explicit anchor adds autocomplete, a fly-to and its local viewport
       // work before the original result-selection and overview interactions.
+      // Retained viewport masks and accepted-density revisions now avoid
+      // placeholder-driven scene rebuilds in the non-F4 path.
       expect(interacted).toEqual({
-        builds: enabled ? 14 : 51,
-        rendererScenes: enabled ? 12 : 16,
-        loads: enabled ? 13 : 16,
+        builds: enabled ? 14 : 39,
+        rendererScenes: enabled ? 12 : 11,
+        loads: enabled ? 13 : 12,
         patches: enabled ? 1 : 0,
         activeQueries: enabled ? 7 : 6,
         transitions: enabled ? 6 : 5,
