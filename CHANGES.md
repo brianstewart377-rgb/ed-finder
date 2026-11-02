@@ -11,6 +11,25 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-02 — System Map factual planet classes and body families (M12)
+
+The bodies API now exposes the recorded planet class and its
+`ratings-v4-derived` source from the published derived generation. Missing
+generations, body rows or observed subtypes leave the class unknown. Inspect
+and System Map show the raw class, while a pure presentation classifier gives
+planet families distinct restrained materials and a legend of the families
+present. Unknown classes retain neutral grey with a dim treatment. Stellar
+classification, rings, landability, hierarchy and Ratings V4 scoring are unchanged.
+
+Regenerated the checked-in Svelte and shared OpenAPI client contracts through
+`pnpm generate:api`; added API contract/PostgreSQL, family mapping, scene,
+NullEngine material and component coverage. No SQL migration or workflow change.
+Validation passed: full Python unit suite (8,500 passed, 533 skipped), 34 focused
+API/PostgreSQL checks on disposable PostgreSQL 18, Ruff, frozen web install,
+Svelte check, lint/format, all 1,529 web tests and build.
+This visible change needs Product E2E/visual validation before production
+promotion and is **not deployed**.
+
 ## 2026-11-02 — Galaxy Finder markers stay visible independently of catalogue density
 
 Splits `apps/web` Galaxy stars into separate catalogue and Finder/selected

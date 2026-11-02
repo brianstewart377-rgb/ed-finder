@@ -800,6 +800,14 @@ export type BodyV1 = {
      */
     body_type: string | null;
     /**
+     * Body Class
+     */
+    body_class?: string | null;
+    /**
+     * Body Class Source
+     */
+    body_class_source?: 'ratings-v4-derived' | null;
+    /**
      * Is Main Star
      */
     is_main_star: boolean | null;

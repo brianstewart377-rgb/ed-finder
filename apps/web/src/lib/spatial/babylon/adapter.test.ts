@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { PickingInfo } from '@babylonjs/core/Collisions/pickingInfo.js';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
 import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
-import type { ExploreSystem } from '$lib/api/client';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import { systemDetailFromV3, type ExploreSystem } from '$lib/api/client';
+import { v3Body, v3System } from '$lib/api/v3-system-fixtures';
 import { parseId64 } from '$lib/domain/id64';
 
 import type {
@@ -27,6 +29,7 @@ import {
   type GalaxyNebulaePayload,
 } from '../galaxy-nebulae';
 import type { SpatialBackendSession } from '../lifecycle';
+import { buildSystemScene } from '../system-scene';
 import {
   createBabylonGalaxyScene,
   createBabylonSession,
@@ -205,6 +208,7 @@ describe('Babylon spatial adapter boundary', () => {
           ref: { systemId64: '42', bodyId: 2 },
           name: 'Test Giant',
           class: { value: 'Planet', representation: 'AUTHORITATIVE' },
+          bodyFamily: { family: 'gas-giant-life', variant: 'water' },
           subtype: {
             value: 'Gas giant with water based life',
             representation: 'AUTHORITATIVE',
@@ -243,6 +247,62 @@ describe('Babylon spatial adapter boundary', () => {
       },
     });
 
+    product.scene.dispose();
+    engine.dispose();
+  });
+
+  it('renders family colours, illustrative giant bands and a dim unknown class', () => {
+    const engine = new NullEngine();
+    const contract = buildSystemScene(
+      systemDetailFromV3(
+        v3System(),
+        ['Earth-like world', 'Class I gas giant', 'Icy body', null].map(
+          (bodyClass, index) =>
+            v3Body({
+              body_id: String(index),
+              frontier_body_id: String(index),
+              body_type: 'planet',
+              // Even a suggestive name must not invent a class.
+              name: 'Earth-like world',
+              body_class: bodyClass,
+              body_class_source: bodyClass ? 'ratings-v4-derived' : null,
+            }),
+        ),
+        [],
+        [],
+      ),
+      1,
+    );
+    const product = createBabylonSystemScene(engine, contract);
+    const [earth, giant, icy, unknown] = product.bodies;
+    const materials = product.bodies.map((body) => {
+      expect(body.mesh.material).toBeInstanceOf(StandardMaterial);
+      return body.mesh.material as StandardMaterial;
+    });
+    expect(
+      new Set(materials.map((material) => material.diffuseColor.toHexString()))
+        .size,
+    ).toBe(4);
+    expect(
+      materials.slice(0, 3).every((material) => material.alpha === 1),
+    ).toBe(true);
+    expect(materials[3]!.diffuseColor.asArray()).toEqual([0.48, 0.48, 0.52]);
+    expect(materials[3]!.alpha).toBe(0.42);
+    expect(materials[3]!.needAlphaBlendingForMesh(unknown!.mesh)).toBe(true);
+    expect(unknown!.mesh.metadata).toMatchObject({
+      bodyFamily: { family: 'unknown' },
+      classTreatment: 'unknown-dim',
+    });
+    expect(unknown!.mesh.isPickable).toBe(true);
+    expect(earth!.mesh.getVerticesData('color')).toBeNull();
+    expect(icy!.mesh.getVerticesData('color')).toBeNull();
+    const bands = giant!.mesh.getVerticesData('color')!;
+    expect(bands).not.toBeNull();
+    const tones = bands.filter((_, index) => index % 4 === 0);
+    expect(Math.min(...tones)).toBeGreaterThanOrEqual(0.79);
+    expect(Math.max(...tones)).toBeLessThanOrEqual(1);
+    expect(Math.max(...tones) - Math.min(...tones)).toBeGreaterThan(0.15);
+    expect(giant!.mesh.getTotalVertices()).toBe(earth!.mesh.getTotalVertices());
     product.scene.dispose();
     engine.dispose();
   });
