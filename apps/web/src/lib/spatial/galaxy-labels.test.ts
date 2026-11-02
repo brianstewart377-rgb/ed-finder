@@ -13,6 +13,7 @@ import {
   nearbyCatalogueLabelLimit,
   layoutGalaxyLabels,
   projectGalaxyLabel,
+  SYSTEM_LABEL_GAP_PX,
   type GalaxyLabelCandidate,
 } from './galaxy-labels';
 
@@ -85,6 +86,23 @@ describe('Galaxy label projection and layout', () => {
     expect(
       new Set(result.map((entry) => `${entry.xPx}:${entry.yPx}`)).size,
     ).toBe(2);
+  });
+
+  it('places a system chip beside its star so the star stays clickable', () => {
+    const [placed] = layoutGalaxyLabels(
+      [label('selected', 0, 0, { selected: true })],
+      camera,
+      viewport,
+    );
+    expect(placed).toBeDefined();
+    expect(placed!.anchorXPx).toBeCloseTo(viewport.width / 2, 5);
+    expect(placed!.anchorYPx).toBeCloseTo(viewport.height / 2, 5);
+    // The chip is centred to the right of the anchor by at least half its
+    // estimated width plus the gap, so no part of it covers the star.
+    expect(placed!.xPx - placed!.anchorXPx).toBeGreaterThan(
+      SYSTEM_LABEL_GAP_PX + 33,
+    );
+    expect(placed!.yPx).toBe(placed!.anchorYPx);
   });
 
   it('uses the system distance gate and explicit system budget only', () => {

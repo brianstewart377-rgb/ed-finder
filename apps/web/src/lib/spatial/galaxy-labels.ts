@@ -587,7 +587,11 @@ export function layoutGalaxyLabels(
       entry.screen.yPx >= 0 &&
       entry.screen.yPx <= viewport.height;
     if (isRegion && !anchorIsInFrame) continue;
-    const offsets = isRegion ? displacements : displacements.slice(0, 1);
+    // A system chip is an interactive button: keep it beside its star, not
+    // over it, so the star itself stays clickable for a spatial pick.
+    const offsets = isRegion
+      ? displacements
+      : ([[systemLabelOffsetX(entry.candidate), 0]] as const);
     let placed = false;
     for (const [offsetX, offsetY] of offsets) {
       const xPx = entry.screen.xPx + offsetX;
@@ -650,6 +654,14 @@ export function layoutGalaxyLabels(
     }
   }
   return accepted;
+}
+
+/** Gap between a star and the left edge of its label chip, in CSS pixels. */
+export const SYSTEM_LABEL_GAP_PX = 12;
+
+function systemLabelOffsetX(candidate: GalaxyLabelCandidate): number {
+  const box = estimateBox(candidate, 0, 0);
+  return (box.right - box.left) / 2 + SYSTEM_LABEL_GAP_PX;
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {
