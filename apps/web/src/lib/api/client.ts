@@ -107,6 +107,7 @@ import type {
 } from './generated';
 
 export type {
+  BodyFilters,
   BodyV1,
   RingV1,
   StationV1,
