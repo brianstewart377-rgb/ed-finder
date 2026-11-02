@@ -15,6 +15,7 @@ import * as api from '$lib/api/client';
 import { queryClient, queryKeys } from '$lib/api/query';
 import { auth } from '$lib/auth/auth';
 import { FINDER_F4_ENABLED } from '$lib/config';
+import { PERSISTENCE_KEYS } from '$lib/persistence/storage';
 import { parseId64 } from '$lib/domain/id64';
 import { createHeadlessEngine } from '$lib/spatial/babylon/test-support';
 import type {
@@ -62,6 +63,7 @@ vi.mock('$lib/api/client', async (loadOriginal) => {
     getSystem: vi.fn(),
     getCatalogueViewportSystems: vi.fn(),
     getCommanderTravelHeatmap: vi.fn(),
+    getCommanderJournalSummary: vi.fn(),
     getAuthSession: vi.fn(),
     getMapHeatmap: vi.fn(),
   };
@@ -145,6 +147,13 @@ const catalogueFixture: api.CatalogueViewportResponse = {
   truncated: false,
 };
 
+async function openLayers(): Promise<HTMLElement> {
+  const trigger = screen.getByRole('button', { name: /^Layers/ });
+  if (trigger.getAttribute('aria-expanded') !== 'true')
+    await fireEvent.click(trigger);
+  return screen.getByRole('dialog', { name: 'Map layers' });
+}
+
 function densityStatus(): HTMLElement {
   return screen.getByRole('status', { name: 'Catalogue density' });
 }
@@ -197,6 +206,7 @@ function stubRuntime(): void {
 }
 
 function mockFacadeDefaults(): void {
+  localStorage.clear();
   featureGate.enabled = false;
   Object.defineProperties(mockedPage, {
     url: {
@@ -240,6 +250,15 @@ function mockFacadeDefaults(): void {
     count: 0,
     truncated: false,
   });
+  vi.mocked(api.getCommanderJournalSummary).mockResolvedValue({
+    imported_files: 1,
+    events_stored: 2,
+    unique_bodies: 0,
+    unique_bio_observations: 0,
+    systems_observed: 1,
+    last_imported_at: null,
+    event_counts: {},
+  });
   vi.mocked(api.getAuthSession).mockResolvedValue({
     authenticated: false,
     user: null,
@@ -265,6 +284,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
 
     render(ExploreWorkspaceTestHost);
+    await openLayers();
 
     await waitFor(() => expect(api.getMapHeatmap).toHaveBeenCalled());
     expect(await screen.findByText(/2 density cells/)).toBeInTheDocument();
@@ -286,10 +306,191 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     );
   });
 
+  it('disables density requests and removes its cached cells without changing stars, camera or selection', async () => {
+    featureGate.enabled = true;
+    mockRankedPages();
+    vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
+    vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue(
+      catalogueFixture,
+    );
+    renderEnabled('page_size=1');
+    await screen.findByText('Ranked 1');
+    await fireEvent.click(
+      screen.getByRole('button', { name: /Ranked 1.*9007199254741001/ }),
+    );
+    await openLayers();
+    await screen.findByText('2 density cells');
+    await waitFor(() =>
+      expect(currentScene().selection).toContainEqual({
+        kind: 'system',
+        systemId64: rankedRows[0].id64,
+      }),
+    );
+    // The stub runtime reports completed flights but does not emit their camera
+    // receipts. Supply a settled overview camera before testing a layer change.
+    const camera = {
+      ...currentScene().camera,
+      distanceLy: 118_000,
+      revision: 10,
+    };
+    emitRuntime({ type: 'CAMERA_CHANGED', camera });
+    await waitFor(() =>
+      expect(document.querySelector('[data-camera-distance]')).toHaveAttribute(
+        'data-camera-distance',
+        '118000',
+      ),
+    );
+    const selection = currentScene().selection;
+    const stars = scenePointIds();
+    expect(stars).toContain(catalogueFixture.systems[0].id64);
+    const fetches = vi.mocked(api.getMapHeatmap).mock.calls.length;
+    const density = screen.getByRole('switch', {
+      name: 'Known-system density',
+    });
+
+    await fireEvent.click(density);
+
+    expect(density).toHaveAttribute('aria-checked', 'false');
+    await waitFor(() =>
+      expect(
+        currentScene().contributions.flatMap(({ layers }) => layers),
+      ).not.toContainEqual(
+        expect.objectContaining({ id: 'catalogue-density' }),
+      ),
+    );
+    expect(scenePointIds()).toEqual(stars);
+    expect(currentScene().camera).toEqual(camera);
+    expect(currentScene().selection).toEqual(selection);
+    expect(densityStatus()).toHaveAttribute('data-density-state', 'off');
+    expect(densityStatus()).not.toHaveTextContent('2 density cells');
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    emitRuntime({
+      type: 'CAMERA_CHANGED',
+      camera: { ...camera, distanceLy: 180_000, revision: 1 },
+    });
+    await vi.advanceTimersByTimeAsync(300);
+    await queryClient.invalidateQueries({ queryKey: ['map-heatmap'] });
+    await tick();
+    expect(api.getMapHeatmap).toHaveBeenCalledTimes(fetches);
+    expect(scenePointIds()).toEqual(stars);
+    expect(currentScene().selection).toEqual(selection);
+
+    await fireEvent.click(density);
+    await vi.waitFor(() =>
+      expect(api.getMapHeatmap).toHaveBeenCalledTimes(fetches + 1),
+    );
+    expect(api.getMapHeatmap).toHaveBeenLastCalledWith(
+      expect.objectContaining({ voxel_size: 900 }),
+      expect.anything(),
+    );
+    expect(density).toHaveAttribute('aria-checked', 'true');
+    expect(densityStatus()).toHaveAttribute('data-density-state', 'ready');
+    expect(currentScene().selection).toEqual(selection);
+  });
+
+  it('refetches after density is turned off and on at the same zoom', async () => {
+    vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
+    render(ExploreWorkspaceTestHost);
+    await openLayers();
+    await screen.findByText('2 density cells');
+    const fetches = vi.mocked(api.getMapHeatmap).mock.calls.length;
+    const density = screen.getByRole('switch', {
+      name: 'Known-system density',
+    });
+    await fireEvent.click(density);
+    vi.mocked(api.getMapHeatmap).mockResolvedValue(coarsePyramidFixture);
+
+    await fireEvent.click(density);
+
+    await waitFor(() =>
+      expect(api.getMapHeatmap).toHaveBeenCalledTimes(fetches + 1),
+    );
+    await screen.findByText('1 density cells');
+  });
+
+  it('does not restore density cells when an in-flight response arrives after the switch is off', async () => {
+    let finish!: (response: api.MapHeatmapResponse) => void;
+    const pending = new Promise<api.MapHeatmapResponse>((resolve) => {
+      finish = resolve;
+    });
+    vi.mocked(api.getMapHeatmap).mockReturnValueOnce(pending);
+    render(ExploreWorkspaceTestHost);
+    await openLayers();
+    await waitFor(() =>
+      expect(densityStatus()).toHaveAttribute('data-density-state', 'loading'),
+    );
+    await fireEvent.click(
+      screen.getByRole('switch', { name: 'Known-system density' }),
+    );
+
+    finish(pyramidFixture);
+    await pending;
+    await tick();
+    await tick();
+
+    expect(densityStatus()).toHaveAttribute('data-density-state', 'off');
+    expect(densityStatus()).not.toHaveTextContent('2 density cells');
+    await waitFor(() => expect(currentScene()).toBeDefined());
+    expect(
+      currentScene().contributions.flatMap(({ layers }) => layers),
+    ).not.toContainEqual(expect.objectContaining({ id: 'catalogue-density' }));
+    vi.mocked(api.getMapHeatmap).mockResolvedValue(coarsePyramidFixture);
+    await fireEvent.click(
+      screen.getByRole('switch', { name: 'Known-system density' }),
+    );
+    await screen.findByText('1 density cells');
+  });
+
+  it('restores browser switches on remount without persisting journal content or nebula visibility', async () => {
+    await auth.bootstrap();
+    vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
+    render(ExploreWorkspaceTestHost);
+    await openLayers();
+    await screen.findByText('2 density cells');
+    await fireEvent.click(
+      screen.getByRole('switch', { name: 'Known-system density' }),
+    );
+    await fireEvent.click(screen.getByRole('switch', { name: 'My journeys' }));
+    await fireEvent.click(screen.getByRole('switch', { name: 'Nebulae' }));
+    expect(
+      JSON.parse(localStorage.getItem(PERSISTENCE_KEYS.mapLayers)!),
+    ).toEqual({
+      version: 1,
+      density: false,
+      journeys: true,
+    });
+    cleanup();
+    queryClient.clear();
+    vi.mocked(api.getMapHeatmap).mockClear();
+
+    render(ExploreWorkspaceTestHost);
+    await openLayers();
+    await screen.findByText(/exact stars/);
+
+    expect(
+      screen.getByRole('switch', { name: 'Known-system density' }),
+    ).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('switch', { name: 'My journeys' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(screen.getByRole('switch', { name: 'Nebulae' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(
+      screen.getByRole('button', { name: 'Layers · 2' }),
+    ).toBeInTheDocument();
+    expect(api.getMapHeatmap).not.toHaveBeenCalled();
+    expect(api.getCommanderTravelHeatmap).not.toHaveBeenCalled();
+  });
+
   it('reports no published pyramid separately from exact stars for a legacy fallback', async () => {
     vi.mocked(api.getMapHeatmap).mockResolvedValue(legacyFixture);
 
     render(ExploreWorkspaceTestHost);
+    await openLayers();
 
     await waitFor(() => expect(api.getMapHeatmap).toHaveBeenCalled());
     await screen.findByText(/exact stars/);
@@ -301,7 +502,11 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
       within(densityStatus()).queryByRole('button'),
     ).not.toBeInTheDocument();
     expect(screen.queryByText(/density cells/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole('dialog', { name: 'Map layers' })).queryByRole(
+        'alert',
+      ),
+    ).not.toBeInTheDocument();
   });
 
   it('shows density loading independently while exact stars are ready', async () => {
@@ -313,6 +518,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
       catalogueFixture,
     );
     render(ExploreWorkspaceTestHost);
+    await openLayers();
 
     await screen.findByText('1 exact stars');
     expect(densityStatus()).toHaveAttribute('data-density-state', 'loading');
@@ -335,6 +541,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
         catalogueFixture,
       );
       render(ExploreWorkspaceTestHost);
+      await openLayers();
 
       await waitFor(
         () =>
@@ -376,6 +583,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
       catalogueFixture,
     );
     render(ExploreWorkspaceTestHost);
+    await openLayers();
 
     await waitFor(() =>
       expect(densityStatus()).toHaveAttribute('data-density-state', 'invalid'),
@@ -402,6 +610,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     async ({ state, fixture }) => {
       vi.mocked(api.getMapHeatmap).mockResolvedValue(fixture);
       render(ExploreWorkspaceTestHost);
+      await openLayers();
 
       await waitFor(() =>
         expect(densityStatus()).toHaveAttribute('data-density-state', state),
@@ -426,6 +635,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
         new api.ApiError(503, '/api/map/catalogue-viewport', {}),
       );
       render(ExploreWorkspaceTestHost);
+      await openLayers();
 
       await screen.findByText(
         'Exact-star layer unavailable',
@@ -451,6 +661,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
       featureGate.enabled = enabled;
       vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
       render(ExploreWorkspaceTestHost);
+      await openLayers();
       await screen.findByText('2 density cells');
       await waitFor(() => expect(currentScene()).toBeDefined());
       const loads = runtimeCommands().filter(
@@ -510,6 +721,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
       featureGate.enabled = enabled;
       vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
       render(ExploreWorkspaceTestHost);
+      await openLayers();
       await screen.findByText('2 density cells');
       await waitFor(() => expect(currentScene()).toBeDefined());
       vi.mocked(api.getMapHeatmap).mockRejectedValue(
@@ -553,6 +765,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
       request.voxel_size === 590 ? pyramidFixture : coarsePyramidFixture,
     );
     render(ExploreWorkspaceTestHost);
+    await openLayers();
     await vi.waitFor(
       () => {
         expect(screen.getByText(/2 density cells/)).toBeInTheDocument();
@@ -614,6 +827,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     featureGate.enabled = true;
     vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
     render(ExploreWorkspaceTestHost);
+    await openLayers();
     await screen.findByText(/2 density cells/);
     await waitFor(() => expect(currentScene()).toBeDefined());
     const initialLoads = runtimeCommands().filter(
@@ -658,6 +872,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     };
     vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue(wideFixture);
     render(ExploreWorkspaceTestHost);
+    await openLayers();
     await screen.findByText('2 exact stars');
     await screen.findByText('2 density cells');
     await waitFor(() =>
@@ -755,6 +970,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
       catalogueFixture,
     );
     render(ExploreWorkspaceTestHost);
+    await openLayers();
     await screen.findByText('1 exact stars');
     await waitFor(() => expect(currentScene()).toBeDefined());
     const focusLy = { x: 52_000, y: 0, z: 78_000 };
@@ -847,10 +1063,15 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
           : localFixture,
     );
     render(ExploreWorkspaceTestHost);
+    await openLayers();
     await vi.waitFor(
       () => expect(exactStarStatus()).toHaveTextContent('1 exact stars'),
       { interval: 1 },
     );
+
+    await vi.waitFor(() => expect(currentScene()).toBeDefined(), {
+      interval: 1,
+    });
 
     const path = [
       { distance: LOCAL_STAR_ENTER_LY + 300, count: 1 },
@@ -1173,6 +1394,7 @@ describe('ExploreWorkspace nebula inventory status', () => {
       nebulae,
     });
     render(ExploreWorkspaceTestHost);
+    await openLayers();
     await waitFor(() => {
       expect(
         document.querySelector('[data-nebula-resource-state]'),
@@ -1263,12 +1485,12 @@ describe('ExploreWorkspace nebula inventory status', () => {
         '4 catalogue records · 4 landmarks shown (diffuse and planetary nebulae) · schematic extent (clouds fade on approach)',
       ),
     );
-    await fireEvent.click(screen.getByRole('button', { name: 'Hide nebulae' }));
+    await fireEvent.click(screen.getByRole('switch', { name: 'Nebulae' }));
     expect(status()).toHaveTextContent(
       '4 catalogue records · Nebula layer hidden',
     );
     expect(status()).not.toHaveTextContent(/landmarks shown/);
-    await fireEvent.click(screen.getByRole('button', { name: 'Show nebulae' }));
+    await fireEvent.click(screen.getByRole('switch', { name: 'Nebulae' }));
     expect(status()).toHaveTextContent('Preparing nebula landmarks…');
   });
 
@@ -1415,6 +1637,7 @@ describe.each([false, true])(
         truncated: false,
       });
       renderEnabled('');
+      await openLayers();
 
       await screen.findByText(/2 density cells/);
       await waitFor(() => expect(currentScene()).toBeDefined());
@@ -2224,6 +2447,109 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
     expect(mockedPage.state.anchor).toEqual(anchorA);
   });
 
+  it('shows raw catalogue hover facts and selects the same known system from its card', async () => {
+    const star = {
+      ...catalogueFixture.systems[0],
+      id64: parseId64('9007199254741200'),
+      name: 'Nearby G2 catalogue star',
+      x: 13,
+      y: 24,
+      z: 42,
+      mainStarClass: 'G2',
+    };
+    vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue({
+      systems: [star],
+      truncated: false,
+    });
+    renderEnabled('page_size=1&view=cards', { anchor: anchorA });
+    await screen.findByText('Ranked 1');
+    await waitFor(() => expect(scenePointIds()).toContain(star.id64));
+
+    emitRuntime({
+      type: 'TARGET_HOVERED',
+      target: { kind: 'system', systemId64: star.id64, name: star.name },
+    });
+    const tooltip = await screen.findByRole('tooltip', {
+      name: `System ${star.name}`,
+    });
+    expect(
+      screen.getByRole('region', { name: 'Spatial results' }),
+    ).toHaveAttribute('data-hovered-system-id', star.id64);
+    expect(
+      within(tooltip).getByText('G2', { exact: true }),
+    ).toBeInTheDocument();
+    expect(within(tooltip).queryByText('G class star')).not.toBeInTheDocument();
+    expect(
+      within(tooltip).getByText('Distance from Anchor A'),
+    ).toBeInTheDocument();
+    expect(within(tooltip).getByText('13.0 LY')).toBeInTheDocument();
+
+    await fireEvent.click(
+      within(tooltip).getByRole('button', { name: 'Select' }),
+    );
+    await waitFor(() =>
+      expect(mockedPage.url.searchParams.get('selected')).toBe(star.id64),
+    );
+    expect(mockedPage.url.searchParams.has('system')).toBe(false);
+    expect(mockedPage.state.anchor).toEqual(anchorA);
+    await waitFor(() =>
+      expect(currentScene().selection).toEqual([
+        { kind: 'system', systemId64: star.id64 },
+      ]),
+    );
+    const selection = document.querySelector(
+      `[data-selected-system-card="${star.id64}"]`,
+    ) as HTMLElement;
+    expect(
+      within(selection).getByRole('heading', { name: star.name }),
+    ).toBeInTheDocument();
+    expect(
+      within(selection).getByText('G2', { exact: true }),
+    ).toBeInTheDocument();
+    expect(api.getSystem).not.toHaveBeenCalled();
+  });
+
+  it('carries catalogue identity, Finder query and committed anchor on hover-card Inspect navigation', async () => {
+    const star = {
+      ...catalogueFixture.systems[0],
+      id64: parseId64('9007199254741200'),
+      name: 'Nearby G2 catalogue star',
+      x: 13,
+      y: 24,
+      z: 42,
+      mainStarClass: 'G2',
+    };
+    vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue({
+      systems: [star],
+      truncated: false,
+    });
+    renderEnabled('page_size=1&view=cards', { anchor: anchorA });
+    await screen.findByText('Ranked 1');
+    await waitFor(() => expect(scenePointIds()).toContain(star.id64));
+    const origin = mockedPage.url.searchParams.toString();
+    emitRuntime({
+      type: 'TARGET_HOVERED',
+      target: { kind: 'system', systemId64: star.id64, name: star.name },
+    });
+    const tooltip = await screen.findByRole('tooltip', {
+      name: `System ${star.name}`,
+    });
+    const inspect = within(tooltip).getByRole('link', { name: 'Inspect' });
+    const href = new URL(inspect.getAttribute('href')!, mockedPage.url);
+    expect(href.pathname).toBe('/inspect');
+    expect(href.searchParams.get('system')).toBe(star.id64);
+    mockedGoto.mockClear();
+    mockedGoto.mockResolvedValueOnce(undefined);
+
+    await fireEvent.click(inspect);
+    await waitFor(() => expect(mockedGoto).toHaveBeenCalledOnce());
+    const destination = new URL(mockedGoto.mock.calls[0][0], mockedPage.url);
+    expect(destination.pathname).toBe('/inspect');
+    expect(destination.searchParams.get('from')).toBe(origin);
+    expect(destination.searchParams.get('system')).toBe(star.id64);
+    expect(mockedGoto.mock.calls[0][1].state.anchor).toEqual(anchorA);
+  });
+
   it('keeps a selected page point once across pagination without refetching its known coordinates', async () => {
     renderEnabled('page_size=1');
     await expectPage(0);
@@ -2726,6 +3052,7 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
       };
 
       const navigation = renderEnabled();
+      await openLayers();
       await vi.waitFor(
         () => {
           expect(screen.getByText('Ranked 1')).toBeInTheDocument();
@@ -2879,11 +3206,14 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
       'data-camera-distance',
       '60',
     );
-    expect(
-      document.querySelector(
-        `[data-map-label-key="system:${target.systemId64}"]`,
-      ),
-    ).toHaveTextContent('Ranked 1');
+    // Label layout deliberately follows the settled camera debounce.
+    await waitFor(() =>
+      expect(
+        document.querySelector(
+          `[data-map-label-key="system:${target.systemId64}"]`,
+        ),
+      ).toHaveTextContent('Ranked 1'),
+    );
   });
 
   it('cancels pending anchor autofocus when the user changes archetype before the anchored response', async () => {
@@ -2958,9 +3288,10 @@ describe('ExploreWorkspace travel heatmap (V3 journal store)', () => {
   }
 
   async function showTravel(): Promise<HTMLElement> {
-    await fireEvent.click(
-      await screen.findByRole('button', { name: 'Show my travel heatmap' }),
-    );
+    await openLayers();
+    const journeys = screen.getByRole('switch', { name: 'My journeys' });
+    if (journeys.getAttribute('aria-checked') !== 'true')
+      await fireEvent.click(journeys);
     return screen.findByText(
       (_, element) =>
         element?.hasAttribute('data-commander-history-state') ?? false,
@@ -2984,6 +3315,7 @@ describe('ExploreWorkspace travel heatmap (V3 journal store)', () => {
       screen.getByRole('link', { name: 'Sign in and import your journals' }),
     ).toHaveAttribute('href', '/account');
     expect(api.getCommanderTravelHeatmap).not.toHaveBeenCalled();
+    expect(api.getCommanderJournalSummary).not.toHaveBeenCalled();
   });
 
   it('offers a retry, not a sign-in prompt, when the account check fails', async () => {
@@ -3050,6 +3382,11 @@ describe('ExploreWorkspace travel heatmap (V3 journal store)', () => {
     );
     expect(status).toHaveAttribute('data-commander-history-count', '1');
     expect(status.textContent).toMatch(/1 visited\s+systems/u);
+    expect(
+      within(screen.getByLabelText('My journeys visit-count legend')).getByText(
+        '3 visits',
+      ),
+    ).toBeInTheDocument();
     const [request, distance] = vi.mocked(api.getCommanderTravelHeatmap).mock
       .calls[0]!;
     expect(request).toEqual(
@@ -3060,6 +3397,129 @@ describe('ExploreWorkspace travel heatmap (V3 journal store)', () => {
     );
     expect(distance).toBeGreaterThan(0);
   });
+
+  it('distinguishes an account without imported journals from an empty map viewport', async () => {
+    await signIn();
+    vi.mocked(api.getCommanderJournalSummary).mockResolvedValue({
+      imported_files: 0,
+      events_stored: 0,
+      unique_bodies: 0,
+      unique_bio_observations: 0,
+      systems_observed: 0,
+      last_imported_at: null,
+      event_counts: {},
+    });
+    render(ExploreWorkspaceTestHost);
+    const status = await showTravel();
+
+    await waitFor(() =>
+      expect(status).toHaveTextContent('No imported journals yet'),
+    );
+    expect(status).toHaveAttribute(
+      'data-commander-history-state',
+      'no-journals',
+    );
+    expect(api.getCommanderJournalSummary).toHaveBeenCalled();
+  });
+
+  it('retries unavailable journal import metadata independently from the travel viewport', async () => {
+    await signIn();
+    vi.mocked(api.getCommanderJournalSummary).mockRejectedValue(
+      new api.ApiError(503, '/api/v1/journal/summary', {}),
+    );
+    render(ExploreWorkspaceTestHost);
+    const status = await showTravel();
+    await waitFor(
+      () =>
+        expect(status).toHaveAttribute(
+          'data-commander-history-state',
+          'summary-error',
+        ),
+      { timeout: 3_000 },
+    );
+    expect(status).toHaveTextContent('Journal import status unavailable');
+    expect(status).not.toHaveTextContent('No imported journals yet');
+    const summaryCalls = vi.mocked(api.getCommanderJournalSummary).mock.calls
+      .length;
+    const viewportCalls = vi.mocked(api.getCommanderTravelHeatmap).mock.calls
+      .length;
+    vi.mocked(api.getCommanderJournalSummary).mockResolvedValue({
+      imported_files: 0,
+      events_stored: 0,
+      unique_bodies: 0,
+      unique_bio_observations: 0,
+      systems_observed: 0,
+      last_imported_at: null,
+      event_counts: {},
+    });
+
+    await fireEvent.click(
+      within(status).getByRole('button', { name: 'Retry' }),
+    );
+
+    await waitFor(() =>
+      expect(status).toHaveTextContent('No imported journals yet'),
+    );
+    expect(api.getCommanderJournalSummary).toHaveBeenCalledTimes(
+      summaryCalls + 1,
+    );
+    expect(api.getCommanderTravelHeatmap).toHaveBeenCalledTimes(viewportCalls);
+  });
+
+  it.each([false, true])(
+    'removes cached private visits when the journal summary reports an expired session (F4=%s)',
+    async (enabled) => {
+      featureGate.enabled = enabled;
+      await signIn();
+      vi.mocked(api.getCommanderTravelHeatmap).mockResolvedValue({
+        mode: 'markers',
+        visits: [
+          {
+            kind: 'marker',
+            systemId64: null,
+            systemName: 'Sol',
+            x: 0,
+            y: 0,
+            z: 0,
+            visitCount: 3,
+            firstVisitedAt: '2026-01-01T00:00:00Z',
+            lastVisitedAt: '2026-01-02T00:00:00Z',
+            cellSizeLy: null,
+          },
+        ],
+        count: 1,
+        truncated: false,
+      });
+      render(ExploreWorkspaceTestHost);
+      const status = await showTravel();
+      await waitFor(() =>
+        expect(currentScene().contributions).toContainEqual(
+          expect.objectContaining({ id: 'commander-history' }),
+        ),
+      );
+      vi.mocked(api.getCommanderJournalSummary).mockRejectedValue(
+        new api.ApiError(401, '/api/v1/journal/summary', {}),
+      );
+
+      await queryClient.invalidateQueries({
+        queryKey: [...queryKeys.auth(), 'account-a', 'journal-summary'],
+      });
+
+      await waitFor(() =>
+        expect(status).toHaveAttribute(
+          'data-commander-history-state',
+          'signed-out',
+        ),
+      );
+      expect(status).toHaveAttribute('data-commander-history-count', '0');
+      expect(
+        screen.queryByLabelText('My journeys visit-count legend'),
+      ).not.toBeInTheDocument();
+      expect(currentScene().contributions).not.toContainEqual(
+        expect.objectContaining({ id: 'commander-history' }),
+      );
+    },
+  );
 
   it('shows an honest empty state and a sign-in prompt on a 401', async () => {
     await signIn();

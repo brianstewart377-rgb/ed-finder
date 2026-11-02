@@ -37,6 +37,50 @@ are not Product E2E acceptance evidence.
 Product E2E screenshots and visual validation are required before any production
 promotion. This change is **not deployed**.
 
+## 2026-11-02 — Galaxy system hover cards and nearby labels (M10)
+
+Catalogue stars and Finder markers now expose hover/focus cards with their
+names, raw catalogue star classes, distance from the current anchor, and
+Select/Inspect actions. Nearby labels prioritize selected, hovered, anchor and
+Finder systems before a range-bounded set of catalogue stars nearest the screen
+centre. Overlap handling preserves system id64, and a collapsed Nearby systems
+list provides keyboard selection and focus for the same candidate set.
+
+Label ranking and overlap resolution wait for the camera to settle; source
+indexes and nearest-candidate retrieval are cached across hover changes. Star
+geometry, materials, streaming thresholds and detail policy are unchanged.
+Vitest coverage includes catalogue hover through Babylon NullEngine, ranking,
+overlap, range bounds, keyboard actions, raw facts, navigation and axe checks.
+This visible change needs Product E2E/visual validation before production
+promotion and is not deployed.
+
+## 2026-11-02 — Explore Layers separates catalogue density, journeys and nebulae
+
+Explore now has a non-modal **Layers** pop-out with independent Known-system
+density (default on), My journeys (default off) and Nebulae switches, separate
+descriptions, legends and status/retry lines. The button counts enabled layers.
+Density off stops its requests and removes retained density cells without
+changing exact stars, selection or camera; switching it back on fetches at the
+current zoom. Density and journey switch positions persist in browser storage;
+journal content is never persisted. The existing account journal summary
+distinguishes no imported journals from no travel in the current viewport.
+Nebula inventory, rendered-landmark status and attribution are preserved.
+There is no colony-potential switch, API change, renderer change or density
+request/detail-policy change.
+
+ExploreWorkspace component assertions and Product Cypress assertions now open
+Layers before using the retained data selectors and check switch `aria-checked`
+instead of the old inline buttons' `aria-pressed`. Coverage includes query and
+scene independence, preference recovery/storage failures, viewport clamping,
+keyboard/outside dismissal, focus return and axe on the open pop-out.
+
+Local validation passed: frozen pnpm install, `pnpm check` (no errors or
+warnings), lint, formatting, all 1,568 Vitest tests across 78 files, and the
+production build. The Product Cypress assertions were updated but not run.
+
+This user-visible change needs **Product E2E/visual validation before production
+promotion** and is **not deployed**.
+
 ## 2026-11-02 — Ninth F2d release `9ff456e0` accepted: body filters and map fixes live
 
 Owner-approved, app-only. Release run 41502217984 (source `9ff456e0`) passed

@@ -77,6 +77,7 @@ describe('persistence compatibility', () => {
       'ed_profile_sync_last',
       'ed-finder:selected-system-context',
       'ed_density_v1',
+      'ed-finder:map-layers:v1',
     ]);
     expect(SESSION_STORAGE_KEYS).toEqual(['ed_admin_token']);
   });
