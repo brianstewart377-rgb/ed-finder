@@ -85,6 +85,10 @@ import {
 import { createCatalogueDensityMesh } from './catalogue-density';
 import { densityCrossfadeT } from '../galaxy-density-crossfade';
 import {
+  DENSITY_CROSSFADE_NEAR_LY,
+  DENSITY_CROSSFADE_FAR_LY,
+} from '../galaxy-detail-policy';
+import {
   buildGalaxyRegionFillGeometry,
   findGalaxyRegionAt,
   galaxyRegionsSceneLayer,
@@ -649,7 +653,11 @@ function setStarBatchAlpha(batch: BabylonGalaxyStarBatch, alpha: number): void {
 // Without factual density, catalogue stars still carry the full view.
 function applyDensityCrossfade(product: BabylonGalaxyProduct): void {
   const crossfadeT = product.densityMesh?.material
-    ? densityCrossfadeT(product.cameraState.distanceLy)
+    ? densityCrossfadeT(
+        product.cameraState.distanceLy,
+        DENSITY_CROSSFADE_NEAR_LY,
+        DENSITY_CROSSFADE_FAR_LY,
+      )
     : 0;
   if (product.densityMesh?.material) {
     // Preserve the density material's 0.9 maximum opacity.
