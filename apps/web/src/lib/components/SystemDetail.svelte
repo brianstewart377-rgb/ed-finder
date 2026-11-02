@@ -624,7 +624,7 @@
 <style>
   .system-map-legend {
     padding: 0.75rem 1rem;
-    color: #8fa5b9;
+    color: var(--text-muted);
     font-size: 0.78rem;
     line-height: 1.55;
   }
@@ -635,7 +635,7 @@
 
   .system-map-legend h3 {
     margin: 0.75rem 0 0.25rem;
-    color: #d9e7ef;
+    color: var(--text);
     font-size: 0.85rem;
   }
 

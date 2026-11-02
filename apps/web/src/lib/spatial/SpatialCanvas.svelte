@@ -1629,7 +1629,7 @@
   }
   .nearby-systems {
     margin-top: 0.75rem;
-    color: #dbedf7;
+    color: var(--text);
   }
   .nearby-systems summary {
     cursor: pointer;
@@ -1643,17 +1643,17 @@
     list-style: none;
   }
   .nearby-systems button {
-    border: 1px solid #344c61;
+    border: 1px solid var(--line);
     border-radius: 0.4rem;
-    background: #101e2c;
-    color: #dbedf7;
+    background: var(--panel-raised);
+    color: var(--text);
     padding: 0.4rem 0.7rem;
     cursor: pointer;
   }
   .nearby-systems button:focus-visible,
   .nearby-systems summary:focus-visible,
   .galaxy-label--system:focus-visible {
-    outline: 2px solid #77d5ee;
+    outline: 2px solid var(--neon-hi);
     outline-offset: 2px;
   }
   .labels-moving {
