@@ -11,6 +11,23 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-02 — Colony Planner S5c: economy bars
+
+`/plan` compares Now and After plan economies for every port, Primary Port
+first, with stable colours, a legend and highlights for appearances,
+disappearances and changes over five percentage points. Keyboard-focusable
+segments expose the returned contribution breakdown and open the existing Why
+drawer filtered to the economy's rule IDs. Values come only from evaluate;
+strengths are shown as returned (1.0 = 100%), with a note when the total is not
+100%. Missing published-generation facts, empty economies, evaluation notes and
+outdated results are stated explicitly.
+
+The planner design now documents S5a (core), S5b (facts and evaluate contract)
+and S5c (bars). Component and Cypress journey coverage exercise the comparison,
+keyboard explanations and accessibility. No backend change or migration. This
+visual change needs Product E2E/visual acceptance before promotion and is not
+deployed.
+
 ## 2026-11-02 — Galaxy system hover cards and nearby labels (M10)
 
 Catalogue stars and Finder markers now expose hover/focus cards with their

@@ -489,9 +489,20 @@ reviewed before merge.
 | S3b | Surface slot predictions with `validated-slot-v1`, using `body_mechanics.body_class`; only after step P's `complete` | No | No |
 | S4 | The `/plan` page, browser-kept plans, slot counts entered by the commander, JSON export and import; replaces the placeholder | No | Yes |
 | S4b | Raven layout import from a file the commander exports: sites, statuses and recorded slot counts. Moved out of S6 because it needs no server storage | No | Yes |
-| S5 | Economies and strong and weak links, with explanations (RB-0009 to RB-0020, RB-0027) | No | Yes |
+| S5a — shipped (#955) | `cpe` economy calculation, strong and weak links, and contribution breakdowns (RB-0009 to RB-0020, RB-0027) | No | No |
+| S5b — shipped (#967) | Published-generation economy facts on the bodies route and evaluate contract: `economies { now, after_plan, notes }`, breakdowns and explanations (RB-0009 to RB-0020, RB-0027) | No | No |
+| S5c — implemented in this PR | Per-port economy bars, Now / After plan comparison, accessible contribution details and Why drawer links (RB-0009 to RB-0020, RB-0027) | No | Yes |
 | S6 | Account-saved plans: new empty `v3_private` tables following migration 014's pattern (new relations only, lock and statement timeouts) | Yes | Yes |
 | S7 | Mark the legacy V2 planner endpoints "not available on V3" | No | No |
+
+S5c reads economy values only from the evaluate response and shows `now` vs
+`after_plan` for each port, Primary Port first and then build order. It never
+computes economies client-side. Returned strengths use 1.0 = 100%; bars and
+labels preserve those values, state when their total differs from 100%, and
+never normalize them into invented shares. Changes over five percentage points,
+appearances and disappearances are highlighted. When the bodies route supplies
+no economy facts, the page states "Economy facts unavailable for this system's
+published generation" and renders no bars; evaluate notes remain visible.
 
 D3 said that, until a Plan feature ships, the `/plan` page should say plainly
 that planning is being rebuilt. That interim message stays the owner's decision.
