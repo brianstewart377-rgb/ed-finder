@@ -26,6 +26,13 @@ coverage and the served level's cell count (unknown for a truncated legacy
 request). Layers reports “Complete at … LY” with the cell count, generation and
 view scope. Camera debouncing and discrete request buckets keep cache keys
 stable; complete viewport coverage no longer claims whole-catalogue coverage.
+The viewport box now projects the canvas corners and edge midpoints through
+the renderer's camera/FOV and actual aspect ratio, with 15% plus one requested
+cell of overscan and outward bucket snapping. Shallow horizon rays extend the
+affected sides to navigation bounds; Y retains the elevation/radius policy.
+Resize updates the query bounds, so regional views include the far visible
+plane strip that the earlier focus-centred cube omitted. Projection, horizon,
+overview, small-movement cache reuse and resize regressions cover the correction.
 API, web and generated OpenAPI contracts cover the new mode. No migration,
 pyramid rebuild, new level or production operation is part of this change.
 

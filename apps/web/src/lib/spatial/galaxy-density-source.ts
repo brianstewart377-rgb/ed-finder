@@ -1,5 +1,12 @@
 import type { CameraState, SpatialContribution } from './contracts';
 import {
+  GALAXY_CAMERA_FOV_RAD,
+  GALAXY_CAMERA_NAVIGATION_BOUNDS_LY,
+  galaxyCameraPlanePoint,
+  normalizeGalaxyCamera,
+  type GalaxyCameraViewport,
+} from './galaxy-camera';
+import {
   CATALOGUE_DENSITY_SCHEMA_VERSION,
   createCatalogueDensityContribution,
   validateCatalogueDensityPayload,
@@ -241,11 +248,15 @@ export function heatmapVoxelSizeForDistance(distanceLy: number): number {
 }
 
 /**
- * Conservative focus-centred cube with overscan. The camera stream is already
- * debounced; zoom and focus buckets let small movements reuse the same view.
- * There is no fixed whole-galaxy extent at regional or local zoom.
+ * Enclose the visible focus plane, including its perspective far edge. Zoom
+ * buckets, overscan and outward-snapped bounds reuse nearby settled views
+ * without clipping their visible cells. The fallback aspect is used only until
+ * the canvas reports its size.
  */
-export function heatmapViewportRequest(camera: CameraState | null) {
+export function heatmapViewportRequest(
+  camera: CameraState | null,
+  viewport: GalaxyCameraViewport = { width: 1_280, height: 720 },
+) {
   const distance = camera?.distanceLy ?? 118_000;
   const focus = camera?.focusLy ?? { x: 0, y: 0, z: 0 };
   if (
@@ -256,23 +267,96 @@ export function heatmapViewportRequest(camera: CameraState | null) {
     throw new RangeError(
       'Density camera must have finite coordinates and distance',
     );
-  const distanceBucket = Math.max(1_000, Math.round(distance / 1_000) * 1_000);
+  const state = normalizeGalaxyCamera(
+    camera ?? {
+      focusLy: focus,
+      distanceLy: distance,
+      bearingRad: 0,
+      pitchRad: 0.55,
+      projection: 'perspective',
+      revision: 0,
+    },
+  );
+  const distanceBucket = Math.max(
+    1_000,
+    Math.round(state.distanceLy / 1_000) * 1_000,
+  );
   const step = Math.max(200, 2 ** Math.floor(Math.log2(distanceBucket / 8)));
-  // Include the far edge of this distance bucket and half a focus bucket.
-  const radius =
+  const voxelSize = heatmapVoxelSizeForDistance(state.distanceLy);
+  const navigation = GALAXY_CAMERA_NAVIGATION_BOUNDS_LY;
+  // The far edge encloses every distance in this zoom bucket at a fixed pose.
+  const projectionCamera = { ...state, distanceLy: distanceBucket + 500 };
+  const min = { x: focus.x, z: focus.z };
+  const max = { ...min };
+  for (const [u, v] of [
+    [0, 0],
+    [0.5, 0],
+    [1, 0],
+    [0, 0.5],
+    [1, 0.5],
+    [0, 1],
+    [0.5, 1],
+    [1, 1],
+  ] as const) {
+    const point = galaxyCameraPlanePoint(
+      projectionCamera,
+      { x: u * viewport.width, y: v * viewport.height },
+      viewport,
+    );
+    if (point) {
+      for (const axis of ['x', 'z'] as const) {
+        min[axis] = Math.min(min[axis], point[axis]);
+        max[axis] = Math.max(max[axis], point[axis]);
+      }
+    } else if (state.projection === 'orthographic') {
+      // Orthographic rays can start below the plane at a shallow pitch. They
+      // have no perspective horizon; retain the navigation envelope instead.
+      Object.assign(min, { x: navigation.min.x, z: navigation.min.z });
+      Object.assign(max, { x: navigation.max.x, z: navigation.max.z });
+    } else {
+      // At a shallow pitch the footprint diverges towards the horizon. Use
+      // the limiting ray there (screenY = tan(pitch)), not the missed sky ray:
+      // its XZ signs can differ at oblique bearings. Side rays can diverge
+      // sideways as well as forwards, so extend each affected world-axis side.
+      const screenX =
+        (2 * u - 1) *
+        Math.tan(GALAXY_CAMERA_FOV_RAD / 2) *
+        (viewport.width / viewport.height);
+      const sinBearing = Math.sin(state.bearingRad);
+      const cosBearing = Math.cos(state.bearingRad);
+      const horizonForward = 1 / Math.cos(state.pitchRad);
+      const direction = {
+        x: cosBearing * screenX - sinBearing * horizonForward,
+        z: sinBearing * screenX + cosBearing * horizonForward,
+      };
+      for (const axis of ['x', 'z'] as const) {
+        if (direction[axis] <= 1e-9) min[axis] = navigation.min[axis];
+        if (direction[axis] >= -1e-9) max[axis] = navigation.max[axis];
+      }
+    }
+  }
+  for (const axis of ['x', 'z'] as const) {
+    const margin = (max[axis] - min[axis]) * 0.15 + voxelSize;
+    min[axis] = Math.floor((min[axis] - margin) / step) * step;
+    max[axis] = Math.ceil((max[axis] + margin) / step) * step;
+  }
+  // Preserve the vertical-radius policy around the camera's focus elevation.
+  const verticalRadius =
     Math.ceil(((distanceBucket + 500) * 1.5 + step / 2) / step) * step;
-  const centre = (coordinate: number) => Math.round(coordinate / step) * step;
+  const centreY = Math.round(focus.y / step) * step;
+  const clamp = (value: number, axis: 'x' | 'y' | 'z') =>
+    Math.max(navigation.min[axis], Math.min(navigation.max[axis], value));
   return {
-    voxel_size: heatmapVoxelSizeForDistance(distance),
+    voxel_size: voxelSize,
     min_systems: 1,
     max_cells: 40_000,
     coverage: 'complete' as const,
-    min_x: centre(focus.x) - radius,
-    max_x: centre(focus.x) + radius,
-    min_y: centre(focus.y) - radius,
-    max_y: centre(focus.y) + radius,
-    min_z: centre(focus.z) - radius,
-    max_z: centre(focus.z) + radius,
+    min_x: clamp(min.x, 'x'),
+    max_x: clamp(max.x, 'x'),
+    min_y: clamp(centreY - verticalRadius, 'y'),
+    max_y: clamp(centreY + verticalRadius, 'y'),
+    min_z: clamp(min.z, 'z'),
+    max_z: clamp(max.z, 'z'),
   };
 }
 

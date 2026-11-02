@@ -11,6 +11,11 @@ import {
 } from './galaxy-density-source';
 import { ApiError, type MapHeatmapPyramidResponse } from '$lib/api/client';
 import type { CameraState } from './contracts';
+import {
+  GALAXY_CAMERA_FOV_RAD,
+  GALAXY_CAMERA_NAVIGATION_BOUNDS_LY,
+  galaxyCameraPlanePoint,
+} from './galaxy-camera';
 
 const pyramid: MapHeatmapPyramidResponse = {
   source: 'pyramid',
@@ -243,6 +248,8 @@ describe('mapHeatmapToDensityPayload', () => {
 });
 
 describe('density viewport requests', () => {
+  const viewport = { width: 1_280, height: 720 };
+  const navigation = GALAXY_CAMERA_NAVIGATION_BOUNDS_LY;
   const camera: CameraState = {
     focusLy: { x: 12_000, y: 350, z: -8_000 },
     distanceLy: 10_000,
@@ -252,25 +259,143 @@ describe('density viewport requests', () => {
     revision: 0,
   };
 
-  it('requests all occupied cells inside an overscanned focus box at regional zoom', () => {
-    const request = heatmapViewportRequest(camera);
+  it('covers the far visible strip at 10,000 LY, 0.55 pitch and 16:9', () => {
+    const originCamera = { ...camera, focusLy: { x: 0, y: 0, z: 0 } };
+    const request = heatmapViewportRequest(originCamera, viewport);
     expect(request).toMatchObject({
       coverage: 'complete',
       min_systems: 1,
       max_cells: 40_000,
       voxel_size: 200,
     });
+    const farEdge = galaxyCameraPlanePoint(
+      originCamera,
+      { x: viewport.width / 2, y: 0 },
+      viewport,
+    );
+    expect(farEdge?.z).toBeCloseTo(18_652.774, 3);
+    expect(request.max_z).toBeGreaterThanOrEqual(18_653);
+    expect(request.max_z).toBeLessThan(navigation.max.z);
+    expect(request.min_y).toBeLessThan(-camera.distanceLy);
+    expect(request.max_y).toBeGreaterThan(camera.distanceLy);
+  });
+
+  it.each([
+    [0.55, 0, 16 / 9, 'perspective'],
+    [0.55, 0.8, 9 / 16, 'perspective'],
+    [0.37, -0.7, 16 / 9, 'perspective'],
+    [0.12, 0.58, 16 / 9, 'perspective'],
+    [Math.PI / 2, Math.PI / 3, 4, 'perspective'],
+    [0.55, 0.8, 16 / 9, 'orthographic'],
+    [0.12, -0.8, 16 / 9, 'orthographic'],
+  ] as const)(
+    'encloses the visible plane at pitch %s, bearing %s, aspect %s, %s',
+    (pitchRad, bearingRad, aspect, projection) => {
+      const view = { width: 720 * aspect, height: 720 };
+      const state = { ...camera, pitchRad, bearingRad, projection };
+      const request = heatmapViewportRequest(state, view);
+      // Sample the interior too, especially near shallow-pitch horizons.
+      for (let x = 0; x <= 10; x++) {
+        for (let y = 0; y <= 10; y++) {
+          const point = galaxyCameraPlanePoint(
+            state,
+            { x: (x / 10) * view.width, y: (y / 10) * view.height },
+            view,
+          );
+          if (!point) continue;
+          for (const axis of ['x', 'z'] as const) {
+            const coordinate = Math.max(
+              navigation.min[axis],
+              Math.min(navigation.max[axis], point[axis]),
+            );
+            expect(request[`min_${axis}`]).toBeLessThanOrEqual(coordinate);
+            expect(request[`max_${axis}`]).toBeGreaterThanOrEqual(coordinate);
+          }
+        }
+      }
+    },
+  );
+
+  it('extends the forward and sideways horizon bounds at shallow pitch', () => {
+    const shallow = { ...camera, pitchRad: 0.12 };
+    expect(
+      galaxyCameraPlanePoint(shallow, { x: 0, y: 0 }, viewport),
+    ).toBeNull();
+    const request = heatmapViewportRequest(shallow, viewport);
+    expect(request.max_z).toBe(navigation.max.z);
+    expect(request.min_z).toBeGreaterThan(navigation.min.z);
+    expect(request.min_x).toBe(navigation.min.x);
+    expect(request.max_x).toBe(navigation.max.x);
+
+    const rotated = heatmapViewportRequest(
+      { ...shallow, bearingRad: Math.PI / 2 },
+      viewport,
+    );
+    expect(rotated.min_x).toBe(navigation.min.x);
+    expect(rotated.max_x).toBeLessThan(navigation.max.x);
+    expect(rotated.min_z).toBe(navigation.min.z);
+    expect(rotated.max_z).toBe(navigation.max.z);
+  });
+
+  it('uses the horizon direction when a missed sky ray points to a different X side', () => {
+    const shallow = { ...camera, pitchRad: 0.12, bearingRad: 0.58 };
+    const horizonY =
+      ((1 - Math.tan(shallow.pitchRad) / Math.tan(GALAXY_CAMERA_FOV_RAD / 2)) *
+        viewport.height) /
+      2;
+    const nearHorizon = galaxyCameraPlanePoint(
+      shallow,
+      { x: viewport.width, y: horizonY + 0.001 },
+      viewport,
+    );
+    expect(nearHorizon!.x).toBeGreaterThan(navigation.max.x);
+    const request = heatmapViewportRequest(shallow, viewport);
+    expect(request.min_x).toBe(navigation.min.x);
+    expect(request.max_x).toBe(navigation.max.x);
+    expect(request.max_z).toBe(navigation.max.z);
+  });
+
+  it('clamps outward-snapped bounds to the navigation envelope', () => {
+    const request = heatmapViewportRequest({
+      ...camera,
+      focusLy: { x: 245_000, y: -245_000, z: 245_000 },
+    });
     for (const axis of ['x', 'y', 'z'] as const) {
-      expect(request[`min_${axis}`]).toBeLessThan(
-        camera.focusLy[axis] - camera.distanceLy,
+      expect(request[`min_${axis}`]).toBeGreaterThanOrEqual(
+        navigation.min[axis],
       );
-      expect(request[`max_${axis}`]).toBeGreaterThan(
-        camera.focusLy[axis] + camera.distanceLy,
-      );
-      expect(request[`max_${axis}`] - request[`min_${axis}`]).toBeLessThan(
-        40_000,
-      );
+      expect(request[`max_${axis}`]).toBeLessThanOrEqual(navigation.max[axis]);
+      expect(request[`min_${axis}`]).toBeLessThan(request[`max_${axis}`]);
     }
+    expect(request.max_x).toBe(navigation.max.x);
+    expect(request.min_y).toBe(navigation.min.y);
+    expect(request.max_z).toBe(navigation.max.z);
+  });
+
+  it('retains the vertical radius around the camera elevation', () => {
+    const request = heatmapViewportRequest(camera, viewport);
+    const elevated = heatmapViewportRequest(
+      {
+        ...camera,
+        focusLy: { ...camera.focusLy, y: camera.focusLy.y + 16_384 },
+      },
+      viewport,
+    );
+    expect(elevated).toEqual({
+      ...request,
+      min_y: request.min_y + 16_384,
+      max_y: request.max_y + 16_384,
+    });
+  });
+
+  it('still covers the whole galaxy-region extent in the default overview', () => {
+    const request = heatmapViewportRequest(null, viewport);
+    expect(request.min_x).toBeLessThanOrEqual(-50_000);
+    expect(request.max_x).toBeGreaterThanOrEqual(52_000);
+    expect(request.min_z).toBeLessThanOrEqual(-25_000);
+    expect(request.max_z).toBeGreaterThanOrEqual(78_000);
+    expect(request.min_y).toBeLessThanOrEqual(-2_400);
+    expect(request.max_y).toBeGreaterThanOrEqual(2_400);
   });
 
   it('shrinks the bounded region as the view zooms in, even at the same fine voxel size', () => {
@@ -289,21 +414,53 @@ describe('density viewport requests', () => {
     );
   });
 
-  it('reuses the cache for nearby zoom stops and movement inside the same focus bucket', () => {
-    const wide = {
-      ...camera,
-      focusLy: { x: 0, y: 0, z: 0 },
-      distanceLy: 118_000,
-    };
-    const first = heatmapViewportRequest(wide);
-    const nearby = heatmapViewportRequest({
-      ...wide,
-      distanceLy: 118_050,
-      focusLy: { x: 20, y: 0, z: 0 },
-    });
-    expect(heatmapViewportQueryKey(first)).toEqual(
-      heatmapViewportQueryKey(nearby),
+  it.each([10_000, 118_000])(
+    'reuses the cache for nearby zoom stops and small moves at %s LY',
+    (distanceLy) => {
+      const wide = {
+        ...camera,
+        focusLy: { x: 0, y: 0, z: 0 },
+        distanceLy,
+      };
+      const first = heatmapViewportRequest(wide);
+      const nearby = heatmapViewportRequest({
+        ...wide,
+        distanceLy: distanceLy + 50,
+        focusLy: { x: 20, y: 20, z: 20 },
+      });
+      expect(heatmapViewportQueryKey(first)).toEqual(
+        heatmapViewportQueryKey(nearby),
+      );
+    },
+  );
+
+  it('keys by aspect-dependent bounds, independent of pixel density', () => {
+    const first = heatmapViewportQueryKey(
+      heatmapViewportRequest(camera, viewport),
     );
+    const resized = heatmapViewportQueryKey(
+      heatmapViewportRequest(camera, {
+        width: viewport.width * 2,
+        height: viewport.height,
+      }),
+    );
+    const scaled = heatmapViewportQueryKey(
+      heatmapViewportRequest(camera, {
+        width: viewport.width * 2,
+        height: viewport.height * 2,
+      }),
+    );
+    expect(resized).not.toEqual(first);
+    expect(scaled).toEqual(first);
+  });
+
+  it.each([
+    { width: 0, height: 720 },
+    { width: 1_280, height: -1 },
+    { width: Infinity, height: 720 },
+    { width: 1_280, height: NaN },
+  ])('rejects invalid viewport dimensions %j', (view) => {
+    expect(() => heatmapViewportRequest(camera, view)).toThrow();
   });
 
   it('partitions the cache when panning to a different bounds bucket at the same zoom', () => {
@@ -320,6 +477,15 @@ describe('density viewport requests', () => {
   });
 
   it('rejects non-finite camera coordinates before sending a request', () => {
+    expect(() =>
+      heatmapViewportRequest({ ...camera, distanceLy: -1 }),
+    ).toThrow();
+    expect(() =>
+      heatmapViewportRequest({ ...camera, pitchRad: NaN }),
+    ).toThrow();
+    expect(() =>
+      heatmapViewportRequest({ ...camera, bearingRad: Infinity }),
+    ).toThrow();
     expect(() =>
       heatmapViewportRequest({ ...camera, distanceLy: NaN }),
     ).toThrow();

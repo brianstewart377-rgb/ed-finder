@@ -93,6 +93,7 @@
   import {
     fitGalaxyPlaneCamera,
     focusGalaxyCamera,
+    type GalaxyCameraViewport,
   } from '$lib/spatial/galaxy-camera';
   import {
     createGalaxyRegionsContribution,
@@ -203,6 +204,7 @@
   let mapSection = $state<HTMLElement>();
   let resultList = $state<HTMLUListElement>();
   let initialGalaxyViewRequested = false;
+  let canvasViewport = $state<GalaxyCameraViewport>();
   let streamCamera = $state<CameraState | null>({
     focusLy: { x: 0, y: 0, z: 0 },
     distanceLy: 118_000,
@@ -813,21 +815,33 @@
       return commanderVisits.data.count === 0 ? 'empty' : 'ready';
     },
   );
-  // Both request and cache key use the same discrete zoom/focus buckets after
-  // the camera debounce. The server chooses a complete level for this area.
-  const heatmapRequest = $derived(heatmapViewportRequest(streamCamera));
+  // Request and cache key share the bucketed projection bounds, updated after
+  // the camera debounce or a canvas resize. The server chooses a complete level.
+  const heatmapRequest = $derived(
+    heatmapViewportRequest(streamCamera, canvasViewport),
+  );
+  const heatmapRequestIdentity = $derived(
+    heatmapViewportQueryKey(heatmapRequest)[1],
+  );
   const densityEnabled = $derived(
     showDensity && (streamCamera?.distanceLy ?? 0) >= DENSITY_CROSSFADE_NEAR_LY,
   );
-  const heatmap = createQuery(() => ({
-    queryKey: heatmapViewportQueryKey(heatmapRequest),
-    queryFn: ({ signal }) => getMapHeatmap(heatmapRequest, signal),
-    // Enabled across the zoomed-out + overlap band; below `nearLy` density is
-    // fully faded so no fetch needed.
-    enabled: densityEnabled,
-    staleTime: 60_000,
-    placeholderData: (previousData) => previousData,
-  }));
+  const heatmap = createQuery(() => {
+    // Equivalent bounds must preserve a pending query when the canvas first
+    // reports its size or a proportional resize leaves its aspect unchanged.
+    // React only to the JSON identity and capture its matching request once.
+    const request = untrack(() => heatmapRequest);
+    const queryKey = heatmapViewportQueryKey(request);
+    return {
+      queryKey: [queryKey[0], heatmapRequestIdentity] as const,
+      queryFn: ({ signal }) => getMapHeatmap(request, signal),
+      // Enabled across the zoomed-out + overlap band; below `nearLy` density is
+      // fully faded so no fetch needed.
+      enabled: densityEnabled,
+      staleTime: 60_000,
+      placeholderData: (previousData) => previousData,
+    };
+  });
   // Reserve its overlay position before the first response. A late patch must
   // not append density after stars and make the next selection rebuild them.
   const emptyDensityContribution: SpatialContribution = {
@@ -2175,6 +2189,7 @@
           : 0}
         onRuntimeEvent={handleRuntimeEvent}
         onTransitionChange={handleCameraTransitionChange}
+        onViewportChange={(viewport) => (canvasViewport = viewport)}
       />
       {#if selectedMapSystem}
         <article

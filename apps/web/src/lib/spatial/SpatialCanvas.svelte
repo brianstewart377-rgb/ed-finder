@@ -28,6 +28,7 @@
     zoomGalaxyCamera,
     zoomGalaxyCameraTowards,
     type GalaxyCameraPoint,
+    type GalaxyCameraViewport,
   } from './galaxy-camera';
   import {
     CATALOGUE_DENSITY_LAYER_ID,
@@ -47,6 +48,7 @@
     contributionPatchRevision = 0,
     onRuntimeEvent,
     onTransitionChange,
+    onViewportChange,
   } = $props<{
     scene?: SpatialSceneContract;
     focusTarget?: SpatialTarget | null;
@@ -56,6 +58,7 @@
     contributionPatch?: SpatialContribution | null;
     contributionPatchRevision?: number;
     onRuntimeEvent?: (event: RuntimeEvent) => void;
+    onViewportChange?: (viewport: GalaxyCameraViewport) => void;
     onTransitionChange?: (
       active: boolean,
       camera?: CameraState | SystemCameraState | null,
@@ -977,6 +980,7 @@
           dpr: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
         };
         activeRuntime.dispatch({ type: 'RESIZE', ...viewport });
+        onViewportChange?.({ width: viewport.width, height: viewport.height });
         resizeRevision += 1;
         host
           .querySelector('canvas')
