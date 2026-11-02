@@ -60,6 +60,7 @@
   import SpatialCanvas from '$lib/spatial/SpatialCanvas.svelte';
   import type {
     CameraState,
+    RenderedLayerReceipt,
     RuntimeEvent,
     SpatialContribution,
     SpatialTarget,
@@ -89,8 +90,10 @@
   import {
     createGalaxyNebulaeContribution,
     fetchGalaxyNebulae,
+    GALAXY_NEBULAE_LAYER_ID,
     type GalaxyNebulaePayload,
   } from '$lib/spatial/galaxy-nebulae';
+  import { galaxyNebulaVisibility } from '$lib/spatial/galaxy-nebulae-policy';
   import { stellarPresentation } from '$lib/spatial/stellar-presentation';
   import WorkspaceHeader from '$lib/components/WorkspaceHeader.svelte';
   import SystemActions from './SystemActions.svelte';
@@ -203,6 +206,41 @@
   let nebulaState = $state<'loading' | 'ready' | 'failed'>('loading');
   let nebulaResourceRevision = $state(0);
   let nebulaLoadAttempt = 0;
+  let renderedNebulaReceipt = $state<RenderedLayerReceipt | null>(null);
+  let nebulaCameraDistanceLy = $state<number | null>(null);
+  const nebulaKinds = $derived({
+    diffuse: nebulae?.nebulae.some((nebula) => nebula.kind === 'nebula'),
+    planetary: nebulae?.nebulae.some(
+      (nebula) => nebula.kind === 'planetary-nebula',
+    ),
+  });
+  const nebulaDisplayStatus = $derived.by(() => {
+    if (!showNebulae) return 'Nebula layer hidden';
+    if (
+      !nebulae ||
+      !renderedNebulaReceipt ||
+      renderedNebulaReceipt.contributionRevision !== nebulaResourceRevision ||
+      nebulaCameraDistanceLy === null
+    )
+      return 'Preparing nebula landmarks…';
+    const visibility = galaxyNebulaVisibility(nebulaCameraDistanceLy);
+    const diffuseFaded = nebulaKinds.diffuse && visibility.nebula === 0;
+    const count = renderedNebulaReceipt.renderedTargetCount;
+    if (count === 0) {
+      if (diffuseFaded)
+        return 'No landmarks at this zoom · diffuse landmarks faded out';
+      if (nebulaKinds.planetary && visibility['planetary-nebula'] === 0)
+        return 'No landmarks at this zoom · planetary nebulae appear at close range';
+      return 'No landmarks at this zoom';
+    }
+    const kinds = [
+      nebulaKinds.diffuse && visibility.nebula > 0 ? 'diffuse' : null,
+      nebulaKinds.planetary && visibility['planetary-nebula'] > 0
+        ? 'planetary'
+        : null,
+    ].filter(Boolean);
+    return `${count.toLocaleString()} ${count === 1 ? 'landmark' : 'landmarks'} shown (${kinds.join(' and ')} nebulae)${diffuseFaded ? ' · diffuse landmarks faded out' : ''}`;
+  });
 
   const normalizedQuery = $derived(query.trim());
   const suggestions = createQuery(() => ({
@@ -1167,7 +1205,23 @@
   }
 
   function handleRuntimeEvent(event: RuntimeEvent): void {
+    if (
+      event.type === 'SCENE_APPLIED' ||
+      event.type === 'CONTRIBUTION_APPLIED'
+    ) {
+      renderedNebulaReceipt =
+        event.renderedLayers.find(
+          (layer) =>
+            layer.layerId === GALAXY_NEBULAE_LAYER_ID &&
+            layer.contributionRevision === nebulaResourceRevision,
+        ) ?? null;
+    } else if (event.type === 'RESOURCE_LOST') {
+      renderedNebulaReceipt = null;
+    }
     if (event.type === 'CAMERA_CHANGED' && 'focusLy' in event.camera) {
+      // Retained navigation state may already hold a flight's destination.
+      // Status follows the camera actually applied by the renderer each frame.
+      nebulaCameraDistanceLy = event.camera.distanceLy;
       if (spatialCameraTransitionActive) return;
       retainCamera(event.camera);
     } else if (event.type === 'TARGET_HOVERED') {
@@ -1195,6 +1249,7 @@
 
   function toggleNebulae(): void {
     showNebulae = !showNebulae;
+    renderedNebulaReceipt = null;
     layerToggleRevision += 1;
   }
 
@@ -1301,6 +1356,7 @@
   async function loadNebulae(): Promise<void> {
     const attempt = ++nebulaLoadAttempt;
     nebulaState = 'loading';
+    renderedNebulaReceipt = null;
     try {
       const accepted = await fetchGalaxyNebulae();
       if (attempt !== nebulaLoadAttempt) return;
@@ -1828,7 +1884,9 @@
               onclick={loadNebulae}>Retry</button
             >
           {:else if nebulae}
-            {nebulae.nebulae.length.toLocaleString()} EDAstro nebula landmarks ·
+            {`${nebulae.nebulae.length.toLocaleString()} catalogue ${
+              nebulae.nebulae.length === 1 ? 'record' : 'records'
+            }`} · {nebulaDisplayStatus} ·
             <a
               href="https://edastro.com/mapcharts/files.html"
               target="_blank"

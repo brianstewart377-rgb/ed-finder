@@ -27,6 +27,45 @@ filters are never persisted to local storage. Unit/component coverage exercises
 validation, draft controls, accessibility and history; Product E2E covers Apply,
 the request body, URL-only reload restoration and the open pop-out's accessibility.
 
+## 2026-11-02 — Galaxy nebula inventory and planetary landmarks (M02)
+
+Explore now distinguishes the 5,842 accepted EDAstro catalogue records from
+landmarks shown at the current zoom. Renderer receipts count enabled instances:
+249 diffuse landmarks at overview, with all 5,496 planetary nebulae retained as
+small, dim close-range markers. Planetary markers fade in from 4,000 to 3,000 LY;
+diffuse clouds keep their sphere/material look, palette and 8,000–2,000 LY fade.
+Status explicitly reports faded, hidden and no-landmarks-at-this-zoom states.
+
+Diffuse cell representatives are selected by named entry, regional entry, then
+lowest stable ID, independent of catalogue order. The 1,400 LY cells and 260 cap
+are explicit metadata, alongside per-kind catalogue, accepted, selected,
+deduplicated, capped and currently visible counts. Valid empty inventories are
+accepted; malformed records still fail closed.
+
+Vitest covers the real parsed asset, mixed/planetary-only/empty fixtures,
+deterministic selection, camera-dependent receipts and Explore status. The
+Cypress product-journey assertions that pinned the misleading “5,842 EDAstro
+nebula landmarks” text now assert “5,842 catalogue records”; renderer and
+component tests separately verify the actual shown counts. Cloud appearance
+redesign (M03) remains separate. This visible change needs Product E2E/visual
+validation before production promotion and is **not deployed**.
+
+## 2026-11-01 — Galaxy catalogue star colours (M01)
+
+Fixed numeric catalogue subclasses rendering as unknown blue stars. Galaxy and
+System Map now share a pure classifier covering bare, numeric and decimal
+classes, white dwarfs, neutron stars, black holes, Wolf-Rayet, carbon/S-type,
+T Tauri/Herbig, luminosity suffixes (including catalogue sub-letters such as
+`Vab`, `IVb` and `IIIab`) and existing descriptive forms. Raw catalogue
+labels and the palette remain unchanged. Added catalogue table, unknown-input,
+Galaxy/System parity and catalogue-to-renderer regression tests; existing test
+expectations remain unchanged.
+
+Validation passed: frozen dependency install, web check, lint, formatting, 502
+focused spatial tests, the full 1,436-test Vitest suite and build. This visible
+rendering change still needs Product E2E/visual lane validation before production
+promotion. It is not deployed.
+
 ## 2026-11-01 — Cross-platform shared-package lint command
 
 `pnpm shared:lint` now uses a Node launcher and ESLint's API, removing the POSIX
