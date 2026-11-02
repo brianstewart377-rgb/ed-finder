@@ -11,6 +11,17 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-02 — Ninth F2d release `9ff456e0` accepted: body filters and map fixes live
+
+Owner-approved, app-only. Release run 41502217984 (source `9ff456e0`) passed
+preflight run 41502956031 and was accepted by promotion run 41503170717 at
+2026-11-02T18:43:49Z to slot green; no migration, no database writes. Live
+checks: health reports `9ff456e0`; autocomplete answers within a second; the
+Sol bodies route reports factual planet classes; the Ratings V4 public smoke
+passed 8/8. The `a8d1b794` backend is the recorded rollback artifact. Receipts
+under `docs/operations/evidence/2026-11-02-*-4150*`. Records the accepted
+attestation and observed runtime and updates the status lines.
+
 ## 2026-11-02 — Galaxy vertical travel and anchored touch navigation (M11)
 
 Galaxy navigation adds Alt/Option-drag elevation and accessible Up/Down controls
