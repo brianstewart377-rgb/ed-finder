@@ -48,6 +48,7 @@ import {
   claimOwnerApiV1AuthOwnerClaimPost,
   frontierLinkApiV1AuthFrontierLinkPost,
   getArchetypeRankingsApiArchetypesRankingsGet,
+  getSystemArchetypesApiArchetypesSystemId64Get,
   getSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGet,
   getProfileSyncApiProfileSyncSyncKeyGet,
   getV3CurrentGeneration,
@@ -89,6 +90,8 @@ import type {
   HealthResponse,
   LocalSearchRequest,
   BodyV1,
+  MapHeatmapApiMapHeatmapGetData,
+  MapHeatmapPyramidResponse,
   MapViewportResponse,
   RankingIdentity,
   RatingExplanationResponse,
@@ -559,13 +562,14 @@ export type SystemDetailRing = Readonly<{
 /** One catalogued body as Inspect renders it (V3 canonical generation). */
 export type SystemDetailBody = Readonly<{
   /**
-   * Frontier in-system BodyID: the 3D map / selection reference. Null when the
-   * catalogue has none (or it is not a unique safe integer); such a body is
-   * counted but cannot be selected in the system map.
+   * Frontier in-system BodyID, when uniquely available as a safe integer.
+   * System Map selection requires this ID; parent links use the key below.
    */
   id: number | null;
   /** Canonical V3 body key (lossless decimal). */
   bodyKey: string;
+  /** Canonical V3 parent key, which may refer to an unloaded body. */
+  directParentBodyKey: string | null;
   name: string;
   /** V3 public body-type code: `star`, `planet`, `barycentre`, `belt_cluster`. */
   bodyType: string | null;
@@ -577,6 +581,7 @@ export type SystemDetailBody = Readonly<{
   luminosityClass: string | null;
   isLandable: boolean | null;
   radiusKm: number | null;
+  semiMajorAxisKm: number | null;
   distanceFromArrivalLs: number | null;
   rings: readonly SystemDetailRing[];
   signals: readonly Readonly<{ signalType: string; count: number }>[];
@@ -608,6 +613,8 @@ export type SystemDetailStation = Readonly<{
   bodyKey: string | null;
   /** Primary first, then secondary, then the rest by share. */
   economies: readonly SystemDetailStationEconomy[];
+  /** Observation time, when supplied; the canonical station read has none. */
+  lastObservedAt?: string | null;
 }>;
 
 /**
@@ -630,6 +637,9 @@ export type SystemDetail = Readonly<{
   sourceBodyCount: number | null;
   loadedBodyCount: number;
   sourceUpdatedAt: string | null;
+  /** Identity already read by the canonical publication fence. */
+  canonicalGenerationId?: string;
+  canonicalGenerationLabel?: string;
   bodies: readonly SystemDetailBody[];
   stations: readonly SystemDetailStation[];
 }>;
@@ -671,39 +681,10 @@ export type CatalogueViewportResponse = Readonly<{
   truncated: boolean;
 }>;
 
-export interface MapHeatmapPyramidCell {
-  origin_x_ly: number;
-  origin_y_ly: number;
-  origin_z_ly: number;
-  centroid_x_ly: number;
-  centroid_y_ly: number;
-  centroid_z_ly: number;
-  system_count: number;
-}
-
-export interface MapHeatmapPyramidResponse {
-  source: 'pyramid';
-  generation_id: string;
-  spatial_generation_id: string;
-  spatial_pyramid_version: string;
-  source_system_count: number;
-  coverage_at: string | null;
-  level: number;
-  cell_size_ly: number;
-  voxel_size: number;
-  bounds: {
-    min_x: number | null;
-    max_x: number | null;
-    min_y: number | null;
-    max_y: number | null;
-    min_z: number | null;
-    max_z: number | null;
-  };
-  cells: MapHeatmapPyramidCell[];
-  count: number;
-  max_cells: number;
-  truncated: boolean;
-}
+export type {
+  MapHeatmapPyramidCell,
+  MapHeatmapPyramidResponse,
+} from './generated';
 
 export type MapHeatmapResponse =
   | MapHeatmapPyramidResponse
@@ -1063,6 +1044,29 @@ export function normalizeRankingsResponse(
 }
 
 /**
+ * One system's published archetype scores (`GET /api/archetypes/system/{id64}`),
+ * read through the configured generated client so the wire id64 stays a
+ * lossless decimal string. Used by the compare Refresh action.
+ */
+export async function getSystemArchetypes(
+  id64: Id64,
+  signal?: AbortSignal,
+): Promise<SystemArchetypesWire> {
+  const { data } = await getSystemArchetypesApiArchetypesSystemId64Get({
+    path: { id64: parseId64(id64) as unknown as number },
+    throwOnError: true,
+    signal,
+  });
+  if (!data) throw new Error('Empty system archetypes response');
+  return data;
+}
+export type SystemArchetypesWire = NonNullable<
+  Awaited<
+    ReturnType<typeof getSystemArchetypesApiArchetypesSystemId64Get>
+  >['data']
+>;
+
+/**
  * Selected-archetype ranking (`GET /api/archetypes/rankings`). The facade
  * exposes `page_size` 1..50 and maps it to the endpoint's wire `limit`; it
  * accepts no hard filter, so a picked request can never carry one.
@@ -1196,8 +1200,12 @@ export async function getCatalogueViewportSystems(
   };
 }
 
+export type MapHeatmapRequest = NonNullable<
+  MapHeatmapApiMapHeatmapGetData['query']
+>;
+
 export const getMapHeatmap = async (
-  query: { voxel_size?: number; min_systems?: number; max_cells?: number },
+  query: MapHeatmapRequest,
   signal?: AbortSignal,
 ): Promise<MapHeatmapResponse> =>
   (await mapHeatmapApiMapHeatmapGet({ query, throwOnError: true, signal }))
@@ -1331,6 +1339,7 @@ export function systemDetailFromV3(
       .map((body): SystemDetailBody => ({
         id: ids.get(body.body_id) ?? null,
         bodyKey: body.body_id,
+        directParentBodyKey: body.direct_parent_body_id,
         name: body.name,
         bodyType: body.body_type,
         bodyClass: body.body_class ?? null,
@@ -1341,6 +1350,7 @@ export function systemDetailFromV3(
         luminosityClass: body.luminosity_class,
         isLandable: body.is_landable,
         radiusKm: body.radius_km,
+        semiMajorAxisKm: body.semi_major_axis_km,
         distanceFromArrivalLs: body.distance_from_arrival_ls,
         rings: ringsByBody.get(body.body_id) ?? [],
         signals: body.signals.map((signal) => ({
@@ -1368,6 +1378,7 @@ function stationDetail(station: StationV1): SystemDetailStation {
     bodyKey:
       station.association_state === BODY_RESOLVED ? station.body_id : null,
     economies: station.economies.map(stationEconomy).sort(economyOrder),
+    lastObservedAt: null,
   };
 }
 
@@ -1451,12 +1462,16 @@ export async function getSystem(
       rings.status === 'fulfilled' &&
       stations.status === 'fulfilled'
     ) {
-      const detail = systemDetailFromV3(
-        system.value.data,
-        bodies.value.data,
-        rings.value.data,
-        stations.value.data,
-      );
+      const detail = {
+        ...systemDetailFromV3(
+          system.value.data,
+          bodies.value.data,
+          rings.value.data,
+          stations.value.data,
+        ),
+        canonicalGenerationId: after.data.generation_id,
+        canonicalGenerationLabel: after.data.generation_key,
+      };
       if (
         FINDER_F4_ENABLED &&
         detail.id64 !== SOL_ID64 &&

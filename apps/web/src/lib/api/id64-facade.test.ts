@@ -52,6 +52,9 @@ describe('id64-bearing application API facade', () => {
 
     expect(result.id64).toBe('9007199254740993');
     expect(result.name).toBe('Lossless');
+    expect(result.canonicalGenerationId).toBe('g-1');
+    expect(result.canonicalGenerationLabel).toBe('k1');
+    expect(result.sourceUpdatedAt).toBeNull();
     expect(result.bodies).toHaveLength(1);
     // Canonical body keys beyond 2^53 stay lossless decimal strings.
     expect(result.bodies[0]?.bodyKey).toBe('36028797018963969');
@@ -99,6 +102,8 @@ describe('id64-bearing application API facade', () => {
     // The first attempt straddles g-1 -> g-2; the retry sees g-2 on both sides.
     const fenced = await getSystem(parseId64('42'));
     expect(fenced.name).toBe('Fenced');
+    expect(fenced.canonicalGenerationId).toBe('g-2');
+    expect(fenced.canonicalGenerationLabel).toBe('k2');
     expect(
       fetchMock.mock.calls.filter(
         ([input]) => pathOf(input) === '/api/v1/systems/42',
@@ -361,7 +366,52 @@ describe('Ratings V4 facade', () => {
   });
 });
 
-describe('Inspect mapping of rings and stations', () => {
+describe('Inspect mapping of bodies, rings and stations', () => {
+  it('preserves canonical parent keys and orbital distances without Frontier-ID joins', () => {
+    const parentKey = '36028797018963969';
+    const childKey = '108086391056891905';
+    const missingParentKey = '180143985094819841';
+    const detail = systemDetailFromV3(
+      v3System(),
+      [
+        v3Body({ body_id: parentKey, frontier_body_id: '4' }),
+        v3Body({
+          body_id: childKey,
+          frontier_body_id: null,
+          direct_parent_body_id: parentKey,
+          is_main_star: false,
+          semi_major_axis_km: 149_597_870.7,
+        }),
+        v3Body({
+          body_id: '216172782113783809',
+          frontier_body_id: '7',
+          direct_parent_body_id: missingParentKey,
+          is_main_star: false,
+        }),
+      ],
+      [],
+      [],
+    );
+
+    expect(
+      detail.bodies.find((body) => body.bodyKey === parentKey),
+    ).toMatchObject({
+      id: 4,
+      directParentBodyKey: null,
+      semiMajorAxisKm: null,
+    });
+    expect(
+      detail.bodies.find((body) => body.bodyKey === childKey),
+    ).toMatchObject({
+      id: null,
+      directParentBodyKey: parentKey,
+      semiMajorAxisKm: 149_597_870.7,
+    });
+    expect(
+      detail.bodies.find((body) => body.id === 7)?.directParentBodyKey,
+    ).toBe(missingParentKey);
+  });
+
   it('keeps hotspots, reserves, resolved placement and economies', () => {
     const detail = systemDetailFromV3(
       v3System(),
@@ -438,6 +488,11 @@ describe('Inspect mapping of rings and stations', () => {
     ]);
     expect(detail.stations[0]?.bodyKey).toBe('36028797018963968');
     expect(detail.stations[1]?.bodyKey).toBeNull();
+    // The system source date is not a station-observation timestamp.
+    expect(detail.sourceUpdatedAt).not.toBeNull();
+    expect(
+      detail.stations.every((station) => station.lastObservedAt === null),
+    ).toBe(true);
     expect(detail.stations[0]?.economies.map((e) => e.economy)).toEqual([
       'extraction',
       'high_tech',

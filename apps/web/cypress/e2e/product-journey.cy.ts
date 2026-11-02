@@ -385,6 +385,54 @@ const captureFinder = (state: 'any' | 'flexible' | 'flexible-explanation') => {
 };
 
 describe('V3 Explore to Inspect product checkpoint', () => {
+  it('requests complete density for the camera bounds as the view narrows', () => {
+    cy.viewport(1280, 800);
+    // Observe the normal API request. The product seed need not publish a
+    // density pyramid to prove that camera navigation sends bounded coverage.
+    cy.intercept('GET', '/api/map/heatmap*').as('density');
+    visitExplore();
+    cy.get('[data-region-resource-state="ready"]', { timeout: 20_000 }).should(
+      'be.visible',
+    );
+    cy.get(readySelector, { timeout: 20_000 }).should('be.visible');
+
+    let initialSpan = 0;
+    cy.wait('@density', { requestTimeout }).then(({ request }) => {
+      const params = new URL(request.url).searchParams;
+      expect(params.get('coverage')).to.equal('complete');
+      expect(params.get('min_systems')).to.equal('1');
+      expect(params.get('max_cells')).to.equal('40000');
+      for (const axis of ['x', 'y', 'z']) {
+        const minimum = params.get(`min_${axis}`);
+        const maximum = params.get(`max_${axis}`);
+        expect(minimum, `minimum ${axis} bound`).not.to.equal(null);
+        expect(maximum, `maximum ${axis} bound`).not.to.equal(null);
+        expect(Number.isFinite(Number(minimum))).to.equal(true);
+        expect(Number.isFinite(Number(maximum))).to.equal(true);
+        expect(Number(maximum)).to.be.greaterThan(Number(minimum));
+      }
+      initialSpan = Number(params.get('max_x')) - Number(params.get('min_x'));
+    });
+
+    // Eight ordinary zoom stops retain density's visible band while entering
+    // a regional view. The settled request must cover that view, not the galaxy.
+    for (let step = 0; step < 8; step += 1) {
+      cy.get('[aria-label="Zoom in"]').click();
+    }
+    cy.get<Array<{ request: { url: string } }>>('@density.all', {
+      timeout: 20_000,
+    }).should((requests) => {
+      const latest = requests.at(-1);
+      expect(latest).not.to.equal(undefined);
+      const params = new URL(latest!.request.url).searchParams;
+      expect(params.get('coverage')).to.equal('complete');
+      const span = Number(params.get('max_x')) - Number(params.get('min_x'));
+      expect(span).to.be.lessThan(initialSpan);
+      expect(span).to.be.lessThan(100_000);
+      expect(span).to.be.greaterThan(0);
+    });
+  });
+
   it('applies body counts near a system and restores the shared search on reload', () => {
     const anchorId = '10477373803000';
     const dialog = '[role="dialog"][data-testid="body-filters-dialog"]';
@@ -1086,9 +1134,9 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.focused().should('have.prop', 'tagName', 'H1');
     cy.contains('dt', 'Main star').next('dd').should('have.text', 'G2 V');
     cy.contains('dt', 'Bodies returned').next('dd').should('have.text', '41');
-    cy.get('[data-unavailable-fields]')
+    cy.get('[data-unavailable-fields][data-availability="not-integrated"]')
       .should('have.length', 2)
-      .each(($row) => expect($row).to.contain.text('Not available yet'));
+      .each(($row) => expect($row).to.contain.text('Not integrated yet'));
     cy.get('[aria-label="System bodies"] button')
       .first()
       .should('contain.text', 'Star · G2 V');
@@ -1111,11 +1159,40 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     );
     cy.injectAxe();
     cy.checkA11y();
+    cy.contains('button', 'Sources & freshness').click();
+    cy.get('[role="dialog"][aria-modal="false"]')
+      .should('be.visible')
+      .and('contain.text', 'Canonical catalogue')
+      .and('contain.text', 'Ratings V4 potentials')
+      .and('contain.text', 'Commander data');
+    cy.checkA11y('[role="dialog"][aria-modal="false"]');
+    // Viewport capture: the pop-out can extend past the viewport edge, and an
+    // element crop then fails on Firefox with a negative buffer size.
+    cy.get('[role="dialog"][aria-modal="false"]').scrollIntoView();
+    cy.screenshot(`product/inspect-sources-freshness-${Cypress.browser.name}`, {
+      capture: 'viewport',
+      overwrite: true,
+    });
+    cy.get('[role="dialog"][aria-modal="false"]')
+      .contains('button', 'Close')
+      .click();
     cy.viewport(375, 812);
     cy.get('.system-ratings').screenshot(
       `product/inspect-achenar-ratings-${Cypress.browser.name}-375w`,
       { overwrite: true },
     );
+    cy.contains('button', 'Sources & freshness').click();
+    cy.checkA11y('[role="dialog"][aria-modal="false"]');
+    // Viewport capture: the pop-out can extend past the viewport edge, and an
+    // element crop then fails on Firefox with a negative buffer size.
+    cy.get('[role="dialog"][aria-modal="false"]').scrollIntoView();
+    cy.screenshot(
+      `product/inspect-sources-freshness-${Cypress.browser.name}-375w`,
+      { capture: 'viewport', overwrite: true },
+    );
+    cy.get('[role="dialog"][aria-modal="false"]')
+      .contains('button', 'Close')
+      .click();
     cy.viewport(
       Cypress.config('viewportWidth'),
       Cypress.config('viewportHeight'),

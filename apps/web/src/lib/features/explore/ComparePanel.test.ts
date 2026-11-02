@@ -3,12 +3,15 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from '@testing-library/svelte';
 import { get } from 'svelte/store';
 import axe from 'axe-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseId64 } from '$lib/domain/id64';
+import { ApiError } from '$lib/api/client';
+import { refreshCompareSnapshot } from '$lib/api/compare';
 import { compare } from '$lib/persistence/stores';
 import {
   PERSISTENCE_KEYS,
@@ -30,6 +33,7 @@ vi.mock('$lib/config', () => ({
 }));
 vi.mock('$app/state', () => ({ page: mockedPage }));
 vi.mock('$app/navigation', () => ({ goto: mockedGoto }));
+vi.mock('$lib/api/compare', () => ({ refreshCompareSnapshot: vi.fn() }));
 
 const provenance: SnapshotRankingProvenance = {
   ranking_version: 'ranking-v1',
@@ -96,6 +100,7 @@ describe('comparison panel', () => {
     mockedPage.url = new URL('http://localhost/explore');
     mockedPage.state = {};
     mockedGoto.mockClear();
+    vi.mocked(refreshCompareSnapshot).mockReset();
     localStorage.clear();
     compare.set([]);
   });
@@ -128,6 +133,152 @@ describe('comparison panel', () => {
     expect(
       screen.getByRole('link', { name: 'First candidate' }),
     ).toHaveAttribute('href', '/inspect?system=42');
+  });
+
+  it('shows capture times and refreshes each candidate exactly once only on request', async () => {
+    const capturedAt = '2026-11-01T10:11:12Z';
+    const refreshedAt = '2026-11-02T12:13:14Z';
+    compare.set([
+      savedEntry('42', { captured_at: capturedAt }),
+      savedEntry('43'),
+    ]);
+    vi.mocked(refreshCompareSnapshot).mockImplementation(async (entry) => ({
+      ...entry,
+      captured_at: refreshedAt,
+      overall_development_potential: 95,
+    }));
+    render(CompareTestHost);
+    expect(metricRow(/Captured at/)).toHaveTextContent(
+      '2026-11-01 10:11:12 UTC Unknown',
+    );
+    await fireEvent.focus(window);
+    expect(refreshCompareSnapshot).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await screen.findByText('Comparison refreshed.');
+    expect(refreshCompareSnapshot).toHaveBeenCalledTimes(2);
+    expect(
+      vi.mocked(refreshCompareSnapshot).mock.calls.map(([entry]) => entry.id64),
+    ).toEqual(['42', '43']);
+    expect(metricRow(/Captured at/)).toHaveTextContent(
+      '2026-11-02 12:13:14 UTC 2026-11-02 12:13:14 UTC',
+    );
+    await fireEvent.focus(window);
+    expect(refreshCompareSnapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps failed snapshots and retries only the unavailable candidate once', async () => {
+    compare.set([savedEntry('42'), savedEntry('43')]);
+    vi.mocked(refreshCompareSnapshot).mockImplementation(async (entry) => {
+      if (entry.id64 === '42') throw new ApiError(503, '/compare', null);
+      return { ...entry, captured_at: '2026-11-02T12:00:00Z' };
+    });
+    render(CompareTestHost);
+    await fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    const retry = await screen.findByRole('button', {
+      name: 'Retry Candidate 42',
+    });
+    expect(retry.closest('[data-unavailable-fields]')).toHaveAttribute(
+      'data-availability',
+      'unavailable',
+    );
+    expect(retry.closest('[data-unavailable-fields]')).toHaveTextContent(
+      'Temporarily unavailable',
+    );
+    expect(get(compare).value[0].captured_at).toBeUndefined();
+    vi.mocked(refreshCompareSnapshot).mockResolvedValueOnce(
+      savedEntry('42', { captured_at: '2026-11-02T13:00:00Z' }),
+    );
+    await fireEvent.click(retry);
+    await waitFor(() => expect(retry).not.toBeInTheDocument());
+    expect(refreshCompareSnapshot).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(refreshCompareSnapshot).mock.calls[2][0].id64).toBe('42');
+  });
+
+  it('marks a source with no current system value Unknown without presenting a retryable failure', async () => {
+    compare.set([savedEntry('42')]);
+    vi.mocked(refreshCompareSnapshot).mockRejectedValue(
+      new ApiError(404, '/compare', null),
+    );
+    render(CompareTestHost);
+    await fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    const unknown = await screen.findByText(/Unknown — the published source/);
+    expect(unknown).toHaveAttribute('data-availability', 'unknown');
+    expect(
+      screen.queryByRole('button', { name: /Retry/ }),
+    ).not.toBeInTheDocument();
+    expect(get(compare).value).toHaveLength(1);
+  });
+
+  it('never restores a candidate removed during refresh and blocks duplicate refresh requests', async () => {
+    const original = savedEntry('42');
+    compare.set([original]);
+    let finish!: (entry: CompareEntry) => void;
+    vi.mocked(refreshCompareSnapshot).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    render(CompareTestHost);
+    const refresh = screen.getByRole('button', { name: 'Refresh' });
+    await fireEvent.click(refresh);
+    expect(refresh).toBeDisabled();
+    await fireEvent.click(refresh);
+    expect(refreshCompareSnapshot).toHaveBeenCalledOnce();
+    await fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Remove Candidate 42 from comparison',
+      }),
+    );
+    finish({ ...original, captured_at: '2026-11-02T12:00:00Z' });
+    await screen.findByText('Comparison refreshed.');
+    expect(get(compare).value).toEqual([]);
+  });
+
+  it('does not attach a pending failure to a replacement snapshot with the same identifier', async () => {
+    compare.set([savedEntry('42')]);
+    let fail!: (error: Error) => void;
+    vi.mocked(refreshCompareSnapshot).mockReturnValue(
+      new Promise((_resolve, reject) => {
+        fail = reject;
+      }),
+    );
+    render(CompareTestHost);
+    await fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Remove Candidate 42 from comparison',
+      }),
+    );
+    compare.set([savedEntry('42', { name: 'Replacement snapshot' })]);
+    fail(new Error('Old request failed'));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled(),
+    );
+    expect(
+      screen.getByRole('link', { name: 'Replacement snapshot' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Temporarily unavailable/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Retry/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows a separate capture time for an anchored distance retained during refresh', () => {
+    compare.set([
+      savedEntry('42', {
+        captured_at: '2026-11-02T12:00:00Z',
+        distance_captured_at: '2026-11-01T11:00:00Z',
+      }),
+    ]);
+    render(CompareTestHost);
+    expect(metricRow(/^Captured at$/)).toHaveTextContent(
+      '2026-11-02 12:00:00 UTC',
+    );
+    expect(metricRow(/^Distance captured at$/)).toHaveTextContent(
+      '2026-11-01 11:00:00 UTC',
+    );
   });
 
   it('renders side-by-side snapshots, exact identifiers, and text best-value indicators', async () => {

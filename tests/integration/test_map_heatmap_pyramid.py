@@ -29,6 +29,8 @@ os.environ.setdefault('EDFINDER_TEST_DB_ALLOW_DESTRUCTIVE_RESET', 'yes')
 
 TEST_LEVEL = 30  # outside the real 0-6 ladder; CHECK allows level BETWEEN 0 AND 30
 TEST_CELL_SIZE_LY = 100.0
+COARSER_LEVEL = 29
+COARSEST_LEVEL = 28
 
 # Far outside the real galaxy so these fixture cells never collide with real data.
 BASE = 700_000.0
@@ -56,10 +58,18 @@ async def _seed_pyramid_generation(conn, canonical_id):
     """
     version = 'pyr_' + uuid.uuid4().hex[:16]
 
-    await conn.execute(
+    await conn.executemany(
         """INSERT INTO v3_spatial.cell_level(spatial_pyramid_version,level,cell_size_ly,intended_scale)
            VALUES($1,$2,$3,'test')""",
-        version, TEST_LEVEL, TEST_CELL_SIZE_LY,
+        [(version, TEST_LEVEL, TEST_CELL_SIZE_LY),
+         (version, COARSER_LEVEL, 200.0), (version, COARSEST_LEVEL, 400.0)],
+    )
+    # A tempting intermediate level belongs to another pyramid version.
+    # Neither nearest-level selection nor the budget walk may consult it.
+    await conn.execute(
+        """INSERT INTO v3_spatial.cell_level(spatial_pyramid_version,level,cell_size_ly,intended_scale)
+           VALUES($1,27,150.0,'other-version-test')""",
+        'other_' + uuid.uuid4().hex[:16],
     )
 
     cells = [
@@ -75,6 +85,17 @@ async def _seed_pyramid_generation(conn, canonical_id):
             1, 9_800_000_003, f'filler-{i}',
         ))
     expected_systems = sum(c[6] for c in cells)
+    # Every level reconciles to the same 109 source systems. The middle
+    # level merges two filler cells (101 cells); the coarsest merges all
+    # cells outside the narrow box (2 cells). Only the last fits max_cells=100.
+    middle_cells = [*cells[:2], *cells[3:]]
+    merged = list(middle_cells[2])
+    merged[6] = 2
+    middle_cells[2] = tuple(merged)
+    coarsest_cells = [cells[0], (
+        BASE + 100_000.0, 0.0, 0.0, BASE + 100_010.0, 5.0, 5.0,
+        expected_systems - cells[0][6], 9_800_000_002, 'coarse-outside',
+    )]
 
     sgid = await conn.fetchval(
         """INSERT INTO v3_spatial.spatial_generation(canonical_generation_id,pyramid_version,expected_systems)
@@ -90,8 +111,11 @@ async def _seed_pyramid_generation(conn, canonical_id):
                centroid_x_ly,centroid_y_ly,centroid_z_ly)
            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)""",
         [
-            (sgid, version, TEST_LEVEL, cell_key, sc, rep_id64, ox, oy, oz, cx, cy, cz)
-            for ox, oy, oz, cx, cy, cz, sc, rep_id64, cell_key in cells
+            (sgid, version, level, cell_key, sc, rep_id64, ox, oy, oz, cx, cy, cz)
+            for level, level_cells in (
+                (TEST_LEVEL, cells), (COARSER_LEVEL, middle_cells), (COARSEST_LEVEL, coarsest_cells),
+            )
+            for ox, oy, oz, cx, cy, cz, sc, rep_id64, cell_key in level_cells
         ],
     )
 
@@ -219,6 +243,13 @@ async def test_heatmap_uses_legacy_fallback_when_no_published_pyramid(client, po
     assert isinstance(body['count'], int)
 
 
+async def test_complete_heatmap_unpublished_returns_problem_json(client):
+    response = await client.get('/api/map/heatmap', params={'coverage': 'complete'})
+    assert response.status_code == 503, response.text
+    assert response.headers['content-type'] == 'application/problem+json'
+    assert response.json()['status'] == 503
+
+
 async def test_heatmap_serves_published_spatial_pyramid(client, seeded_pyramid):
     """One seed + one `publish_spatial_pyramid` call (the CAS function's
     global-PK `spatial_publication_audit` ledger means a second publish in
@@ -279,3 +310,50 @@ async def test_heatmap_serves_published_spatial_pyramid(client, seeded_pyramid):
     body_full = r_full.json()
     assert body_full['truncated'] is False
     assert body_full['count'] == 102
+
+    # The same URL bounds/budget with complete mode must not reuse the
+    # legacy popularity-cut cache entry. It walks by increasing cell size,
+    # not numeric level id (the pyramid ids run in the opposite direction).
+    complete = await client.get('/api/map/heatmap', params={
+        **WIDE_BOX, 'max_cells': 100, 'coverage': 'complete',
+    })
+    assert complete.status_code == 200, complete.text
+    complete_body = complete.json()
+    assert complete_body['requested_level'] == TEST_LEVEL
+    assert complete_body['served_level'] == complete_body['level'] == COARSEST_LEVEL
+    assert complete_body['cell_size_ly'] == 400.0
+    assert complete_body['level_cell_count'] == complete_body['count'] == 2
+    assert complete_body['coverage'] == 'complete'
+    assert complete_body['truncated'] is False
+    assert sum(cell['system_count'] for cell in complete_body['cells']) == 109
+
+    # A narrow view and a min_systems filter each fit at the requested fine
+    # level. Count probes and row reads must apply the same predicates.
+    for params, expected_count in [
+        ({**IN_BOX}, 1),
+        ({**WIDE_BOX, 'min_systems': 2}, 2),
+        ({**IN_BOX, 'min_systems': 7}, 0),
+    ]:
+        response = await client.get('/api/map/heatmap', params={
+            **params, 'max_cells': 100, 'coverage': 'complete',
+        })
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body['requested_level'] == body['served_level'] == TEST_LEVEL
+        assert body['level_cell_count'] == body['count'] == expected_count
+        assert body['coverage'] == 'complete'
+        assert body['bounds']['min_x'] == params['min_x']
+
+    # Start at the coarser requested resolution; never walk back to finer
+    # levels even if they could happen to fit this viewport.
+    response = await client.get('/api/map/heatmap', params={
+        **IN_BOX, 'voxel_size': 200, 'max_cells': 100, 'coverage': 'complete',
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()['requested_level'] == response.json()['served_level'] == COARSER_LEVEL
+
+    response = await client.get('/api/map/heatmap', params={
+        **IN_BOX, 'voxel_size': 150, 'coverage': 'complete',
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()['requested_level'] == response.json()['served_level'] == TEST_LEVEL

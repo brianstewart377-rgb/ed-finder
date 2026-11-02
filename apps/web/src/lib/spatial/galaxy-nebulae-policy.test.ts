@@ -6,8 +6,14 @@ import { describe, expect, it } from 'vitest';
 import { parseGalaxyNebulaeAsset } from './galaxy-nebulae';
 import {
   galaxyNebulaVisibility,
+  nebulaCloudEnabled,
+  nebulaCloudRadiusLy,
+  NEBULA_CLOUD_REENTER_LY,
   NEBULA_LANDMARK_CELL_LY,
+  NEBULA_LANDMARK_FADE_END_LY,
   NEBULA_LANDMARK_LIMIT,
+  NEBULA_SCHEMATIC_RADIUS_MIN_LY,
+  NEBULA_SCHEMATIC_RADIUS_MAX_LY,
   PLANETARY_NEBULA_MARKER_RADIUS_LY,
   selectGalaxyNebulaLandmarks,
   type NebulaKind,
@@ -193,6 +199,36 @@ describe('galaxy nebula landmark policy', () => {
 });
 
 describe('galaxy nebula zoom visibility', () => {
+  it('keeps cloud hysteresis state through small zoom reversals', () => {
+    expect(NEBULA_CLOUD_REENTER_LY).toBeGreaterThan(
+      NEBULA_LANDMARK_FADE_END_LY,
+    );
+    let enabled = false;
+    for (const [distance, expected] of [
+      [8_000, true],
+      [2_100, true],
+      [2_000, false],
+      [2_100, false],
+      [1_990, false],
+      [2_399, false],
+      [2_400, true],
+      [2_399, true],
+      [2_001, true],
+      [2_000, false],
+    ] as const) {
+      enabled = nebulaCloudEnabled(distance, enabled);
+      expect(enabled).toBe(expected);
+    }
+  });
+
+  it.each([NaN, Infinity, -Infinity, -1])(
+    'does not enable clouds at invalid distance %s',
+    (distance) => {
+      expect(nebulaCloudEnabled(distance, false)).toBe(false);
+      expect(nebulaCloudEnabled(distance, true)).toBe(false);
+    },
+  );
+
   it.each([
     [100_000, 1, 0],
     [8_000, 1, 0],
@@ -213,5 +249,34 @@ describe('galaxy nebula zoom visibility', () => {
 
   it('gives close-range markers their own small radius', () => {
     expect(PLANETARY_NEBULA_MARKER_RADIUS_LY).toBe(3);
+  });
+});
+
+describe('schematic nebula radius', () => {
+  it('bounds every decorative radius to the documented range', () => {
+    expect(NEBULA_SCHEMATIC_RADIUS_MIN_LY).toBe(600);
+    expect(NEBULA_SCHEMATIC_RADIUS_MAX_LY).toBe(1_800);
+    expect(nebulaCloudRadiusLy(0)).toBe(NEBULA_SCHEMATIC_RADIUS_MIN_LY);
+    expect(nebulaCloudRadiusLy(1)).toBe(NEBULA_SCHEMATIC_RADIUS_MAX_LY);
+    for (const hash of [
+      -100,
+      -1,
+      0,
+      0.1,
+      0.5,
+      0.9,
+      1,
+      2,
+      100,
+      NaN,
+      Infinity,
+      -Infinity,
+    ]) {
+      const radius = nebulaCloudRadiusLy(hash);
+      expect(Number.isFinite(radius)).toBe(true);
+      expect(radius).toBeGreaterThanOrEqual(NEBULA_SCHEMATIC_RADIUS_MIN_LY);
+      expect(radius).toBeLessThanOrEqual(NEBULA_SCHEMATIC_RADIUS_MAX_LY);
+      expect(nebulaCloudRadiusLy(hash)).toBe(radius);
+    }
   });
 });
