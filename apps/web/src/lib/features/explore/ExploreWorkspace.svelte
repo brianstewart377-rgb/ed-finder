@@ -487,15 +487,20 @@
       return;
     rankingNotice =
       'Search anchor could not be restored; choose a system again.';
-    void navigateWithAnchor(
-      exploreDestination(
-        serializeExploreSearchParams(
-          { near: null, bodyFilters },
-          page.url.searchParams,
-        ),
-      ),
-      { replaceState: true, state: { anchor: null } },
+    // An Any-mode link's pagination belonged to the nearby search; dropping
+    // the anchor must leave no results intent behind, or the page would run a
+    // galaxy-wide search the user never asked for. A picked archetype is a
+    // galaxy-wide ranking in its own right and keeps its parameters.
+    let params = serializeExploreSearchParams(
+      { near: null, bodyFilters },
+      page.url.searchParams,
     );
+    if (rankingState.archetype === 'any')
+      params = stripRankingSearchParams(params);
+    void navigateWithAnchor(exploreDestination(params), {
+      replaceState: true,
+      state: { anchor: null, finderRequested: false },
+    });
   });
 
   $effect(() => {
@@ -582,10 +587,15 @@
       { near: nearId, bodyFilters: committed },
       page.url.searchParams,
     );
-    params.delete('offset');
+    // Paused chips do not take part in the active search, so clearing them
+    // must not move a ranking off its current page.
+    const nextRankingState = bodyFiltersPaused
+      ? rankingState
+      : { ...rankingState, offset: 0 };
+    if (!bodyFiltersPaused) params.delete('offset');
     const destination = exploreDestination(
       FINDER_F4_ENABLED
-        ? serializeRankingSearchParams({ ...rankingState, offset: 0 }, params)
+        ? serializeRankingSearchParams(nextRankingState, params)
         : stripRankingSearchParams(params),
     );
     // Applying the same draft still means one refresh. A changed query is

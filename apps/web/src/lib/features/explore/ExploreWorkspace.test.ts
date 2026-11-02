@@ -2691,6 +2691,26 @@ describe.each([false, true])(
       },
     );
 
+    it('drops Any-mode pagination with an unresolvable near so no galaxy-wide search runs', async () => {
+      vi.mocked(api.getSystem).mockRejectedValue(new Error('Missing system'));
+      renderEnabled(
+        `near=${anchorA.id64}&page_size=25&offset=25&bodies=elw_count:1-`,
+      );
+      await screen.findByText(
+        'Search anchor could not be restored; choose a system again.',
+      );
+      await waitFor(() =>
+        expect(mockedPage.url.searchParams.has('page_size')).toBe(false),
+      );
+      expect(mockedPage.url.searchParams.has('offset')).toBe(false);
+      expect(mockedPage.url.searchParams.has('near')).toBe(false);
+      expect(mockedPage.url.searchParams.get('bodies')).toBe('elw_count:1-');
+      expect(mockedPage.state.finderRequested).not.toBe(true);
+      expect(api.searchExploreSystems).not.toHaveBeenCalled();
+      expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+      expect(screen.getByText('Paused')).toBeInTheDocument();
+    });
+
     it('accepts Sol as a real origin anchor', async () => {
       vi.mocked(api.getSystem).mockResolvedValue(
         anchorDetail({
@@ -2802,6 +2822,29 @@ describe('Explore body filters in archetype mode', () => {
     featureGate.enabled = false;
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it('keeps a ranking on its page when a paused chip is removed or cleared', async () => {
+    renderEnabled(
+      `archetype=manufacturing_hub&page_size=1&offset=1&near=${anchorA.id64}&bodies=elw_count:1-,ww_count:2-`,
+      { anchor: anchorA },
+    );
+    await screen.findByText('Ranked 2');
+    expect(screen.getAllByText('Paused')).toHaveLength(2);
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Remove Earth-like filter' }),
+    );
+    await waitFor(() =>
+      expect(mockedPage.url.searchParams.get('bodies')).toBe('ww_count:2-'),
+    );
+    expect(mockedPage.url.searchParams.get('offset')).toBe('1');
+    await fireEvent.click(screen.getByRole('button', { name: 'Clear all' }));
+    await waitFor(() =>
+      expect(mockedPage.url.searchParams.has('bodies')).toBe(false),
+    );
+    expect(mockedPage.url.searchParams.get('offset')).toBe('1');
+    expect(screen.getByText('Ranked 2')).toBeInTheDocument();
+    expect(api.searchExploreSystems).not.toHaveBeenCalled();
   });
 
   it('pauses filters for selected rankings and restores them on Any with one anchored request', async () => {
