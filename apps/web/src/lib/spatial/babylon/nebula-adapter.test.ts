@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { Constants } from '@babylonjs/core/Engines/constants.js';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
 import { describe, expect, it, vi } from 'vitest';
@@ -82,7 +83,7 @@ function visibleInstances(mesh: Mesh | null): number {
 describe('Babylon nebula inventory and current camera receipts', () => {
   it.each([
     { distanceLy: 118_000, diffuseShown: 249, planetaryShown: 0 },
-    { distanceLy: 2_000, diffuseShown: 0, planetaryShown: 5_496 },
+    { distanceLy: 2_000, diffuseShown: 249, planetaryShown: 5_496 },
   ])(
     'reports the real parsed asset and actual instances at $distanceLy LY',
     ({ distanceLy, diffuseShown, planetaryShown }) => {
@@ -105,6 +106,7 @@ describe('Babylon nebula inventory and current camera receipts', () => {
         );
         expect(payload.nebulae).toHaveLength(5_842);
         expect(product.nebulaMesh?.thinInstanceCount).toBe(249);
+        expect(product.nebulaCloudMesh?.thinInstanceCount).toBe(747);
         expect(product.planetaryNebulaMesh?.thinInstanceCount).toBe(5_496);
         const renderedTargetCount =
           visibleInstances(product.nebulaMesh) +
@@ -133,6 +135,12 @@ describe('Babylon nebula inventory and current camera receipts', () => {
                   selectedLandmarkCount: 249,
                   deduplicatedEntryCount: 97,
                   currentlyVisibleCount: diffuseShown,
+                  clouds: {
+                    selectedLandmarkCount: 249,
+                    enabledLandmarkCount: distanceLy > 2_000 ? 249 : 0,
+                    enabledQuadCount: distanceLy > 2_000 ? 747 : 0,
+                    quadsPerLandmark: 3,
+                  },
                 },
                 'planetary-nebula': {
                   catalogueRecordCount: 5_496,
@@ -167,6 +175,57 @@ describe('Babylon nebula inventory and current camera receipts', () => {
     },
   );
 
+  it('batches non-pickable clouds on one soft additive atlas and disposes their GPU resources', () => {
+    const engine = new NullEngine();
+    try {
+      const product = createBabylonGalaxyScene(
+        engine,
+        contractAt(
+          parseFixture([
+            diffuse,
+            { ...diffuse, id: 'MAPCHARTS:5', coordinates: [8_000, 0, 0] },
+          ]),
+          8_000,
+        ),
+      );
+      const markerMesh = product.nebulaMesh!;
+      const cloudMesh = product.nebulaCloudMesh!;
+      const material = cloudMesh.material!;
+      expect(markerMesh.thinInstanceCount).toBe(2);
+      expect(markerMesh.isPickable).toBe(false);
+      expect(markerMesh.thinInstanceEnablePicking).toBe(false);
+      expect(
+        markerMesh
+          .thinInstanceGetWorldMatrices()[0]
+          ?.getTranslation()
+          .asArray(),
+      ).toEqual([125, -34, 912]);
+      expect(cloudMesh.thinInstanceCount).toBe(6);
+      expect(cloudMesh.getTotalVertices()).toBe(4);
+      expect(cloudMesh.getTotalIndices()).toBe(6);
+      expect(cloudMesh.subMeshes).toHaveLength(1);
+      expect(cloudMesh.isPickable).toBe(false);
+      expect(cloudMesh.thinInstanceEnablePicking).toBe(false);
+      expect(material.alphaMode).toBe(Constants.ALPHA_ADD);
+      expect(material.disableDepthWrite).toBe(true);
+      expect(material.backFaceCulling).toBe(false);
+      const textures = material.getActiveTextures();
+      expect(textures).toHaveLength(1);
+      const atlas = textures[0]!;
+      expect(atlas.getSize()).toEqual({ width: 128, height: 128 });
+      const disposeAtlas = vi.spyOn(atlas, 'dispose');
+      const disposeMaterial = vi.spyOn(material, 'dispose');
+      cloudMesh.dispose();
+      expect(disposeMaterial).toHaveBeenCalledOnce();
+      expect(disposeAtlas).toHaveBeenCalledOnce();
+      product.scene.dispose();
+      expect(disposeMaterial).toHaveBeenCalledOnce();
+      expect(disposeAtlas).toHaveBeenCalledOnce();
+    } finally {
+      engine.dispose();
+    }
+  });
+
   it.each([
     {
       label: 'mixed overview',
@@ -178,7 +237,7 @@ describe('Babylon nebula inventory and current camera receipts', () => {
       label: 'mixed close',
       entries: [diffuse, ...planetary],
       distanceLy: 2_000,
-      shown: 3,
+      shown: 4,
     },
     {
       label: 'mixed overlap',
@@ -200,10 +259,10 @@ describe('Babylon nebula inventory and current camera receipts', () => {
     },
     { label: 'empty', entries: [], distanceLy: 3_000, shown: 0 },
     {
-      label: 'diffuse faded out',
+      label: 'diffuse landmark persists when its cloud fades out',
       entries: [diffuse],
       distanceLy: 2_000,
-      shown: 0,
+      shown: 1,
     },
   ])(
     'keeps accepted and rendered counts distinct for $label',
@@ -241,7 +300,7 @@ describe('Babylon nebula inventory and current camera receipts', () => {
     },
   );
 
-  it('updates planetary visibility, per-kind metadata and receipts on camera commands without reloading', () => {
+  it('keeps diffuse markers while clouds fade with hysteresis and updates receipts without reloading', () => {
     const engine = new NullEngine();
     const session = createBabylonSession(engine, 'WEBGL2');
     const events = vi.fn();
@@ -257,6 +316,11 @@ describe('Babylon nebula inventory and current camera receipts', () => {
       const planetaryMesh = scene.meshes.find(
         (mesh) => mesh.metadata?.spatialLayer?.kind === 'planetary-nebula',
       ) as Mesh;
+      const cloudMesh = scene.meshes.find(
+        (mesh) => mesh.metadata?.spatialLayer?.kind === 'nebula-cloud',
+      ) as Mesh;
+      expect(cloudMesh.thinInstanceCount).toBe(3);
+      const cloudMatrices = cloudMesh.thinInstanceGetWorldMatrices();
       expect(planetaryMesh.isPickable).toBe(false);
       expect(
         planetaryMesh
@@ -282,43 +346,61 @@ describe('Babylon nebula inventory and current camera receipts', () => {
         {
           distanceLy: 8_000,
           planetaryVisibility: 0,
-          diffuseVisibility: 1,
+          cloudVisibility: 1,
           shown: 1,
         },
         {
           distanceLy: 4_000,
           planetaryVisibility: 0,
-          diffuseVisibility: 1 / 3,
+          cloudVisibility: 1 / 3,
           shown: 1,
         },
         {
           distanceLy: 3_500,
           planetaryVisibility: 0.5,
-          diffuseVisibility: 0.25,
+          cloudVisibility: 0.25,
           shown: 4,
         },
         {
           distanceLy: 3_000,
           planetaryVisibility: 1,
-          diffuseVisibility: 1 / 6,
+          cloudVisibility: 1 / 6,
           shown: 4,
         },
         {
           distanceLy: 2_000,
           planetaryVisibility: 1,
-          diffuseVisibility: 0,
-          shown: 3,
+          cloudVisibility: 0,
+          shown: 4,
+        },
+        {
+          distanceLy: 2_200,
+          planetaryVisibility: 1,
+          cloudVisibility: 0,
+          shown: 4,
+        },
+        {
+          distanceLy: 2_400,
+          planetaryVisibility: 1,
+          cloudVisibility: 1 / 15,
+          shown: 4,
+        },
+        {
+          distanceLy: 2_200,
+          planetaryVisibility: 1,
+          cloudVisibility: 1 / 30,
+          shown: 4,
         },
         {
           distanceLy: 400,
           planetaryVisibility: 1,
-          diffuseVisibility: 0,
-          shown: 3,
+          cloudVisibility: 0,
+          shown: 4,
         },
         {
           distanceLy: 118_000,
           planetaryVisibility: 0,
-          diffuseVisibility: 1,
+          cloudVisibility: 1,
           shown: 1,
         },
       ].entries()) {
@@ -339,9 +421,12 @@ describe('Babylon nebula inventory and current camera receipts', () => {
         expect(planetaryMesh.visibility).toBeCloseTo(
           sample.planetaryVisibility,
         );
-        expect(diffuseMesh.visibility).toBeCloseTo(sample.diffuseVisibility);
+        expect(diffuseMesh.visibility).toBe(1);
+        expect(diffuseMesh.isEnabled()).toBe(true);
+        expect(cloudMesh.visibility).toBeCloseTo(sample.cloudVisibility);
         expect(planetaryMesh.isEnabled()).toBe(sample.planetaryVisibility > 0);
-        expect(diffuseMesh.isEnabled()).toBe(sample.diffuseVisibility > 0);
+        expect(cloudMesh.isEnabled()).toBe(sample.cloudVisibility > 0);
+        expect(cloudMesh.thinInstanceGetWorldMatrices()).toBe(cloudMatrices);
         expect(
           visibleInstances(diffuseMesh) + visibleInstances(planetaryMesh),
         ).toBe(sample.shown);
@@ -356,9 +441,11 @@ describe('Babylon nebula inventory and current camera receipts', () => {
         expect(planetaryMesh.metadata.spatialLayer.renderedPointCount).toBe(
           sample.planetaryVisibility > 0 ? 3 : 0,
         );
-        expect(diffuseMesh.metadata.spatialLayer.renderedPointCount).toBe(
-          sample.diffuseVisibility > 0 ? 1 : 0,
-        );
+        expect(diffuseMesh.metadata.spatialLayer.renderedPointCount).toBe(1);
+        expect(cloudMesh.metadata.spatialLayer).toMatchObject({
+          enabledLandmarkCount: sample.cloudVisibility > 0 ? 1 : 0,
+          enabledQuadCount: sample.cloudVisibility > 0 ? 3 : 0,
+        });
         expect(scene.metadata.spatialScene.nebulae.currentlyVisibleCount).toBe(
           sample.shown,
         );
@@ -370,7 +457,7 @@ describe('Babylon nebula inventory and current camera receipts', () => {
           renderedLayers: expect.arrayContaining([
             expect.objectContaining({
               acceptedTargetCount: 4,
-              renderedTargetCount: 3,
+              renderedTargetCount: 4,
             }),
           ]),
         }),
@@ -404,6 +491,7 @@ describe('Babylon nebula inventory and current camera receipts', () => {
         contractAt(parseFixture([...entries].reverse()), 8_000),
       );
       expect(forward.nebulaMesh?.thinInstanceCount).toBe(2);
+      expect(forward.nebulaCloudMesh?.thinInstanceCount).toBe(6);
       expect(
         forward.nebulaMesh?.metadata.spatialLayer.selectedLandmarkIds,
       ).toEqual(['MAPCHARTS:2', 'MAPCHARTS:5']);
@@ -416,6 +504,15 @@ describe('Babylon nebula inventory and current camera receipts', () => {
           .map((matrix) => Array.from(matrix.asArray())),
       ).toEqual(
         forward.nebulaMesh
+          ?.thinInstanceGetWorldMatrices()
+          .map((matrix) => Array.from(matrix.asArray())),
+      );
+      expect(
+        reverse.nebulaCloudMesh
+          ?.thinInstanceGetWorldMatrices()
+          .map((matrix) => Array.from(matrix.asArray())),
+      ).toEqual(
+        forward.nebulaCloudMesh
           ?.thinInstanceGetWorldMatrices()
           .map((matrix) => Array.from(matrix.asArray())),
       );

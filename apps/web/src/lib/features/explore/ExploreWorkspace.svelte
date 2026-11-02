@@ -63,6 +63,7 @@
   import SpatialCanvas from '$lib/spatial/SpatialCanvas.svelte';
   import type {
     CameraState,
+    GalaxySystemPoint,
     RenderedLayerReceipt,
     RuntimeEvent,
     SpatialContribution,
@@ -177,6 +178,18 @@
     return readExploreAnchor({ anchor: detail });
   });
   const bodyFilters = $derived(parsedSearch.bodyFilters);
+  const mapAnchorPoint = $derived<GalaxySystemPoint | null>(
+    anchor &&
+      typeof anchor.x === 'number' &&
+      typeof anchor.y === 'number' &&
+      typeof anchor.z === 'number'
+      ? {
+          systemId64: anchor.id64,
+          name: anchor.name,
+          positionLy: { x: anchor.x, y: anchor.y, z: anchor.z },
+        }
+      : null,
+  );
   let anchorSelectionRevision = $state(0);
   let focusedAnchorRevision = 0;
   let hydratedAnchorIdentity: string | undefined;
@@ -193,6 +206,7 @@
   let regionResourceRevision = $state(0);
   let selectedRegionId = $state<string | null>(null);
   let hoveredRegionId = $state<string | null>(null);
+  let hoveredSystemId = $state<string | null>(null);
   let cameraRequest = $state<CameraState | null>(null);
   let cameraRequestRevision = $state(0);
   let spatialCameraTransitionActive = $state(false);
@@ -248,22 +262,19 @@
     )
       return 'Preparing nebula landmarks…';
     const visibility = galaxyNebulaVisibility(nebulaCameraDistanceLy);
-    const diffuseFaded = nebulaKinds.diffuse && visibility.nebula === 0;
     const count = renderedNebulaReceipt.renderedTargetCount;
     if (count === 0) {
-      if (diffuseFaded)
-        return 'No landmarks at this zoom · diffuse landmarks faded out';
       if (nebulaKinds.planetary && visibility['planetary-nebula'] === 0)
         return 'No landmarks at this zoom · planetary nebulae appear at close range';
       return 'No landmarks at this zoom';
     }
     const kinds = [
-      nebulaKinds.diffuse && visibility.nebula > 0 ? 'diffuse' : null,
+      nebulaKinds.diffuse ? 'diffuse' : null,
       nebulaKinds.planetary && visibility['planetary-nebula'] > 0
         ? 'planetary'
         : null,
     ].filter(Boolean);
-    return `${count.toLocaleString()} ${count === 1 ? 'landmark' : 'landmarks'} shown (${kinds.join(' and ')} nebulae)${diffuseFaded ? ' · diffuse landmarks faded out' : ''}`;
+    return `${count.toLocaleString()} ${count === 1 ? 'landmark' : 'landmarks'} shown (${kinds.join(' and ')} nebulae)${nebulaKinds.diffuse ? ' · schematic extent (clouds fade on approach)' : ''}`;
   });
 
   const normalizedQuery = $derived(query.trim());
@@ -1305,6 +1316,26 @@
     focusRevision += 1;
   }
 
+  function selectMapSystem(point: GalaxySystemPoint): void {
+    try {
+      selectResult({
+        id64: parseId64(point.systemId64),
+        name: point.name,
+        coords: point.positionLy,
+        main_star_type: point.primaryStar?.type,
+        main_star_subtype: point.primaryStar?.subtype,
+        population: point.summary?.population,
+        primaryEconomy: point.summary?.primaryEconomy,
+        secondaryEconomy: point.summary?.secondaryEconomy,
+        security: point.summary?.security,
+        allegiance: point.summary?.allegiance,
+        government: point.summary?.government,
+      });
+    } catch {
+      // Preserve the same fail-closed identity boundary as canvas picking.
+    }
+  }
+
   function handleResultKeydown(
     event: KeyboardEvent,
     system: ExploreSystem,
@@ -1356,6 +1387,8 @@
     } else if (event.type === 'TARGET_HOVERED') {
       hoveredRegionId =
         event.target?.kind === 'region' ? event.target.id : null;
+      hoveredSystemId =
+        event.target?.kind === 'system' ? event.target.systemId64 : null;
     } else if (event.type === 'TARGET_PICKED') {
       if (event.target?.kind === 'region') {
         selectRegion(event.target.id);
@@ -1936,6 +1969,7 @@
     <section
       class="map-panel"
       aria-labelledby="map-title"
+      data-hovered-system-id={hoveredSystemId ?? ''}
       bind:this={mapSection}
     >
       <div class="panel-heading">
@@ -2177,6 +2211,15 @@
       </div>
       <SpatialCanvas
         {scene}
+        anchorPoint={mapAnchorPoint}
+        onSystemSelect={selectMapSystem}
+        systemInspectHref={(point) =>
+          FINDER_F4_ENABLED
+            ? inspectHref(parseId64(point.systemId64), page.url)
+            : resolve(`/inspect?system=${point.systemId64}`)}
+        onSystemInspect={FINDER_F4_ENABLED
+          ? (event, point) => followInspect(event, parseId64(point.systemId64))
+          : undefined}
         {cameraRequest}
         {cameraRequestRevision}
         {focusTarget}

@@ -1,9 +1,14 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
+  import { onDestroy } from 'svelte';
+  import { get } from 'svelte/store';
+  import { ApiError } from '$lib/api/client';
+  import { refreshCompareSnapshot } from '$lib/api/compare';
   import { FINDER_F4_ENABLED } from '$lib/config';
   import type { Id64 } from '$lib/domain/id64';
   import { usePersistenceContext } from '$lib/persistence/context';
+  import type { CompareEntry } from '$lib/persistence/storage';
   import {
     buildCompareNotes,
     buildCompareRows,
@@ -29,14 +34,74 @@
   );
   const componentId = $props.id();
   const headingId = `${componentId}-compare-title`;
+  let refreshing = $state(false);
+  let refreshStatus = $state('');
+  let refreshFailures = $state<Record<string, 'unknown' | 'unavailable'>>({});
+  let refreshController: AbortController | null = null;
+  onDestroy(() => refreshController?.abort());
+
+  async function refresh(candidates: readonly CompareEntry[]): Promise<void> {
+    if (refreshing) return;
+    refreshing = true;
+    refreshStatus = 'Refreshing comparison…';
+    const controller = new AbortController();
+    refreshController = controller;
+    const requested = candidates.slice(0, COMPARE_MAX);
+    const results = await Promise.allSettled(
+      requested.map((entry) =>
+        refreshCompareSnapshot(entry, controller.signal),
+      ),
+    );
+    if (controller.signal.aborted) return;
+    const replacements: { original: CompareEntry; value: CompareEntry }[] = [];
+    const failures = { ...refreshFailures };
+    const currentEntries = get(compare).value;
+    results.forEach((result, index) => {
+      const original = requested[index];
+      if (!currentEntries.includes(original)) return;
+      if (result.status === 'fulfilled') {
+        replacements.push({ original, value: result.value });
+        delete failures[original.id64];
+      } else {
+        failures[original.id64] =
+          result.reason instanceof ApiError &&
+          (result.reason.status === 404 || result.reason.status === 422)
+            ? 'unknown'
+            : 'unavailable';
+      }
+    });
+    // Use the current list so removal, clearing or a newer saved snapshot while
+    // a request is in flight cannot be undone by its response.
+    if (replacements.length > 0)
+      compare.set(
+        get(compare).value.map(
+          (entry) =>
+            replacements.find(({ original }) => original === entry)?.value ??
+            entry,
+        ),
+      );
+    refreshFailures = failures;
+    refreshStatus = results.every((result) => result.status === 'fulfilled')
+      ? 'Comparison refreshed.'
+      : 'Some systems could not be refreshed. Their saved values are retained.';
+    refreshing = false;
+    refreshController = null;
+  }
 
   function remove(id64: Id64): void {
     compare.set(entries.filter((entry) => entry.id64 !== id64));
+    const failures = { ...refreshFailures };
+    delete failures[id64];
+    refreshFailures = failures;
   }
 
   function clear(): void {
-    if (window.confirm(`Clear all ${entries.length} systems from comparison?`))
+    if (
+      window.confirm(`Clear all ${entries.length} systems from comparison?`)
+    ) {
       compare.set([]);
+      refreshFailures = {};
+    }
   }
 
   function exportCsv(): void {
@@ -92,6 +157,12 @@
     >
     {#if entries.length > 0}
       <div class="compare-actions">
+        <button
+          type="button"
+          class="secondary-button"
+          disabled={refreshing}
+          onclick={() => void refresh(entries)}>Refresh</button
+        >
         <button type="button" class="secondary-button" onclick={exportCsv}
           >Export CSV</button
         >
@@ -108,6 +179,8 @@
       may not survive a reload.
     </p>
   {/if}
+
+  {#if refreshStatus}<p role="status">{refreshStatus}</p>{/if}
 
   {#if entries.length === 0}
     <div class="compare-empty">
@@ -156,6 +229,29 @@
                       : undefined}>{entry.name}</a
                   >
                   <!-- eslint-enable svelte/no-navigation-without-resolve -->
+                {/if}
+                {#if refreshFailures[entry.id64]}
+                  <span
+                    class="snapshot-detail"
+                    data-unavailable-fields
+                    data-availability={refreshFailures[entry.id64]}
+                    role="status"
+                  >
+                    {#if refreshFailures[entry.id64] === 'unknown'}
+                      Unknown — the published source has no current value for
+                      this system. Saved values are retained.
+                    {:else}
+                      Temporarily unavailable — refresh failed. Saved values are
+                      retained.
+                      <button
+                        type="button"
+                        class="secondary-button"
+                        disabled={refreshing}
+                        aria-label={`Retry ${entry.name}`}
+                        onclick={() => void refresh([entry])}>Retry</button
+                      >
+                    {/if}
+                  </span>
                 {/if}
                 {#if FINDER_F4_ENABLED}
                   <span class="snapshot-detail"
@@ -220,8 +316,10 @@
     </p>
   {/if}
   <p class="compare-note">
-    Saved in this browser. Values and search reference distances reflect when
-    each system was added.
+    Saved in this browser. Values reflect the capture time shown. Refresh
+    explicitly loads the current published Finder values. Search reference
+    distances retain their own capture time when the reference cannot be
+    refreshed.
   </p>
 </section>
 

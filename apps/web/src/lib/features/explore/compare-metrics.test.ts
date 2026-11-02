@@ -10,6 +10,7 @@ import {
   compareCsv,
   COMPARE_MAX,
   snapshotDistance,
+  snapshotCapturedAt,
   snapshotProvenanceSummary,
   snapshotScoreSummary,
 } from './compare-metrics';
@@ -25,9 +26,20 @@ const entry = (
 });
 
 describe('comparison snapshots', () => {
+  it('does not replace an explicitly unknown capture time with the later pin time', () => {
+    expect(
+      snapshotCapturedAt(
+        entry('1', {
+          captured_at: null,
+          pinned_at: '2026-11-02T12:00:00Z',
+        }),
+      ),
+    ).toBeNull();
+  });
   it('retains the V2 metric set and the six-system limit', () => {
     expect(COMPARE_MAX).toBe(6);
     expect(buildCompareRows([]).map((row) => row.label)).toEqual([
+      'Captured at',
       'Development score',
       'Primary archetype',
       'Secondary archetype',
@@ -102,13 +114,10 @@ describe('comparison snapshots', () => {
       'Population unknown',
     ]);
     expect(cells('Distance from ref').map((cell) => cell.display)).toEqual([
-      'Unavailable',
-      'Unavailable',
+      'Unknown',
+      'Unknown',
     ]);
-    expect(cells('ELW').map((cell) => cell.display)).toEqual([
-      '0',
-      'Unavailable',
-    ]);
+    expect(cells('ELW').map((cell) => cell.display)).toEqual(['0', 'Unknown']);
     expect(cells('Purity').every((cell) => !cell.best)).toBe(true);
     expect(
       buildCompareRows([entry('3')]).find((row) => row.label === 'Status')
@@ -129,7 +138,7 @@ describe('comparison snapshots', () => {
     expect(csv).toContain(
       '"Primary archetype","Refinery / Industrial Megacomplex"',
     );
-    expect(csv).toContain('"Landable","Unavailable"');
+    expect(csv).toContain('"Landable","Unknown"');
   });
 
   it('keeps explicit flag-off rows and CSV identical to the released defaults', () => {
@@ -499,7 +508,7 @@ describe('F4 mode- and reference-safe comparison', () => {
     ];
     expect(
       metric(entries, 'Distance from Sol')?.cells.map((cell) => cell.display),
-    ).toEqual(['Unavailable', 'Unavailable', '-1.00 LY', '0.00 LY']);
+    ).toEqual(['Unknown', 'Unknown', '-1.00 LY', '0.00 LY']);
     expect(
       metric(entries, 'Distance from Sol')?.cells.map((cell) => cell.best),
     ).toEqual([false, false, true, false]);
