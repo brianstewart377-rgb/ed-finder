@@ -356,10 +356,19 @@ describe('hierarchical System Map Babylon presentation', () => {
       expect(scene.pick(screenX * dpr, screenY * dpr)?.hit).toBe(false);
       for (const type of ['PICK', 'HOVER'] as const) {
         session.execute?.({ type, screenX, screenY }, emit);
-        expect(emit).toHaveBeenLastCalledWith({
-          type: type === 'PICK' ? 'TARGET_PICKED' : 'TARGET_HOVERED',
-          target: { kind: 'body', ref: { systemId64: '42', bodyId: 3 } },
-        });
+        expect(emit).toHaveBeenLastCalledWith(
+          type === 'PICK'
+            ? {
+                type: 'TARGET_PICKED',
+                target: { kind: 'body', ref: { systemId64: '42', bodyId: 3 } },
+              }
+            : {
+                type: 'TARGET_HOVERED',
+                target: { kind: 'body', ref: { systemId64: '42', bodyId: 3 } },
+                screenX,
+                screenY,
+              },
+        );
       }
       session.execute?.(
         { type: 'PICK', screenX: centre.x / dpr + 7, screenY },
@@ -478,10 +487,12 @@ describe('hierarchical System Map Babylon presentation', () => {
       bodyId: 10,
     });
     expect(hoverLinks.metadata.links).toHaveLength(5);
-    expect(emit).toHaveBeenCalledWith({
-      type: 'TARGET_HOVERED',
-      target: { kind: 'body', ref: { systemId64: '42', bodyId: 9 } },
-    });
+    expect(emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'TARGET_HOVERED',
+        target: { kind: 'body', ref: { systemId64: '42', bodyId: 9 } },
+      }),
+    );
 
     session.execute?.({ type: 'CLEAR_HOVER' }, emit);
     expect(hoverLinks.isDisposed()).toBe(true);
