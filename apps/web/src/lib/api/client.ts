@@ -48,6 +48,7 @@ import {
   claimOwnerApiV1AuthOwnerClaimPost,
   frontierLinkApiV1AuthFrontierLinkPost,
   getArchetypeRankingsApiArchetypesRankingsGet,
+  getSystemArchetypesApiArchetypesSystemId64Get,
   getSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGet,
   getProfileSyncApiProfileSyncSyncKeyGet,
   getV3CurrentGeneration,
@@ -605,6 +606,8 @@ export type SystemDetailStation = Readonly<{
   bodyKey: string | null;
   /** Primary first, then secondary, then the rest by share. */
   economies: readonly SystemDetailStationEconomy[];
+  /** Observation time, when supplied; the canonical station read has none. */
+  lastObservedAt?: string | null;
 }>;
 
 /**
@@ -627,6 +630,9 @@ export type SystemDetail = Readonly<{
   sourceBodyCount: number | null;
   loadedBodyCount: number;
   sourceUpdatedAt: string | null;
+  /** Identity already read by the canonical publication fence. */
+  canonicalGenerationId?: string;
+  canonicalGenerationLabel?: string;
   bodies: readonly SystemDetailBody[];
   stations: readonly SystemDetailStation[];
 }>;
@@ -1060,6 +1066,29 @@ export function normalizeRankingsResponse(
 }
 
 /**
+ * One system's published archetype scores (`GET /api/archetypes/system/{id64}`),
+ * read through the configured generated client so the wire id64 stays a
+ * lossless decimal string. Used by the compare Refresh action.
+ */
+export async function getSystemArchetypes(
+  id64: Id64,
+  signal?: AbortSignal,
+): Promise<SystemArchetypesWire> {
+  const { data } = await getSystemArchetypesApiArchetypesSystemId64Get({
+    path: { id64: parseId64(id64) as unknown as number },
+    throwOnError: true,
+    signal,
+  });
+  if (!data) throw new Error('Empty system archetypes response');
+  return data;
+}
+export type SystemArchetypesWire = NonNullable<
+  Awaited<
+    ReturnType<typeof getSystemArchetypesApiArchetypesSystemId64Get>
+  >['data']
+>;
+
+/**
  * Selected-archetype ranking (`GET /api/archetypes/rankings`). The facade
  * exposes `page_size` 1..50 and maps it to the endpoint's wire `limit`; it
  * accepts no hard filter, so a picked request can never carry one.
@@ -1367,6 +1396,7 @@ function stationDetail(station: StationV1): SystemDetailStation {
     bodyKey:
       station.association_state === BODY_RESOLVED ? station.body_id : null,
     economies: station.economies.map(stationEconomy).sort(economyOrder),
+    lastObservedAt: null,
   };
 }
 
@@ -1450,12 +1480,16 @@ export async function getSystem(
       rings.status === 'fulfilled' &&
       stations.status === 'fulfilled'
     ) {
-      const detail = systemDetailFromV3(
-        system.value.data,
-        bodies.value.data,
-        rings.value.data,
-        stations.value.data,
-      );
+      const detail = {
+        ...systemDetailFromV3(
+          system.value.data,
+          bodies.value.data,
+          rings.value.data,
+          stations.value.data,
+        ),
+        canonicalGenerationId: after.data.generation_id,
+        canonicalGenerationLabel: after.data.generation_key,
+      };
       if (
         FINDER_F4_ENABLED &&
         detail.id64 !== SOL_ID64 &&

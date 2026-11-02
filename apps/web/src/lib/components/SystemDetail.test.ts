@@ -6,6 +6,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/svelte';
+import axe from 'axe-core';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -63,6 +64,19 @@ function detailValue(term: string): string | null {
   return dt.parentElement?.querySelector('dd')?.textContent?.trim() ?? null;
 }
 
+async function openSources(): Promise<HTMLElement> {
+  await fireEvent.click(
+    await screen.findByRole('button', { name: 'Sources & freshness' }),
+  );
+  return screen.findByRole('dialog', { name: 'Sources & freshness' });
+}
+
+function sourceRow(dialog: HTMLElement, product: string): HTMLElement {
+  const row = dialog.querySelector(`[data-source-product="${product}"]`);
+  expect(row).not.toBeNull();
+  return row as HTMLElement;
+}
+
 describe('shared system detail', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -107,15 +121,17 @@ describe('shared system detail', () => {
     expect(detailValue('Bodies returned')).toBe('3');
     expect(detailValue('Stations returned')).toBe('1');
     expect(detailValue('Catalogue updated')).not.toBeNull();
-    // Fields the V3 catalogue does not carry are explicit, never blank.
-    const unavailable = container.querySelectorAll('[data-unavailable-fields]');
+    // Product gaps are explicit and distinct from unknown source values.
+    const unavailable = container.querySelectorAll(
+      '[data-unavailable-fields][data-availability="not-integrated"]',
+    );
     expect(unavailable).toHaveLength(2);
     for (const row of unavailable)
-      expect(within(row as HTMLElement).getByText('Not available yet'));
+      expect(within(row as HTMLElement).getByText('Not integrated yet'));
     expect(
       detailValue('Population, economy, security, allegiance, government'),
-    ).toBe('Not available yet');
-    expect(detailValue('Development fit')).toBe('Not available yet');
+    ).toBe('Not integrated yet');
+    expect(detailValue('Development fit')).toBe('Not integrated yet');
     expect(container.textContent).not.toMatch(/undefined|null|NaN/u);
   });
 
@@ -126,6 +142,337 @@ describe('shared system detail', () => {
     render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });
     await screen.findByRole('heading', { name: 'Reference System' });
     expect(detailValue('Catalogue status')).toBe('Retired from the catalogue');
+  });
+
+  it('shows exactly the sources used with their own known dates and generation identities', async () => {
+    const detail = referenceSystemDetail();
+    const latestObserved = '2026-10-31T16:20:00Z';
+    mockedGetSystem.mockResolvedValue({
+      ...detail,
+      canonicalGenerationId: 'canonical-generation-id',
+      canonicalGenerationLabel: 'canonical-november',
+      stations: [
+        {
+          ...detail.stations[0]!,
+          lastObservedAt: latestObserved,
+          economies: [
+            {
+              economy: 'extraction',
+              weight: null,
+              isPrimary: true,
+              isSecondary: false,
+            },
+          ],
+        },
+        {
+          ...detail.stations[0]!,
+          stationKey: '128000001',
+          name: 'Older Port',
+          lastObservedAt: '2026-10-30T12:00:00Z',
+        },
+      ],
+    });
+    render(SystemDetailTestHost, { props: { id64: detail.id64 } });
+    await screen.findByRole('button', { name: 'Why? Agriculture' });
+    const dialog = await openSources();
+
+    expect(
+      [...dialog.querySelectorAll('[data-source-product]')].map((row) =>
+        row.getAttribute('data-source-product'),
+      ),
+    ).toEqual(['canonical', 'ratings', 'station-observations', 'commander']);
+    const canonical = sourceRow(dialog, 'canonical');
+    expect(canonical).toHaveTextContent(
+      'Bodies, stations list and coordinates',
+    );
+    expect(canonical).toHaveTextContent('canonical-november');
+    expect(canonical).toHaveTextContent('canonical-generation-id');
+    expect(canonical.querySelector('time')).toHaveAttribute(
+      'datetime',
+      detail.sourceUpdatedAt,
+    );
+    expect(within(canonical).getByText('Available')).toBeVisible();
+    const ratings = sourceRow(dialog, 'ratings');
+    expect(ratings).toHaveTextContent('Seven economy potentials');
+    expect(ratings).toHaveTextContent(ratingsIdentity().derivedGenerationId);
+    expect(ratings).toHaveTextContent('Publication 1 · Scorer 4.0.0');
+    // The API supplies the published identity, but no publication timestamp.
+    // Neither the canonical date nor the fetch time may stand in for it.
+    expect(ratings).toHaveTextContent('Published: Unknown');
+    expect(ratings.querySelector('time')).toBeNull();
+    const observations = sourceRow(dialog, 'station-observations');
+    expect(observations.querySelector('time')).toHaveAttribute(
+      'datetime',
+      latestObserved,
+    );
+    expect(within(observations).getByText('Available')).toBeVisible();
+    expect(observations).toHaveTextContent('other stations may be older');
+    const commander = sourceRow(dialog, 'commander');
+    expect(commander).toHaveTextContent(
+      'Population, economy, security, allegiance, government and Development fit',
+    );
+    expect(commander).toHaveTextContent('Not integrated yet');
+    expect(commander).toHaveTextContent(
+      'ED-Finder does not read these fields yet',
+    );
+    // Opening provenance reuses the detail and ratings already on screen.
+    expect(mockedGetSystem).toHaveBeenCalledTimes(1);
+    expect(mockedGetRatings).toHaveBeenCalledTimes(1);
+    expect(mockedGetExplanation).not.toHaveBeenCalled();
+  });
+
+  it.each(['no stations', 'fleet carriers only'] as const)(
+    'omits station observations when the page uses no station economies: %s',
+    async (scenario) => {
+      const detail = referenceSystemDetail();
+      mockedGetSystem.mockResolvedValue({
+        ...detail,
+        stations:
+          scenario === 'no stations'
+            ? []
+            : [{ ...detail.stations[0]!, stationType: 'fleet_carrier' }],
+      });
+      render(SystemDetailTestHost, { props: { id64: detail.id64 } });
+      const dialog = await openSources();
+      expect(
+        [...dialog.querySelectorAll('[data-source-product]')].map((row) =>
+          row.getAttribute('data-source-product'),
+        ),
+      ).toEqual(['canonical', 'ratings', 'commander']);
+      expect(
+        within(dialog).queryByText('Station economies / observations'),
+      ).toBeNull();
+    },
+  );
+
+  it('keeps unknown source values distinct from fields that are not integrated', async () => {
+    mockedGetSystem.mockResolvedValue(
+      referenceSystemDetail({ source_updated_at: null }),
+    );
+    render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });
+    const dialog = await openSources();
+    const canonical = sourceRow(dialog, 'canonical');
+    expect(
+      canonical.querySelector('[data-availability="unknown"]'),
+    ).toHaveTextContent('Unknown');
+    expect(canonical.querySelector('time')).toBeNull();
+    const observations = sourceRow(dialog, 'station-observations');
+    expect(
+      observations.querySelector('[data-availability="unknown"]'),
+    ).toHaveTextContent(
+      'Unknown — the source has no economy value for these stations',
+    );
+    expect(within(observations).getByText('No observation yet')).toBeVisible();
+    expect(observations.querySelector('time')).toBeNull();
+    expect(
+      sourceRow(dialog, 'commander').querySelector(
+        '[data-availability="not-integrated"]',
+      ),
+    ).toHaveTextContent('Not integrated yet');
+    expect(dialog).not.toHaveTextContent('Not available yet');
+    for (const row of dialog.querySelectorAll('[data-unavailable-fields]')) {
+      expect(['unknown', 'not-integrated', 'unavailable']).toContain(
+        row.getAttribute('data-availability'),
+      );
+    }
+  });
+
+  it('keeps returned station economies available without inventing an observation date', async () => {
+    const detail = referenceSystemDetail();
+    mockedGetSystem.mockResolvedValue({
+      ...detail,
+      stations: [
+        {
+          ...detail.stations[0]!,
+          economies: [
+            {
+              economy: 'extraction',
+              weight: null,
+              isPrimary: true,
+              isSecondary: false,
+            },
+          ],
+        },
+      ],
+    });
+    render(SystemDetailTestHost, { props: { id64: detail.id64 } });
+    const observations = sourceRow(await openSources(), 'station-observations');
+    expect(within(observations).getByText('Available')).toBeVisible();
+    expect(within(observations).getByText('No observation yet')).toBeVisible();
+    expect(observations.querySelector('time')).toBeNull();
+    expect(screen.getByText('Extraction (primary)')).toBeVisible();
+  });
+
+  it('marks unrated systems Unknown in sources without fabricating zero potentials or offering Retry', async () => {
+    mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+    mockedGetRatings.mockRejectedValueOnce(
+      new ApiError(404, '/api/ratings/v4/systems/10477373803', {}),
+    );
+    render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });
+    await screen.findByText(
+      /the published source has no ratings for this system\./u,
+    );
+    const ratings = sourceRow(await openSources(), 'ratings');
+    expect(ratings.querySelector('[data-unavailable-fields]')).toHaveAttribute(
+      'data-availability',
+      'unknown',
+    );
+    expect(within(ratings).getByText('Unknown')).toBeVisible();
+    expect(within(ratings).queryByRole('button', { name: 'Retry' })).toBeNull();
+    expect(document.querySelector('[data-rating-economy]')).toBeNull();
+    expect(mockedGetRatings).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a temporarily unavailable ratings source once from the pop-out', async () => {
+    mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+    mockedGetRatings
+      .mockRejectedValueOnce(
+        new ApiError(503, '/api/ratings/v4/systems/10477373803', {}),
+      )
+      .mockRejectedValueOnce(
+        new ApiError(503, '/api/ratings/v4/systems/10477373803', {}),
+      );
+    render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });
+    await screen.findByText(
+      /economy ratings could not be loaded\./u,
+      {},
+      { timeout: 3_000 },
+    );
+    const dialog = await openSources();
+    const ratings = sourceRow(dialog, 'ratings');
+    expect(ratings.querySelector('[data-unavailable-fields]')).toHaveAttribute(
+      'data-availability',
+      'unavailable',
+    );
+    expect(within(ratings).getByText('Temporarily unavailable')).toBeVisible();
+    expect(ratings).toHaveTextContent('the ratings request failed');
+    const callsBeforeRetry = mockedGetRatings.mock.calls.length;
+
+    await fireEvent.click(
+      within(ratings).getByRole('button', { name: 'Retry' }),
+    );
+
+    await within(ratings).findByText('Available');
+    expect(ratings).toHaveTextContent(ratingsIdentity().derivedGenerationId);
+    expect(within(ratings).queryByRole('button', { name: 'Retry' })).toBeNull();
+    expect(mockedGetRatings).toHaveBeenCalledTimes(callsBeforeRetry + 1);
+    expect(mockedGetSystem).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['Escape', 'Close', 'outside', 'trigger'] as const)(
+    'opens a non-modal sources dialog and closes on %s with focus restored',
+    async (method) => {
+      mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+      render(SystemDetailTestHost, {
+        props: { id64: parseId64('10477373803') },
+      });
+      const trigger = await screen.findByRole('button', {
+        name: 'Sources & freshness',
+      });
+      trigger.focus();
+      const dialog = await openSources();
+      expect(dialog).toHaveAttribute('aria-modal', 'false');
+      expect(dialog).toHaveFocus();
+      expect(trigger).toHaveAttribute('aria-expanded', 'true');
+      if (method === 'Escape')
+        await fireEvent.keyDown(window, { key: 'Escape' });
+      else if (method === 'Close')
+        await fireEvent.click(
+          within(dialog).getByRole('button', { name: 'Close' }),
+        );
+      else if (method === 'outside') await fireEvent.click(document.body);
+      else await fireEvent.click(trigger);
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      expect(trigger).toHaveFocus();
+    },
+  );
+
+  it('has no axe violations with Sources & freshness open', async () => {
+    mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+    render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });
+    await screen.findByRole('button', { name: 'Why? Agriculture' });
+    const dialog = await openSources();
+    const result = await axe.run(dialog, {
+      rules: { 'color-contrast': { enabled: false } },
+    });
+    expect(result.violations).toEqual([]);
+  });
+
+  it('allows focus to leave the non-modal pop-out and still handles Escape first', async () => {
+    mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+    render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });
+    const dialog = await openSources();
+    const body = screen.getByRole('button', {
+      name: 'Reference System 3 Planet',
+    });
+    body.focus();
+    await fireEvent.keyDown(body, { key: 'Tab' });
+    expect(body).toHaveFocus();
+    expect(dialog).toBeVisible();
+
+    await fireEvent.keyDown(body, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Sources & freshness' }),
+    ).toHaveFocus();
+  });
+
+  it('clears the open sources and previous ratings identity when moving to a cached system', async () => {
+    const first = parseId64('10477373803');
+    const next = parseId64('42');
+    const nextIdentity = ratingsIdentity({
+      derivedGenerationId: 'next-generation',
+      publicationSequence: '2',
+    });
+    let complete!: (ratings: ReturnType<typeof referenceSystemRatings>) => void;
+    mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+    mockedGetRatings.mockImplementation((id64) =>
+      id64 === first
+        ? Promise.resolve(referenceSystemRatings())
+        : new Promise((resolve) => {
+            complete = resolve;
+          }),
+    );
+    queryClient.setQueryData(queryKeys.system(next), {
+      ...referenceSystemDetail({ id64: next, name: 'Second System' }),
+      canonicalGenerationLabel: 'second-canonical',
+      stations: [],
+    });
+    const view = render(SystemDetailTestHost, { props: { id64: first } });
+    await screen.findByRole('button', { name: 'Why? Agriculture' });
+    const original = await openSources();
+    expect(sourceRow(original, 'ratings')).toHaveTextContent(
+      ratingsIdentity().derivedGenerationId,
+    );
+
+    await view.rerender({ id64: next });
+    await screen.findByRole('heading', { name: 'Second System' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    const dialog = await openSources();
+    expect(sourceRow(dialog, 'canonical')).toHaveTextContent(
+      'second-canonical',
+    );
+    expect(sourceRow(dialog, 'ratings')).toHaveTextContent('Loading');
+    expect(dialog).not.toHaveTextContent(ratingsIdentity().derivedGenerationId);
+    expect(
+      dialog.querySelector('[data-source-product="station-observations"]'),
+    ).toBeNull();
+    await waitFor(() =>
+      expect(mockedGetRatings).toHaveBeenCalledWith(next, expect.anything()),
+    );
+    complete(referenceSystemRatings(nextIdentity));
+    await waitFor(() =>
+      expect(sourceRow(dialog, 'ratings')).toHaveTextContent('next-generation'),
+    );
+    expect(dialog).not.toHaveTextContent(ratingsIdentity().derivedGenerationId);
+    const callsBeforeReopening = mockedGetRatings.mock.calls.length;
+    await fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Close' }),
+    );
+    await openSources();
+    expect(mockedGetRatings).toHaveBeenCalledTimes(callsBeforeReopening);
   });
 
   it.each(['Earth-like world', 'Unrecognised catalogue class', null])(
@@ -187,7 +534,10 @@ describe('shared system detail', () => {
       'data-system-id64',
       id64,
     );
-    expect(detailValue('Coordinates')).toBe('Coordinates unavailable');
+    expect(detailValue('Coordinates')).toBe('Unknown');
+    expect(
+      screen.getByText('Coordinates', { selector: 'dt' }).parentElement,
+    ).toHaveAttribute('data-availability', 'unknown');
     expect(detailValue('Main star')).toBe('G2 V');
     expect(container.textContent).not.toMatch(
       /undefined|null|NaN|0\.00, 0\.00, 0\.00/u,
@@ -654,12 +1004,18 @@ describe('shared system detail', () => {
         { timeout: 3_000 },
       ),
     ).toBeInTheDocument();
-    await fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    const failure = screen.getByRole('alert');
+    expect(failure).toHaveAttribute('data-unavailable-fields');
+    expect(failure).toHaveAttribute('data-availability', 'unavailable');
+    expect(within(failure).getByText('Temporarily unavailable')).toBeVisible();
+    const callsBeforeRetry = mockedGetSystem.mock.calls.length;
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await waitFor(() =>
       expect(
         screen.getByRole('heading', { name: 'Recovered system' }),
       ).toBeInTheDocument(),
     );
+    expect(mockedGetSystem).toHaveBeenCalledTimes(callsBeforeRetry + 1);
   });
   it('lists each ring and belt with its type, reserves and mining hotspots', async () => {
     mockedGetSystem.mockResolvedValue(
@@ -789,7 +1145,7 @@ describe('shared system detail', () => {
         'Coriolis Starport · 500 ls · Reference System 3',
         'Extraction 70% (primary) · Refinery 30% (secondary)',
       ],
-      ['Far Outpost', 'Outpost · 9,000 ls', 'Economy not recorded'],
+      ['Far Outpost', 'Outpost · 9,000 ls', 'Economy: Unknown'],
     ]);
     // Fleet carriers are listed apart, behind a closed toggle.
     const carriers = section.querySelector(
@@ -896,6 +1252,41 @@ describe('shared system detail', () => {
     expect(region).not.toBeVisible();
   });
 
+  it.each([404, 422])(
+    'marks an absent explanation Unknown for a %s response',
+    async (status) => {
+      mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+      mockedGetExplanation.mockRejectedValueOnce(
+        new ApiError(
+          status,
+          '/api/ratings/v4/systems/10477373803/explanation',
+          {},
+        ),
+      );
+      render(SystemDetailTestHost, {
+        props: { id64: parseId64('10477373803') },
+      });
+      await fireEvent.click(
+        await screen.findByRole('button', { name: 'Why? Agriculture' }),
+      );
+      const region = await screen.findByRole('region', {
+        name: 'Why Agriculture scores 84',
+      });
+      await within(region).findByText('Unknown');
+      expect(region.querySelector('[data-unavailable-fields]')).toHaveAttribute(
+        'data-availability',
+        'unknown',
+      );
+      expect(region).toHaveTextContent(
+        'the published source has no explanation for this system',
+      );
+      expect(
+        within(region).queryByRole('button', { name: 'Retry' }),
+      ).toBeNull();
+      expect(mockedGetExplanation).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it('does not carry an open explanation over to the next system', async () => {
     mockedGetSystem.mockResolvedValue(referenceSystemDetail());
     // The next system is already cached, as after Back/Forward, so Inspect
@@ -971,7 +1362,7 @@ describe('shared system detail', () => {
     });
     expect(
       await screen.findByText(
-        'This system is not in the published ratings yet.',
+        /the published source has no ratings for this system\./u,
       ),
     ).toBeInTheDocument();
     expect(mockedGetRatings).toHaveBeenCalledTimes(1);
@@ -989,12 +1380,12 @@ describe('shared system detail', () => {
     render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });
     expect(
       await screen.findByText(
-        'Economy ratings could not be loaded.',
+        /economy ratings could not be loaded\./u,
         {},
         { timeout: 3_000 },
       ),
     ).toBeInTheDocument();
-    await fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await waitFor(() =>
       expect(document.querySelectorAll('[data-rating-economy]')).toHaveLength(
         7,

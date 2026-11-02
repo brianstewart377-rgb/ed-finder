@@ -19,6 +19,11 @@
     systemBodyLayout,
   } from '$lib/spatial/system-scene';
   import SystemRatings from './SystemRatings.svelte';
+  import SourcesFreshness from './SourcesFreshness.svelte';
+  import {
+    AVAILABILITY_LABELS,
+    type RatingsSourceState,
+  } from './source-freshness';
   import {
     hotspotSummary,
     isFleetCarrier,
@@ -48,6 +53,14 @@
       : '',
   );
   let systemMapRevision = $state(0);
+  let ratingsSource = $state<RatingsSourceState | null>(null);
+  const currentRatingsSource = $derived(
+    ratingsSource?.id64 === id64 ? ratingsSource : null,
+  );
+
+  function updateRatingsSource(source: RatingsSourceState): void {
+    if (source.id64 === id64) ratingsSource = source;
+  }
 
   const detail = createQuery(() => ({
     queryKey: queryKeys.system(id64),
@@ -74,7 +87,7 @@
   const coordinates = $derived.by(() => {
     if (!detail.data) return null;
     const { x, y, z } = detail.data;
-    if (x == null || y == null || z == null) return 'Coordinates unavailable';
+    if (x == null || y == null || z == null) return AVAILABILITY_LABELS.unknown;
     return `${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)} ly`;
   });
   const mainStar = $derived(
@@ -272,18 +285,24 @@
     <h1 id={headingId}>
       {notFound ? 'System not found' : 'System detail unavailable'}
     </h1>
-    <p class="state-copy" role="alert">
+    <p
+      class="state-copy"
+      role="alert"
+      data-unavailable-fields
+      data-availability={notFound ? 'unknown' : 'unavailable'}
+    >
       {#if notFound}
-        No catalogue system exists for the exact identifier <code>{id64}</code>.
+        <strong>{AVAILABILITY_LABELS.unknown}</strong> — No catalogue system
+        exists for the exact identifier <code>{id64}</code>.
       {:else}
-        ED-Finder could not load this system. Your selected-system context is
-        unchanged.
+        <strong>{AVAILABILITY_LABELS.unavailable}</strong> — ED-Finder could not load
+        this system. Your selected-system context is unchanged.
       {/if}
     </p>
     <button
       class="secondary-button"
       type="button"
-      onclick={() => detail.refetch()}>Try again</button
+      onclick={() => detail.refetch()}>Retry</button
     >
   {:else if detail.data}
     <p class="eyebrow">System detail</p>
@@ -293,7 +312,14 @@
     <p class="system-identity">ID64 <code>{detail.data.id64}</code></p>
 
     <dl class="detail-grid">
-      <div>
+      <div
+        data-unavailable-fields={coordinates === AVAILABILITY_LABELS.unknown
+          ? ''
+          : undefined}
+        data-availability={coordinates === AVAILABILITY_LABELS.unknown
+          ? 'unknown'
+          : undefined}
+      >
         <dt>Coordinates</dt>
         <dd>{coordinates}</dd>
       </div>
@@ -307,12 +333,15 @@
               : 'Missing from the latest catalogue source'}
           </dd>
         </div>{/if}
-      <div>
+      <div
+        data-unavailable-fields={!mainStar ? '' : undefined}
+        data-availability={!mainStar ? 'unknown' : undefined}
+      >
         <dt>Main star</dt>
         <dd>
           {mainStar
             ? (stellarClassification(mainStar) ?? 'Star (class not recorded)')
-            : 'Not recorded'}
+            : AVAILABILITY_LABELS.unknown}
         </dd>
       </div>
       <div>
@@ -323,21 +352,52 @@
         <dt>Stations returned</dt>
         <dd>{integer(detail.data.stations.length)}</dd>
       </div>
-      {#if catalogueUpdated}<div>
-          <dt>Catalogue updated</dt>
-          <dd>{catalogueUpdated}</dd>
-        </div>{/if}
-      <div class="detail-unavailable" data-unavailable-fields>
-        <dt>Population, economy, security, allegiance, government</dt>
-        <dd>Not available yet</dd>
+      <div>
+        <dt>Catalogue updated</dt>
+        <dd>
+          {#if catalogueUpdated}
+            <time datetime={detail.data.sourceUpdatedAt ?? undefined}
+              >{catalogueUpdated}</time
+            >
+          {:else}
+            <span data-unavailable-fields data-availability="unknown"
+              >{AVAILABILITY_LABELS.unknown}</span
+            >
+          {/if}
+          <SourcesFreshness
+            systemId={id64}
+            sourceUpdatedAt={detail.data.sourceUpdatedAt}
+            canonicalGenerationId={detail.data.canonicalGenerationId}
+            canonicalGenerationLabel={detail.data.canonicalGenerationLabel}
+            ratings={currentRatingsSource}
+            stations={ports}
+          />
+        </dd>
       </div>
-      <div class="detail-unavailable" data-unavailable-fields>
+      <div
+        class="detail-unavailable"
+        data-unavailable-fields
+        data-availability="not-integrated"
+      >
+        <dt>Population, economy, security, allegiance, government</dt>
+        <dd>{AVAILABILITY_LABELS['not-integrated']}</dd>
+      </div>
+      <div
+        class="detail-unavailable"
+        data-unavailable-fields
+        data-availability="not-integrated"
+      >
         <dt>Development fit</dt>
-        <dd>Not available yet</dd>
+        <dd>{AVAILABILITY_LABELS['not-integrated']}</dd>
       </div>
     </dl>
 
-    <SystemRatings {id64} bodies={detail.data.bodies} {headingId} />
+    <SystemRatings
+      {id64}
+      bodies={detail.data.bodies}
+      {headingId}
+      onSourceChange={updateRatingsSource}
+    />
 
     {#if systemScene && systemScene.bodies.length > 0}
       <section class="system-map-panel" aria-labelledby={`${headingId}-map`}>
@@ -521,7 +581,16 @@
               <li data-station-key={station.stationKey}>
                 <p class="station-name">{station.name}</p>
                 <p>{stationFacts(station)}</p>
-                <p>{economies ?? 'Economy not recorded'}</p>
+                <p
+                  data-unavailable-fields={economies === null ? '' : undefined}
+                  data-availability={economies === null ? 'unknown' : undefined}
+                >
+                  {#if economies}
+                    {economies}
+                  {:else}
+                    Economy: <span>{AVAILABILITY_LABELS.unknown}</span>
+                  {/if}
+                </p>
               </li>
             {/each}
           </ul>
