@@ -1,8 +1,17 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/svelte';
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import SpatialCanvas from './SpatialCanvas.svelte';
 import { buildGalaxyReviewFixtureScene } from './galaxy-review-fixture';
+import { systemDetailFromV3 } from '$lib/api/client';
+import { v3Body, v3System } from '$lib/api/v3-system-fixtures';
+import { buildSystemScene } from './system-scene';
 import type {
   CameraState,
   RuntimeEventListener,
@@ -478,6 +487,126 @@ describe('SpatialCanvas', () => {
       screenY: 40,
     });
   });
+
+  it('shows only the planet families present in the current system, including unknown classes', async () => {
+    const detail = systemDetailFromV3(
+      v3System(),
+      [
+        v3Body(),
+        ...[
+          'Earth-like world',
+          'Earth-like world',
+          'Class I gas giant',
+          'Icy body',
+          null,
+          'Unrecognised catalogue class',
+        ].map((bodyClass, index) =>
+          v3Body({
+            body_id: String(index + 1),
+            frontier_body_id: String(index + 1),
+            body_type: 'planet',
+            body_class: bodyClass,
+            body_class_source: bodyClass == null ? null : 'ratings-v4-derived',
+          }),
+        ),
+      ],
+      [],
+      [],
+    );
+    const view = render(SpatialCanvas, { scene: buildSystemScene(detail, 1) });
+    const legend = screen.getByRole('list', {
+      name: 'Planet class colour legend',
+    });
+    expect(
+      within(legend)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent?.trim()),
+    ).toEqual(['Earth-like', 'Gas giant · I', 'Icy', 'Unknown class']);
+    expect(
+      legend.querySelector('[data-body-family="unknown"] .swatch'),
+    ).toHaveClass('unknown');
+    expect(within(legend).queryByText('Water world')).not.toBeInTheDocument();
+
+    await view.rerender({
+      scene: buildSystemScene(
+        {
+          ...detail,
+          bodies: detail.bodies.filter((body) => body.bodyClass === 'Icy body'),
+        },
+        2,
+      ),
+    });
+    expect(
+      within(legend)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent?.trim()),
+    ).toEqual(['Icy']);
+    await view.rerender({
+      scene: buildSystemScene({ ...detail, bodies: [detail.bodies[0]!] }, 3),
+    });
+    expect(
+      screen.queryByRole('list', { name: 'Planet class colour legend' }),
+    ).toBeNull();
+  });
+
+  it.each(['Earth-like world', 'Unrecognised catalogue class', null])(
+    'shows raw planet class %s on hover without carrying facts across systems',
+    async (bodyClass) => {
+      const scene = buildSystemScene(
+        systemDetailFromV3(
+          v3System({ id64: '42' }),
+          [
+            v3Body({
+              name: 'Hovered planet',
+              body_type: 'planet',
+              body_class: bodyClass,
+              body_class_source:
+                bodyClass == null ? null : 'ratings-v4-derived',
+            }),
+          ],
+          [],
+          [],
+        ),
+        1,
+      );
+      const view = render(SpatialCanvas, { scene });
+      await waitFor(() => expect(adapter.runtimes).toHaveLength(1));
+      const runtime = adapter.runtimes[0]!;
+      runtime.emit({
+        type: 'TARGET_HOVERED',
+        target: { kind: 'body', ref: { systemId64: '42', bodyId: 0 } },
+      });
+      const name = await screen.findByText('Hovered planet');
+      const hover = name.closest('[data-hovered-body-id]') as HTMLElement;
+      expect(within(hover).getByText(bodyClass ?? 'Planet')).toBeVisible();
+      const source = within(hover).queryByText(
+        'Source: Ratings V4 derived catalogue',
+      );
+      if (bodyClass == null) expect(source).toBeNull();
+      else expect(source).toBeVisible();
+      runtime.emit({ type: 'TARGET_HOVERED' });
+      await waitFor(() =>
+        expect(screen.queryByText('Hovered planet')).toBeNull(),
+      );
+
+      runtime.emit({
+        type: 'TARGET_HOVERED',
+        target: { kind: 'body', ref: { systemId64: '99', bodyId: 0 } },
+      });
+      expect(screen.queryByText('Hovered planet')).toBeNull();
+      runtime.emit({
+        type: 'TARGET_HOVERED',
+        target: { kind: 'body', ref: { systemId64: '42', bodyId: 0 } },
+      });
+      await screen.findByText('Hovered planet');
+      await view.rerender({
+        scene: { ...scene, revision: 2, systemId64: '99', bodies: [] },
+      });
+      expect(screen.queryByText('Hovered planet')).toBeNull();
+      await view.rerender({ scene: { ...scene, revision: 3 } });
+      expect(screen.queryByText('Hovered planet')).toBeNull();
+    },
+  );
 
   it('projects accepted system labels into a collision-managed visual overlay', async () => {
     const scene = buildGalaxyReviewFixtureScene();

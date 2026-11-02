@@ -100,7 +100,11 @@ import {
   stellarPresentation,
   type StellarPresentation,
 } from '../stellar-presentation';
-import { systemBodyLayout, type SystemBodyLayout } from '../system-scene';
+import {
+  bodyFamilyPresentation,
+  systemBodyLayout,
+  type SystemBodyLayout,
+} from '../system-scene';
 
 const disposeEngine = (engine: AbstractEngine): void => {
   try {
@@ -1664,9 +1668,13 @@ export const createBabylonGalaxyScene = (
   };
 };
 
-function systemBodyColour(
-  body: BodyVisualDescriptor,
-): Readonly<{ diffuse: Color3; emissive: Color3; darkCore: boolean }> {
+function systemBodyColour(body: BodyVisualDescriptor): Readonly<{
+  diffuse: Color3;
+  emissive: Color3;
+  darkCore: boolean;
+  banded: boolean;
+  unknown: boolean;
+}> {
   const identity =
     `${body.class?.value ?? ''} ${body.subtype?.value ?? ''}`.toLowerCase();
   if (identity.includes('star') || identity.includes('black hole')) {
@@ -1678,48 +1686,50 @@ function systemBodyColour(
       diffuse: Color3.FromArray(star.coreRgb),
       emissive: Color3.FromArray(star.haloRgb),
       darkCore: star.darkCore,
+      banded: false,
+      unknown: false,
     };
   }
-  if (identity.includes('earth-like') || identity.includes('water world')) {
-    return {
-      diffuse: new Color3(0.18, 0.56, 0.8),
-      emissive: new Color3(0.02, 0.08, 0.12),
-      darkCore: false,
-    };
-  }
-  if (identity.includes('ammonia')) {
-    return {
-      diffuse: new Color3(0.58, 0.62, 0.28),
-      emissive: new Color3(0.04, 0.05, 0.01),
-      darkCore: false,
-    };
-  }
-  if (identity.includes('gas giant')) {
-    return {
-      diffuse: new Color3(0.76, 0.52, 0.3),
-      emissive: new Color3(0.05, 0.025, 0.01),
-      darkCore: false,
-    };
-  }
-  if (identity.includes('ice') || identity.includes('icy')) {
-    return {
-      diffuse: new Color3(0.62, 0.78, 0.86),
-      emissive: new Color3(0.03, 0.05, 0.07),
-      darkCore: false,
-    };
-  }
-  if (identity.includes('belt')) {
+  if (body.class?.value === 'Belt cluster') {
     return {
       diffuse: new Color3(0.46, 0.42, 0.38),
       emissive: Color3.Black(),
       darkCore: false,
+      banded: false,
+      unknown: false,
     };
   }
+  const bodyFamily = body.bodyFamily ?? { family: 'unknown' };
+  const diffuse = Color3.FromArray(bodyFamilyPresentation(bodyFamily).colour);
+  const unknown =
+    bodyFamily.family === 'unknown' &&
+    (body.bodyFamily !== undefined || body.class?.value === 'Planet');
   return {
-    diffuse: new Color3(0.48, 0.48, 0.52),
-    emissive: new Color3(0.025, 0.025, 0.035),
+    diffuse,
+    emissive: unknown ? diffuse.scale(0.01) : diffuse.scale(0.055),
     darkCore: false,
+    banded:
+      bodyFamily.family === 'gas-giant' ||
+      bodyFamily.family === 'gas-giant-life' ||
+      bodyFamily.family === 'helium-gas-giant' ||
+      bodyFamily.family === 'water-giant',
+    unknown,
   };
+}
+
+/** Illustrative latitude bands; no surface texture or observed weather is implied. */
+function applyGiantBands(mesh: Mesh, radius: number): void {
+  const positions = mesh.getVerticesData('position');
+  if (!positions) return;
+  const colours = new Float32Array((positions.length / 3) * 4);
+  for (let vertex = 0; vertex < positions.length / 3; vertex += 1) {
+    const latitude = Math.asin(
+      Math.max(-1, Math.min(1, positions[vertex * 3 + 1]! / radius)),
+    );
+    const tone = 0.9 + Math.cos(latitude * 12) * 0.1;
+    colours.set([tone, tone, tone, 1], vertex * 4);
+  }
+  mesh.setVerticesData('color', colours);
 }
 
 function systemCameraTarget(
@@ -1816,12 +1826,15 @@ export const createBabylonSystemScene = (
       scene,
     );
     mesh.position.set(layout.position.x, layout.position.y, layout.position.z);
+    if (visual.banded) applyGiantBands(mesh, body.displayRadius);
     mesh.metadata = {
       spatialTarget: {
         kind: 'body',
         ref: body.ref,
       },
       bodyName: body.name,
+      bodyFamily: body.bodyFamily,
+      classTreatment: visual.unknown ? 'unknown-dim' : 'known',
       representation: {
         position: 'SCHEMATIC',
         bodyFacts: 'AUTHORITATIVE',
@@ -1839,6 +1852,10 @@ export const createBabylonSystemScene = (
       ? new Color3(0.08, 0.08, 0.1)
       : new Color3(0.24, 0.24, 0.26);
     material.specularPower = 48;
+    if (visual.unknown) {
+      material.alpha = 0.42;
+      material.specularColor = new Color3(0.06, 0.06, 0.07);
+    }
     mesh.material = material;
     mesh.onDisposeObservable.addOnce(() => material.dispose());
 
