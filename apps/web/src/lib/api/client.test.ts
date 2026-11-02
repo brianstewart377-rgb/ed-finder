@@ -50,7 +50,7 @@ import {
 // (interceptors) the facade installs, on a route the facade does not wrap.
 import { statusApiStatusGet } from './generated/sdk.gen';
 import * as sdk from './generated/sdk.gen';
-import { v3System } from './v3-system-fixtures';
+import { v3Body, v3System } from './v3-system-fixtures';
 
 const jsonResponse = (body: unknown, init: ResponseInit = {}) =>
   new Response(JSON.stringify(body), {
@@ -180,6 +180,38 @@ describe('typed V3 API facade over the generated Hey API SDK', () => {
     vi.restoreAllMocks();
     sessionStorage.clear();
   });
+
+  it.each([
+    'Earth-like world',
+    'Unrecognised catalogue class',
+    null,
+    undefined,
+  ])(
+    'preserves the raw published body class %s and its source',
+    async (bodyClass) => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+        const path = new URL((input as Request).url).pathname;
+        if (path === '/api/v1/systems/42')
+          return jsonResponse(v3System({ id64: '42' }));
+        if (path === '/api/v1/systems/42/bodies')
+          return jsonResponse([
+            v3Body({
+              body_type: 'planet',
+              body_class: bodyClass,
+              body_class_source:
+                bodyClass == null ? null : 'ratings-v4-derived',
+            }),
+          ]);
+        return jsonResponse([]);
+      });
+
+      const result = await getSystem(parseId64('42'));
+      expect(result.bodies[0]).toMatchObject({
+        bodyClass: bodyClass ?? null,
+        bodyClassSource: bodyClass == null ? null : 'ratings-v4-derived',
+      });
+    },
+  );
 
   it('loads private galaxy totals through the generated own-account route with cancellation', async () => {
     const summary = {

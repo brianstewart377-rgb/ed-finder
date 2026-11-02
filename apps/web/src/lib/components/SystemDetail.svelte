@@ -167,6 +167,8 @@
       : null;
 
   function bodyClass(body: SystemDetailBody): string {
+    if (body.bodyType === 'planet' && body.bodyClass != null)
+      return body.bodyClass;
     const label = bodyTypeLabel(body.bodyType) ?? 'Unknown body type';
     const classification = stellarClassification(body);
     return classification ? `${label} · ${classification}` : label;
@@ -348,9 +350,11 @@
         </div>
         <p class="system-map-truth-note">
           Layout: schematic; order by known orbital distance; moons grouped by
-          known parent. Body classes, radii, parent links, distances, and known
-          ring state come from the catalogue. Display sizes and positions are
-          schematic; physical scale and present orbital phase are not shown.
+          known parent. Planet classes come from the published Ratings V4
+          derived catalogue; colours group those classes for display. Radii,
+          parent links, arrival distances, and known ring state come from the
+          canonical catalogue. Display sizes and positions are schematic;
+          physical scale and present orbital phase are not shown.
         </p>
         <SpatialCanvas
           scene={systemScene}
@@ -422,6 +426,12 @@
                   <dt>Class</dt>
                   <dd>{bodyClass(selectedBody)}</dd>
                 </div>
+                {#if selectedBody.bodyType === 'planet' && selectedBody.bodyClass != null && selectedBody.bodyClassSource === 'ratings-v4-derived'}
+                  <div>
+                    <dt>Class source</dt>
+                    <dd>Ratings V4 derived catalogue</dd>
+                  </div>
+                {/if}
                 {#if selectedBody.distanceFromArrivalLs != null}
                   <div>
                     <dt>Arrival distance</dt>

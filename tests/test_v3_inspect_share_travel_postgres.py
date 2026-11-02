@@ -54,7 +54,8 @@ HUMAN = {'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) Firefox/140.0'}
 def database():
     with canonical_database() as (conn, canonical, _, _):
         assert int(conn.execute('SHOW server_version_num').fetchone()[0]) // 10000 == 18
-        for name in ('002_v3_accounts_identity.sql', '005_v3_journal_intelligence.sql',
+        for name in ('002_v3_accounts_identity.sql', '003_ratings_v4_derived.sql',
+                     '005_v3_journal_intelligence.sql',
                      '008_v3_journal_commander_ownership.sql'):
             conn.execute((ROOT / 'sql/v3/migrations' / name).read_text())
         # The canonical bootstrap inserts explicit source/rights-policy ids;
@@ -159,6 +160,7 @@ async def test_v3_system_routes_serve_inspect_from_the_published_generation(data
     assert main[0]['spectral_class'] == fixture_main['spectral_class']
     assert main[0]['luminosity_class'] == fixture_main['luminosity_class']
     assert {row['lifecycle_state'] for row in rows} == {'ACTIVE'}
+    assert all(row['body_class'] is None and row['body_class_source'] is None for row in rows)
     assert {row['body_id']: row['is_landable'] for row in rows} == {
         str(body['body_pk']): body['is_landable'] for body in fixture_bodies}
     signals = {row['body_id']: [(item['signal_type'], item['count']) for item in row['signals']]
