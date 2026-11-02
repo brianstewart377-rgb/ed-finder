@@ -10,7 +10,7 @@ import {
 } from './archetypes';
 
 export const COMPARE_MAX = 6;
-const UNAVAILABLE = 'Unavailable';
+const UNKNOWN = 'Unknown';
 
 export interface CompareCell {
   display: string;
@@ -59,11 +59,11 @@ function legacyArchetype(value: unknown): string {
           .filter(Boolean)
           .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
           .join(' '))
-    : UNAVAILABLE;
+    : UNKNOWN;
 }
 
 function legacyDevelopment(value: number | null): string {
-  if (value === null) return UNAVAILABLE;
+  if (value === null) return UNKNOWN;
   const tier =
     value >= 88
       ? 'S'
@@ -150,7 +150,7 @@ export function snapshotDistance(entry: CompareEntry): number | null {
 }
 
 function apiScore(value: number | null, tier: unknown): string {
-  if (value === null) return UNAVAILABLE;
+  if (value === null) return UNKNOWN;
   return `${value}${isTier(tier) ? ` · ${tierLabel(tier)}` : ''}`;
 }
 
@@ -181,7 +181,7 @@ export function snapshotScoreSummary(entry: CompareEntry): string {
   }
   if (parts.length === 0) {
     const stored = finite(entry.archetype_score);
-    parts.push(`Stored score ${stored === null ? UNAVAILABLE : stored}`);
+    parts.push(`Stored score ${stored === null ? UNKNOWN : stored}`);
   }
   if (!identity.ranking_provenance || identity.score_kind === 'unknown')
     parts.push('Older save: ranking mode or provenance unknown');
@@ -192,6 +192,20 @@ export function snapshotProvenanceSummary(entry: CompareEntry): string | null {
   const provenance = snapshotRankingIdentity(entry).ranking_provenance;
   if (!provenance) return null;
   return `Ranked on generation ${provenance.derived_generation_id}; publication ${provenance.publication_sequence}; archetype manifest ${provenance.archetype_manifest_sha256}`;
+}
+
+export function snapshotCapturedAt(entry: CompareEntry): string | null {
+  const value =
+    entry.captured_at === undefined ? entry.pinned_at : entry.captured_at;
+  return typeof value === 'string' && Number.isFinite(Date.parse(value))
+    ? new Date(value).toISOString()
+    : null;
+}
+
+export function formatCaptureTime(value: unknown): string {
+  return typeof value === 'string' && Number.isFinite(Date.parse(value))
+    ? `${new Date(value).toISOString().slice(0, 19).replace('T', ' ')} UTC`
+    : UNKNOWN;
 }
 
 export function buildCompareNotes(
@@ -271,7 +285,7 @@ export function buildCompareRows(
     label: string,
     extract: (entry: CompareEntry) => unknown,
     render: (value: number | null, entry: CompareEntry) => string = (value) =>
-      value === null ? UNAVAILABLE : String(value),
+      value === null ? UNKNOWN : String(value),
     higherIsBetter = true,
   ): CompareMetricRow => {
     const values = entries.map((entry) => finite(extract(entry)));
@@ -288,7 +302,7 @@ export function buildCompareRows(
       label,
       cells: values.map((value, index) => ({
         display: render(value, entries[index]),
-        csvValue: value ?? UNAVAILABLE,
+        csvValue: value ?? UNKNOWN,
         best: value !== null && best !== null && value === best,
       })),
     };
@@ -302,10 +316,13 @@ export function buildCompareRows(
   const selected = comparableSelectedArchetype(entries);
   const scoresComparable = comparableOverallScores(entries);
   const labelArchetype = finderF4Enabled
-    ? (value: unknown) => archetypeLabel(text(value)) ?? UNAVAILABLE
+    ? (value: unknown) => archetypeLabel(text(value)) ?? UNKNOWN
     : legacyArchetype;
 
   return [
+    plain('Captured at', (entry) =>
+      formatCaptureTime(snapshotCapturedAt(entry)),
+    ),
     ...(finderF4Enabled
       ? [
           ...(scoresComparable
@@ -350,7 +367,7 @@ export function buildCompareRows(
       const confidence = finite(entry.archetype_confidence);
       return confidence !== null && confidence >= 0 && confidence <= 1
         ? `${Math.round(confidence * 100)}%`
-        : UNAVAILABLE;
+        : UNKNOWN;
     }),
     numeric('Buildability', (entry) => entry.buildability_score),
     numeric('Purity', (entry) => entry.purity_score),
@@ -358,9 +375,7 @@ export function buildCompareRows(
     plain(
       'Primary economy',
       (entry) =>
-        text(entry.primaryEconomy) ??
-        text(entry.primary_economy) ??
-        UNAVAILABLE,
+        text(entry.primaryEconomy) ?? text(entry.primary_economy) ?? UNKNOWN,
     ),
     ...(!finderF4Enabled || comparableDistance(entries)
       ? [
@@ -374,9 +389,19 @@ export function buildCompareRows(
               // Legacy searches can use zero when no reference was chosen.
               return distance !== null && distance > 0 ? distance : null;
             },
-            (value) =>
-              value === null ? UNAVAILABLE : `${value.toFixed(2)} LY`,
+            (value) => (value === null ? UNKNOWN : `${value.toFixed(2)} LY`),
             false,
+          ),
+        ]
+      : []),
+    ...(entries.some((entry) => 'distance_captured_at' in entry)
+      ? [
+          plain('Distance captured at', (entry) =>
+            formatCaptureTime(
+              'distance_captured_at' in entry
+                ? entry.distance_captured_at
+                : snapshotCapturedAt(entry),
+            ),
           ),
         ]
       : []),
@@ -385,12 +410,10 @@ export function buildCompareRows(
     plain(
       'Main star',
       (entry) =>
-        text(entry.main_star_subtype) ??
-        text(entry.main_star_type) ??
-        UNAVAILABLE,
+        text(entry.main_star_subtype) ?? text(entry.main_star_type) ?? UNKNOWN,
     ),
-    plain('Security', (entry) => text(entry.security) ?? UNAVAILABLE),
-    plain('Allegiance', (entry) => text(entry.allegiance) ?? UNAVAILABLE),
+    plain('Security', (entry) => text(entry.security) ?? UNKNOWN),
+    plain('Allegiance', (entry) => text(entry.allegiance) ?? UNKNOWN),
     count('ELW', 'elw_count'),
     count('Water worlds', 'ww_count'),
     count('Ammonia', 'ammonia_count'),
