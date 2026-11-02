@@ -550,7 +550,10 @@
   .saved-systems {
     min-width: 0;
     border: 1px solid var(--line);
-    background: var(--panel-raised);
+    background: var(--panel);
+    background-image: var(--panel-gloss);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-panel);
   }
   .saved-heading,
   .saved-systems > section {
@@ -602,9 +605,13 @@
     background: var(--panel-raised);
     color: inherit;
     padding: 0.45rem 0.65rem;
-    border-radius: 0.3rem;
+    border-radius: var(--radius-pill);
     font: inherit;
     font-size: 0.8rem;
+  }
+  select {
+    background: var(--panel-sunken);
+    border-radius: var(--radius-sm);
   }
   button {
     cursor: pointer;
@@ -614,7 +621,7 @@
     font-weight: 700;
   }
   button:disabled {
-    opacity: 0.6;
+    opacity: 0.55;
     cursor: default;
   }
   .empty-title {

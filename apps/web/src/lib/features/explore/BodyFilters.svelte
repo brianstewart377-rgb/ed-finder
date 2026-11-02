@@ -417,25 +417,17 @@
   }
   button {
     padding: 0.5rem 0.75rem;
-    border: 1px solid var(--line);
-    border-radius: 0.4rem;
-    background: var(--panel-raised);
-    color: inherit;
     font: inherit;
     cursor: pointer;
   }
-  button:disabled {
-    cursor: not-allowed;
-    opacity: 0.65;
-  }
   button:focus-visible,
   input:focus-visible {
-    outline: 2px solid var(--color-cyan);
+    outline: 2px solid var(--focus);
     outline-offset: 2px;
   }
   .hint {
     margin: 0;
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 0.85rem;
     line-height: 1.4;
   }
@@ -451,22 +443,16 @@
     align-items: center;
     gap: 0.4rem;
     padding: 0.2rem 0.25rem 0.2rem 0.65rem;
-    border: 1px solid var(--color-cyan);
-    border-radius: 1rem;
-    background: var(--panel-raised);
     font-size: 0.85rem;
   }
   .filter-chip button {
     border: 0;
-    border-radius: 50%;
     padding: 0.1rem 0.4rem;
   }
   .paused .filter-chip {
     border-style: dashed;
-    border-color: var(--muted);
   }
   .paused-label {
-    color: var(--muted);
     font-size: 0.75rem;
   }
   .clear-all {
@@ -480,10 +466,6 @@
     width: min(40rem, calc(100% - 1rem));
     max-height: min(42rem, calc(100dvh - 1rem));
     overflow: hidden;
-    border: 1px solid var(--color-cyan);
-    border-radius: 0.7rem;
-    background: var(--color-panel);
-    box-shadow: 0 0.6rem 2rem #0008;
   }
   header,
   footer {
@@ -512,16 +494,13 @@
     flex: 1;
     padding-inline: 0.4rem;
   }
-  .tabs button[aria-selected='true'] {
-    border-color: var(--color-cyan);
-  }
   .badge {
     display: inline-block;
     min-width: 1.2em;
     margin-left: 0.2rem;
     padding-inline: 0.2em;
-    border-radius: 0.3rem;
-    background: var(--color-panel);
+    border-radius: var(--radius-sm);
+    background: var(--panel-sunken);
     font-size: 0.8rem;
   }
   .filter-options {
@@ -538,7 +517,7 @@
     margin: 0 0 0.8rem;
     padding: 0.6rem;
     border: 1px solid var(--line);
-    border-radius: 0.4rem;
+    border-radius: var(--radius-sm);
   }
   legend {
     padding-inline: 0.3rem;
@@ -559,12 +538,12 @@
   }
   .endpoint > span {
     grid-column: 1 / -1;
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 0.8rem;
   }
   input {
     min-width: 0;
-    accent-color: var(--color-cyan);
+    accent-color: var(--accent);
   }
   input[type='range'] {
     width: 100%;
@@ -574,8 +553,8 @@
     width: 100%;
     padding: 0.35rem;
     border: 1px solid var(--line);
-    border-radius: 0.3rem;
-    background: var(--panel-raised);
+    border-radius: var(--radius-sm);
+    background: var(--panel-sunken);
     color: inherit;
     font: inherit;
   }
@@ -596,9 +575,6 @@
     display: flex;
     gap: 0.5rem;
     margin-left: auto;
-  }
-  .apply {
-    border-color: var(--color-cyan);
   }
   @media (max-width: 639px) {
     .endpoint {

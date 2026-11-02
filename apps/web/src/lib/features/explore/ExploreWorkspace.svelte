@@ -2189,7 +2189,7 @@
     padding-inline: 1.15rem;
   }
   .ranking-status {
-    color: var(--muted);
+    color: var(--text-muted);
   }
   .result-paging {
     margin-top: 1rem;

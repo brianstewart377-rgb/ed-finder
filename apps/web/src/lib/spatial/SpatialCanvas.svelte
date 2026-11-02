@@ -1110,34 +1110,34 @@
     gap: 0.25rem;
     max-width: min(20rem, calc(100% - 1.5rem));
     padding: 0.6rem 0.8rem;
-    border: 1px solid #344c61;
-    border-radius: 0.4rem;
-    background: #101e2cee;
-    color: #dbedf7;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--panel) 93%, transparent);
+    color: var(--text);
     font-size: 0.8rem;
     pointer-events: none;
   }
   .system-body-hover span,
   .system-body-hover small {
-    color: #b3c5d2;
+    color: var(--text-muted);
   }
   .spatial-canvas {
     position: relative;
     width: 100%;
     height: clamp(32rem, 76vh, 68rem);
     overflow: hidden;
-    border: 1px solid #344253;
-    background: #040508;
+    border: 1px solid var(--line);
+    background: var(--bg-void);
     touch-action: none;
     cursor: grab;
-    border-radius: 0.65rem;
+    border-radius: var(--radius-lg);
   }
 
   .spatial-canvas:active {
     cursor: grabbing;
   }
   .spatial-canvas:focus-visible {
-    outline: 2px solid #77d5ee;
+    outline: 2px solid var(--focus);
     outline-offset: 3px;
   }
   .camera-toolbar {
@@ -1147,19 +1147,20 @@
     gap: 0.4rem;
   }
   .camera-toolbar button {
-    border: 1px solid #344c61;
-    border-radius: 0.4rem;
-    background: #101e2c;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-pill);
+    background: var(--panel-raised);
     padding: 0.45rem 0.75rem;
-    color: #dbedf7;
+    color: var(--text);
     cursor: pointer;
   }
-  .camera-toolbar button:hover {
-    background: #1c3547;
-    border-color: #73c2de;
+  .camera-toolbar button:hover:not(:disabled) {
+    background: var(--panel-raised);
+    border-color: var(--line-strong);
+    box-shadow: var(--line-glow);
   }
   .camera-toolbar button:focus-visible {
-    outline: 2px solid #77d5ee;
+    outline: 2px solid var(--focus);
     outline-offset: 2px;
   }
   .camera-distance {
@@ -1168,15 +1169,15 @@
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: 0.25rem 0.7rem;
-    color: #b2d9e6;
+    color: var(--text-muted);
     font-variant-numeric: tabular-nums;
     font-size: 0.8rem;
   }
   .camera-distance span:last-child {
-    color: #7797a7;
+    color: var(--text-dim);
   }
   .camera-help {
-    color: #95a9ba;
+    color: var(--text-muted);
     font-size: 0.75rem;
     margin: 0.6rem 0;
   }
@@ -1205,20 +1206,20 @@
   }
   .galaxy-label-leaders polyline {
     fill: none;
-    stroke: rgba(64, 163, 208, 0.2);
+    stroke: color-mix(in srgb, var(--neon) 20%, transparent);
     stroke-width: 0.75;
     vector-effect: non-scaling-stroke;
   }
   .galaxy-label-leaders circle {
-    fill: rgba(89, 194, 231, 0.62);
+    fill: color-mix(in srgb, var(--neon) 62%, transparent);
   }
   .galaxy-label-leaders .is-hovered {
-    stroke: rgba(89, 218, 255, 0.78);
-    fill: rgba(118, 229, 255, 0.96);
+    stroke: color-mix(in srgb, var(--neon-hi) 78%, transparent);
+    fill: color-mix(in srgb, var(--neon-hi) 96%, transparent);
   }
   .galaxy-label-leaders .is-selected {
-    stroke: rgba(255, 151, 61, 0.66);
-    fill: rgba(255, 151, 61, 0.92);
+    stroke: color-mix(in srgb, var(--accent-hi) 66%, transparent);
+    fill: color-mix(in srgb, var(--accent-hi) 92%, transparent);
   }
   .galaxy-label {
     position: absolute;
@@ -1237,37 +1238,37 @@
   }
   .galaxy-label--region {
     justify-content: center;
-    color: rgba(175, 212, 232, 0.8);
+    color: color-mix(in srgb, var(--text-muted) 80%, transparent);
     font-size: 0.63rem;
     font-weight: 620;
     letter-spacing: 0.055em;
     text-transform: uppercase;
     text-shadow:
-      0 1px 2px #000,
-      0 0 6px #000,
-      0 0 14px rgba(21, 101, 153, 0.26);
+      0 1px 2px var(--bg-void),
+      0 0 6px var(--bg-void),
+      0 0 14px color-mix(in srgb, var(--neon) 26%, transparent);
   }
   .galaxy-label--region.is-hovered {
-    color: #c9f7ff;
+    color: var(--neon-hi);
     font-weight: 720;
     text-shadow:
-      0 1px 3px #000,
-      0 0 8px #000,
-      0 0 17px rgba(74, 211, 255, 0.52);
+      0 1px 3px var(--bg-void),
+      0 0 8px var(--bg-void),
+      0 0 17px color-mix(in srgb, var(--neon-hi) 52%, transparent);
   }
   .galaxy-label--region.is-current,
   .galaxy-label--region.is-selected {
-    color: #f8d5a6;
+    color: var(--accent-hi);
     font-weight: 720;
     text-shadow:
-      0 1px 3px #000,
-      0 0 8px #000,
-      0 0 15px rgba(255, 135, 46, 0.38);
+      0 1px 3px var(--bg-void),
+      0 0 8px var(--bg-void),
+      0 0 15px color-mix(in srgb, var(--accent) 38%, transparent);
   }
   .galaxy-label--region.galaxy-label--atlas {
     width: min(13.8rem, 21vw);
     max-width: 13.8rem;
-    color: rgba(166, 207, 228, 0.78);
+    color: color-mix(in srgb, var(--text-muted) 78%, transparent);
     font-size: clamp(0.5rem, 1.1vh, 0.61rem);
     line-height: 1;
     white-space: nowrap;
@@ -1277,21 +1278,21 @@
      the interactive states with the atlas qualifier. Hover/selection must be
      conspicuous without removing or dimming any of the other 41 names. */
   .galaxy-label--region.galaxy-label--atlas.is-hovered {
-    color: #d8fbff;
+    color: var(--neon-hi);
     font-weight: 760;
     text-shadow:
-      0 1px 3px #000,
-      0 0 9px #000,
-      0 0 19px rgba(66, 218, 255, 0.82);
+      0 1px 3px var(--bg-void),
+      0 0 9px var(--bg-void),
+      0 0 19px color-mix(in srgb, var(--neon-hi) 82%, transparent);
   }
   .galaxy-label--region.galaxy-label--atlas.is-current,
   .galaxy-label--region.galaxy-label--atlas.is-selected {
-    color: #ffe0b8;
+    color: var(--accent-hi);
     font-weight: 760;
     text-shadow:
-      0 1px 3px #000,
-      0 0 9px #000,
-      0 0 18px rgba(255, 135, 46, 0.68);
+      0 1px 3px var(--bg-void),
+      0 0 9px var(--bg-void),
+      0 0 18px color-mix(in srgb, var(--accent) 68%, transparent);
   }
   .galaxy-label--atlas-left {
     justify-content: flex-end;
@@ -1304,17 +1305,15 @@
   .galaxy-label--system {
     gap: 0.38rem;
     padding: 0.28rem 0.52rem 0.3rem;
-    border: 1px solid rgba(87, 190, 226, 0.34);
-    border-radius: 0.4rem;
-    color: #dff7ff;
+    border: 1px solid color-mix(in srgb, var(--neon) 34%, transparent);
+    border-radius: var(--radius-sm);
+    color: var(--text);
     background: linear-gradient(
       120deg,
-      rgba(7, 20, 31, 0.94),
-      rgba(8, 15, 25, 0.82)
+      color-mix(in srgb, var(--panel-sunken) 94%, transparent),
+      color-mix(in srgb, var(--bg-void) 82%, transparent)
     );
-    box-shadow:
-      0 5px 18px rgba(0, 0, 0, 0.42),
-      inset 0 1px rgba(255, 255, 255, 0.04);
+    box-shadow: var(--shadow-panel);
     font:
       650 0.68rem ui-monospace,
       SFMono-Regular,
@@ -1324,34 +1323,34 @@
     white-space: nowrap;
   }
   .galaxy-label--system.is-selected {
-    border-color: rgba(255, 170, 88, 0.8);
-    color: #fff4e6;
+    border-color: color-mix(in srgb, var(--accent-hi) 80%, transparent);
+    color: var(--text);
     background: linear-gradient(
       120deg,
-      rgba(66, 30, 10, 0.94),
-      rgba(18, 19, 25, 0.9)
+      color-mix(in srgb, var(--accent-text) 94%, transparent),
+      color-mix(in srgb, var(--panel) 90%, transparent)
     );
     box-shadow:
-      0 5px 20px rgba(0, 0, 0, 0.5),
-      0 0 18px rgba(255, 121, 31, 0.18),
-      inset 0 1px rgba(255, 222, 190, 0.08);
+      0 5px 20px color-mix(in srgb, var(--bg-void) 50%, transparent),
+      0 0 18px color-mix(in srgb, var(--accent) 18%, transparent),
+      inset 0 1px color-mix(in srgb, var(--accent-hi) 8%, transparent);
   }
   .galaxy-label__beacon {
     width: 0.35rem;
     height: 0.35rem;
     flex: 0 0 auto;
-    border-radius: 50%;
-    background: #7de5ff;
-    box-shadow: 0 0 8px rgba(66, 214, 255, 0.86);
+    border-radius: var(--radius-pill);
+    background: var(--neon-hi);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--neon-hi) 86%, transparent);
   }
   .is-selected .galaxy-label__beacon {
-    background: #ff9d45;
-    box-shadow: 0 0 9px rgba(255, 126, 37, 0.92);
+    background: var(--accent-hi);
+    box-shadow: 0 0 9px color-mix(in srgb, var(--accent) 92%, transparent);
   }
 
   .renderer-status {
     min-height: 1.5rem;
     margin: 0.75rem 0 0;
-    color: #bbc5d0;
+    color: var(--text-muted);
   }
 </style>

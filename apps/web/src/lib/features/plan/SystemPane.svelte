@@ -488,10 +488,6 @@
     width: min(34rem, calc(100% - 1rem));
     max-height: min(38rem, calc(100dvh - 1rem));
     overflow: hidden;
-    border: 1px solid var(--color-cyan);
-    border-radius: 0.6rem;
-    background: var(--color-panel);
-    box-shadow: 0 0.6rem 2rem #0008;
   }
   .plan-body-tree {
     margin: 0.5rem 0 0;
@@ -514,9 +510,9 @@
     left: 0;
   }
   .plan-body.selected {
-    background: color-mix(in srgb, var(--color-cyan) 4%, var(--color-panel));
-    border-left-color: var(--color-cyan);
-    border-radius: 0.25rem;
+    background: color-mix(in srgb, var(--neon) 4%, var(--panel));
+    border-left-color: var(--neon);
+    border-radius: var(--radius-sm);
   }
   .compact-body-row {
     display: flex;
@@ -531,33 +527,33 @@
     width: var(--disc-size);
     height: var(--disc-size);
     flex: 0 0 var(--disc-size);
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     background: radial-gradient(
       circle at 30% 25%,
-      var(--color-cyan),
-      #365271 65%,
-      #192d47
+      var(--neon),
+      var(--line-strong) 65%,
+      var(--panel-sunken)
     );
-    border: 1px solid var(--color-cyan);
+    border: 1px solid var(--neon);
   }
   .body-disc.star {
     background: radial-gradient(
       circle at 35% 30%,
-      #fff3cb,
-      #edb257 50%,
-      #b85926
+      var(--warn),
+      var(--accent-hi) 50%,
+      var(--accent)
     );
-    border-color: #edb257;
+    border-color: var(--accent-hi);
   }
   .body-disc.belt {
     background: repeating-radial-gradient(
       ellipse,
       var(--line) 0 2px,
-      var(--muted) 3px 4px,
+      var(--text-muted) 3px 4px,
       transparent 5px 6px
     );
     transform: rotate(-25deg) scaleY(0.65);
-    border: 2px dotted var(--muted);
+    border: 2px dotted var(--text-muted);
   }
   :global(.plan-workspace) .body-name {
     min-width: 0;
@@ -581,7 +577,7 @@
     gap: 0.2rem;
   }
   .body-feature {
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 0.65rem;
     line-height: 1;
     white-space: nowrap;

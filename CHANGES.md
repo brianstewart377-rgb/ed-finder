@@ -11,6 +11,18 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-02 — Design kit phase 1: shared application visual tokens
+
+Adds a shared orange, midnight navy and neon-blue design kit in `apps/web`,
+with compatibility aliases, unchanged tier colours, self-hosted Saira Semi
+Condensed HUD headings (OFL licence), glossy rounded panels, pill actions,
+tabs, filter chips, fields and pop-outs. The home, workspace, Finder, Inspect,
+Plan and map toolbar styles adopt the tokens without changing markup or
+behaviour. A Vitest contract guards token values and component colour adoption.
+
+This is a global visual change that needs visual validation (Product E2E
+screenshots) before production promotion. It is **not deployed**.
+
 ## 2026-11-02 — System Map factual planet classes and body families (M12)
 
 The bodies API now exposes the recorded planet class and its
