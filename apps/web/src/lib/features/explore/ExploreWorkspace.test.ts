@@ -3224,6 +3224,25 @@ describe.each([false, true])(
       },
     );
 
+    it('drops Any-mode pagination and intent with a malformed near so no galaxy-wide search runs', async () => {
+      renderEnabled(
+        'near=bad&page_size=25&offset=25&bodies=elw_count:1-&selected=9007199254740993',
+      );
+      await screen.findByText('Invalid search link option removed.');
+      await waitFor(() =>
+        expect(mockedPage.url.searchParams.has('page_size')).toBe(false),
+      );
+      expect(mockedPage.url.searchParams.has('offset')).toBe(false);
+      expect(mockedPage.url.searchParams.has('near')).toBe(false);
+      expect(mockedPage.url.searchParams.get('bodies')).toBe('elw_count:1-');
+      expect(mockedPage.url.searchParams.get('selected')).toBe(
+        '9007199254740993',
+      );
+      expect(mockedPage.state.finderRequested).not.toBe(true);
+      expect(api.searchExploreSystems).not.toHaveBeenCalled();
+      expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+    });
+
     it('drops Any-mode pagination with an unresolvable near so no galaxy-wide search runs', async () => {
       vi.mocked(api.getSystem).mockRejectedValue(new Error('Missing system'));
       renderEnabled(

@@ -280,6 +280,12 @@
       return null;
     }
   });
+  // A malformed or duplicated near parameter is rejected before any lookup.
+  // In Any mode its pagination belonged to the nearby search it named, so it
+  // must not survive as a galaxy-wide results intent.
+  const rejectedNear = $derived(
+    page.url.searchParams.has('near') && parsedSearch.near === null,
+  );
   const canonicalSearch = $derived.by(() => {
     let params = serializeExploreSearchParams(
       { near: nearId, bodyFilters },
@@ -288,7 +294,10 @@
     if (FINDER_F4_ENABLED) {
       params.delete('selected');
       if (urlSelection) params.set('selected', urlSelection);
-      params = serializeRankingSearchParams(rankingState, params);
+      params =
+        rejectedNear && rankingState.archetype === 'any'
+          ? stripRankingSearchParams(params)
+          : serializeRankingSearchParams(rankingState, params);
     } else {
       params = stripRankingSearchParams(params);
     }
@@ -478,6 +487,7 @@
             // Keep that link's search intent in its history entry.
             finderRequested:
               FINDER_F4_ENABLED &&
+              !(rejectedNear && rankingState.archetype === 'any') &&
               (hasRankingSearchParams(current.searchParams) ||
                 page.state.finderRequested === true),
           },
