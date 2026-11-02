@@ -4,9 +4,36 @@ export const NEBULA_LANDMARK_CELL_LY = 1_400;
 export const NEBULA_LANDMARK_LIMIT = 260;
 export const NEBULA_LANDMARK_FADE_START_LY = 8_000;
 export const NEBULA_LANDMARK_FADE_END_LY = 2_000;
+export const NEBULA_CLOUD_REENTER_LY = 2_400;
+export const NEBULA_LANDMARK_MARKER_RADIUS_LY = 3;
+// No authorised source supplies nebula extents: these 600–1,800 LY radii
+// bound decorative cloud presentation only, never measured physical sizes.
+export const NEBULA_SCHEMATIC_RADIUS_MIN_LY = 600;
+export const NEBULA_SCHEMATIC_RADIUS_MAX_LY = 1_800;
 export const PLANETARY_NEBULA_FADE_START_LY = 4_000;
 export const PLANETARY_NEBULA_FADE_END_LY = 3_000;
 export const PLANETARY_NEBULA_MARKER_RADIUS_LY = 3;
+
+export function nebulaCloudRadiusLy(identityHash = 0.5): number {
+  const fraction = Number.isFinite(identityHash)
+    ? Math.max(0, Math.min(1, identityHash))
+    : 0.5;
+  return (
+    NEBULA_SCHEMATIC_RADIUS_MIN_LY +
+    fraction * (NEBULA_SCHEMATIC_RADIUS_MAX_LY - NEBULA_SCHEMATIC_RADIUS_MIN_LY)
+  );
+}
+
+/** Only decorative clouds use this hysteresis; catalogue markers persist. */
+export function nebulaCloudEnabled(
+  distanceLy: number,
+  wasEnabled: boolean,
+): boolean {
+  if (!Number.isFinite(distanceLy)) return false;
+  return wasEnabled
+    ? distanceLy > NEBULA_LANDMARK_FADE_END_LY
+    : distanceLy >= NEBULA_CLOUD_REENTER_LY;
+}
 
 export type NebulaKind = GalaxyNebula['kind'];
 
@@ -86,23 +113,26 @@ export function selectGalaxyNebulaLandmarks(
 
 export function galaxyNebulaVisibility(
   distanceLy: number,
+  output: Record<NebulaKind, number> = { nebula: 0, 'planetary-nebula': 0 },
 ): Record<NebulaKind, number> {
-  return {
-    nebula: Math.max(
-      0,
-      Math.min(
-        1,
-        (distanceLy - NEBULA_LANDMARK_FADE_END_LY) /
-          (NEBULA_LANDMARK_FADE_START_LY - NEBULA_LANDMARK_FADE_END_LY),
-      ),
+  // `nebula` is cloud opacity, not diffuse landmark visibility. Markers are
+  // always enabled; the planetary-nebula class retains its separate fade.
+  // The renderer supplies a reusable output to avoid camera-frame allocations.
+  output.nebula = Math.max(
+    0,
+    Math.min(
+      1,
+      (distanceLy - NEBULA_LANDMARK_FADE_END_LY) /
+        (NEBULA_LANDMARK_FADE_START_LY - NEBULA_LANDMARK_FADE_END_LY),
     ),
-    'planetary-nebula': Math.max(
-      0,
-      Math.min(
-        1,
-        (PLANETARY_NEBULA_FADE_START_LY - distanceLy) /
-          (PLANETARY_NEBULA_FADE_START_LY - PLANETARY_NEBULA_FADE_END_LY),
-      ),
+  );
+  output['planetary-nebula'] = Math.max(
+    0,
+    Math.min(
+      1,
+      (PLANETARY_NEBULA_FADE_START_LY - distanceLy) /
+        (PLANETARY_NEBULA_FADE_START_LY - PLANETARY_NEBULA_FADE_END_LY),
     ),
-  };
+  );
+  return output;
 }
