@@ -844,7 +844,7 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       .and('contain.text', '10477373803000');
     cy.contains('h2', 'Explore Achenar').should('be.visible');
     cy.contains(
-      'Body classes, radii, arrival distances, and known ring state come from the catalogue.',
+      'Planet classes come from the published Ratings V4 derived catalogue',
     ).should('be.visible');
     cy.get('[aria-label="System camera controls"]').should('be.visible');
     cy.get('[aria-label="System bodies"] button')
