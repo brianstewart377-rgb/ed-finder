@@ -151,6 +151,35 @@ describe('SystemOverlay', () => {
     opener.remove();
   });
 
+  it('closes only Sources & freshness on the first Escape inside Inspect', async () => {
+    render(SystemOverlayTestHost, { props: { id64: '42' as Id64 } });
+    const overlay = screen.getByRole('dialog', { name: 'System Detail' });
+    const trigger = await screen.findByRole('button', {
+      name: 'Sources & freshness',
+    });
+    trigger.focus();
+    await fireEvent.click(trigger);
+    const sources = screen.getByRole('dialog', { name: 'Sources & freshness' });
+    expect(sources).toHaveFocus();
+
+    await fireEvent.keyDown(sources, { key: 'Escape' });
+
+    expect(
+      screen.queryByRole('dialog', { name: 'Sources & freshness' }),
+    ).toBeNull();
+    expect(overlay).toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    expect(mockedGoto).not.toHaveBeenCalled();
+
+    await fireEvent.keyDown(trigger, { key: 'Escape' });
+
+    expect(mockedGoto).toHaveBeenCalledOnce();
+    expect(mockedGoto).toHaveBeenCalledWith('/explore?view=cards#section', {
+      replaceState: true,
+      noScroll: true,
+    });
+  });
+
   it('restores body scroll and prior focus when host navigation unmounts it', async () => {
     document.body.style.overflow = 'scroll';
     const opener = document.createElement('button');

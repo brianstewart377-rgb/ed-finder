@@ -595,6 +595,8 @@ export type SystemDetailStation = Readonly<{
   bodyKey: string | null;
   /** Primary first, then secondary, then the rest by share. */
   economies: readonly SystemDetailStationEconomy[];
+  /** Observation time, when supplied; the canonical station read has none. */
+  lastObservedAt?: string | null;
 }>;
 
 /**
@@ -617,6 +619,9 @@ export type SystemDetail = Readonly<{
   sourceBodyCount: number | null;
   loadedBodyCount: number;
   sourceUpdatedAt: string | null;
+  /** Identity already read by the canonical publication fence. */
+  canonicalGenerationId?: string;
+  canonicalGenerationLabel?: string;
   bodies: readonly SystemDetailBody[];
   stations: readonly SystemDetailStation[];
 }>;
@@ -1352,6 +1357,7 @@ function stationDetail(station: StationV1): SystemDetailStation {
     bodyKey:
       station.association_state === BODY_RESOLVED ? station.body_id : null,
     economies: station.economies.map(stationEconomy).sort(economyOrder),
+    lastObservedAt: null,
   };
 }
 
@@ -1435,12 +1441,16 @@ export async function getSystem(
       rings.status === 'fulfilled' &&
       stations.status === 'fulfilled'
     ) {
-      const detail = systemDetailFromV3(
-        system.value.data,
-        bodies.value.data,
-        rings.value.data,
-        stations.value.data,
-      );
+      const detail = {
+        ...systemDetailFromV3(
+          system.value.data,
+          bodies.value.data,
+          rings.value.data,
+          stations.value.data,
+        ),
+        canonicalGenerationId: after.data.generation_id,
+        canonicalGenerationLabel: after.data.generation_key,
+      };
       if (
         FINDER_F4_ENABLED &&
         detail.id64 !== SOL_ID64 &&
