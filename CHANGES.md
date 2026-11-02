@@ -34,6 +34,22 @@ component tests separately verify the actual shown counts. Cloud appearance
 redesign (M03) remains separate. This visible change needs Product E2E/visual
 validation before production promotion and is **not deployed**.
 
+## 2026-11-01 — Galaxy catalogue star colours (M01)
+
+Fixed numeric catalogue subclasses rendering as unknown blue stars. Galaxy and
+System Map now share a pure classifier covering bare, numeric and decimal
+classes, white dwarfs, neutron stars, black holes, Wolf-Rayet, carbon/S-type,
+T Tauri/Herbig, luminosity suffixes (including catalogue sub-letters such as
+`Vab`, `IVb` and `IIIab`) and existing descriptive forms. Raw catalogue
+labels and the palette remain unchanged. Added catalogue table, unknown-input,
+Galaxy/System parity and catalogue-to-renderer regression tests; existing test
+expectations remain unchanged.
+
+Validation passed: frozen dependency install, web check, lint, formatting, 502
+focused spatial tests, the full 1,436-test Vitest suite and build. This visible
+rendering change still needs Product E2E/visual lane validation before production
+promotion. It is not deployed.
+
 ## 2026-11-01 — Cross-platform shared-package lint command
 
 `pnpm shared:lint` now uses a Node launcher and ESLint's API, removing the POSIX
