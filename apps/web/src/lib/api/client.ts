@@ -107,6 +107,7 @@ import type {
 } from './generated';
 
 export type {
+  BodyFilters,
   BodyV1,
   RingV1,
   StationV1,
@@ -558,6 +559,9 @@ export type SystemDetailBody = Readonly<{
   name: string;
   /** V3 public body-type code: `star`, `planet`, `barycentre`, `belt_cluster`. */
   bodyType: string | null;
+  /** Raw catalogued class from the published derived generation; display verbatim. */
+  bodyClass: string | null;
+  bodyClassSource: 'ratings-v4-derived' | null;
   isMainStar: boolean | null;
   spectralClass: string | null;
   luminosityClass: string | null;
@@ -1319,6 +1323,9 @@ export function systemDetailFromV3(
         bodyKey: body.body_id,
         name: body.name,
         bodyType: body.body_type,
+        bodyClass: body.body_class ?? null,
+        bodyClassSource:
+          body.body_class != null ? (body.body_class_source ?? null) : null,
         isMainStar: body.is_main_star,
         spectralClass: body.spectral_class,
         luminosityClass: body.luminosity_class,

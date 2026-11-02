@@ -364,13 +364,38 @@ rollback artifact. It does not require product READY, receipts, counts,
 (apply run 39113822236) and the 18 Search constraints are validated. The first
 F2d release, source `f667bb4d` (release run 39149556699), was accepted by
 promotion run 39149980927 and remains the minimum schema-compatible image.
+**Status (2026-11-02).** The eighth F2d release, source `a8d1b794` (release
+run 41462330572), passed preflight run 41463550705 and was accepted by
+promotion run 41465888068 at 2026-11-02T14:52:15Z to slot blue. It is the first
+release for the installed through-023 schema: migration `023` (the Search
+name-prefix index, no payload change) was applied the same day by apply run
+41449682997 after plan run 41449585823 listed pending exactly `[023]`
+(receipts `docs/operations/evidence/2026-11-02-v3-production-migration-plan-023-receipt-run-41449585823.json`
+and `…-migration-apply-023-receipt-run-41449682997.json`; the build took about
+seven minutes against the 1–3 hour estimate). The release restores the live
+system-name search (#978), renders catalogue stars in their spectral colours
+(#980) and reports the nebula inventory honestly (#981). Its attestation
+(operator-code identity `7008c681…`, changed only by 023's migration timeout
+envelope in `scripts/operator/`; attested for the through-022 and through-023
+sets) is the accepted release in `deploy/v3-production/target-authority.json`,
+with the `293bc72b` backend as the recorded rollback artifact and `f667bb4d`
+unchanged as the minimum schema-compatible image. Public checks after
+promotion: `/api/health` reports build `a8d1b794`; autocomplete for Sol,
+Achenar and Alioth returns 200 in under a second; a live capture near Sol at
+79 ly shows red, orange, yellow, white and blue stars; the owner-run Ratings V4
+public smoke passed 8/8
+(`docs/operations/evidence/2026-11-02-ratings-v4-public-smoke-a8d1b794.json`).
+Receipts:
+`docs/operations/evidence/2026-11-02-v3-production-preflight-receipt-run-41463550705.json`
+and `docs/operations/evidence/2026-11-02-v3-production-promotion-receipt-run-41465888068.json`.
 **Status (2026-11-01, third release).** The seventh F2d release, source `293bc72b`
 (release run 41342325477), passed preflight run 41342504519 and was accepted by
 promotion run 41342589203 at 2026-11-01T19:37:23Z to slot green. It is the first
 governed web image built with `VITE_FINDER_F4_ENABLED=1` (owner decision, #974).
 Its attestation (operator-code identity `8696feb8…` unchanged, attested for the
-installed through-022 set `828bf02d…`) is the accepted release in
-`deploy/v3-production/target-authority.json`, with the `181f6fed` backend as the
+installed through-022 set `828bf02d…`) was the accepted release in
+`deploy/v3-production/target-authority.json` until the eighth F2d release above
+superseded it on 2026-11-02, with the `181f6fed` backend as the
 recorded rollback artifact and `f667bb4d` unchanged as the minimum
 schema-compatible image. Receipts:
 `docs/operations/evidence/2026-11-01-v3-production-preflight-receipt-run-41342504519.json`

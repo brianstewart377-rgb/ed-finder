@@ -135,12 +135,33 @@ export type RingDescriptor = Readonly<{
   >;
 }>;
 
+/** Presentation derived only from a catalogued planet class; never a new fact. */
+export type BodyFamily =
+  | Readonly<{
+      family:
+        | 'earth-like'
+        | 'water-world'
+        | 'ammonia-world'
+        | 'high-metal-content'
+        | 'metal-rich'
+        | 'rocky'
+        | 'rocky-ice'
+        | 'icy'
+        | 'helium-gas-giant'
+        | 'water-giant'
+        | 'unknown';
+    }>
+  | Readonly<{ family: 'gas-giant'; variant: 'I' | 'II' | 'III' | 'IV' | 'V' }>
+  | Readonly<{ family: 'gas-giant-life'; variant: 'water' | 'ammonia' }>;
+
 export type BodyVisualDescriptor = Readonly<{
   ref: BodyRef;
   name: string;
   parent?: BodyRef;
   class?: Truth<string>;
   subtype?: Truth<string>;
+  bodyClass?: Truth<string>;
+  bodyFamily?: BodyFamily;
   physicalRadiusM?: Truth<number>;
   distanceFromArrivalLs?: Truth<number>;
   displayRadius: number;
@@ -242,6 +263,8 @@ export type RenderedLayerReceipt = Readonly<{
   representation: RepresentationClass;
   acceptedTargetCount: number;
   renderedTargetCount: number;
+  /** Layer targets by presentation batch; shared identities can occur in multiple layers. */
+  renderedBatchCounts?: Readonly<{ catalogue: number; finder: number }>;
   sourceGeneration?: string;
 }>;
 

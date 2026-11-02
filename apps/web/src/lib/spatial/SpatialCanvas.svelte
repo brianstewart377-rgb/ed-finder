@@ -5,7 +5,10 @@
 
   import type {
     Bounds3Ly,
+    BodyRef,
+    BodyVisualDescriptor,
     CameraState,
+    Provenance,
     RuntimeEvent,
     SpatialRuntime,
     SpatialRuntimeStatus,
@@ -32,6 +35,7 @@
   } from './galaxy-density';
   import { galaxyReferenceGrid } from './galaxy-grid';
   import { galaxyLabelCandidates, layoutGalaxyLabels } from './galaxy-labels';
+  import SystemBodyLegend from './SystemBodyLegend.svelte';
 
   let {
     scene,
@@ -133,6 +137,23 @@
   let lastPickedId64 = $state<string | undefined>();
   let lastPickedRegionId = $state<string | undefined>();
   let lastHoveredRegionId = $state<string | undefined>();
+  let lastHoveredBodyRef = $state<BodyRef | undefined>();
+  const hoveredBody = $derived(
+    scene?.kind === 'system' &&
+      scene.systemId64 === lastHoveredBodyRef?.systemId64
+      ? scene.bodies.find(
+          (body: BodyVisualDescriptor) =>
+            body.ref.bodyId === lastHoveredBodyRef?.bodyId,
+        )
+      : undefined,
+  );
+  $effect.pre(() => {
+    if (
+      scene?.kind !== 'system' ||
+      scene.systemId64 !== lastHoveredBodyRef?.systemId64
+    )
+      lastHoveredBodyRef = undefined;
+  });
   let lastSettledFocusId64 = $state<string | undefined>();
   let lastSettledFocusBodyId = $state<number | undefined>();
   let lastAppliedSceneRevision = $state<number | undefined>();
@@ -795,6 +816,7 @@
   }
 
   function clearHover(): void {
+    lastHoveredBodyRef = undefined;
     pendingHoverPoint = null;
     if (hoverFrame !== null) {
       window.cancelAnimationFrame(hoverFrame);
@@ -862,6 +884,8 @@
         } else if (event.type === 'TARGET_HOVERED') {
           lastHoveredRegionId =
             event.target?.kind === 'region' ? event.target.id : undefined;
+          lastHoveredBodyRef =
+            event.target?.kind === 'body' ? event.target.ref : undefined;
         } else if (event.type === 'SCENE_APPLIED') {
           lastAppliedSceneRevision = event.sceneRevision;
           renderedLayerIds = event.renderedLayers.map((layer) => layer.layerId);
@@ -1008,6 +1032,7 @@
       lastContributionPatchRevision = -1;
       lastPickedRegionId = undefined;
       lastHoveredRegionId = undefined;
+      lastHoveredBodyRef = undefined;
       lastSettledFocusId64 = undefined;
       lastSettledFocusBodyId = undefined;
       lastAppliedSceneRevision = undefined;
@@ -1165,6 +1190,22 @@
     tabindex="-1"
     aria-hidden="true"
   ></canvas>
+  {#if hoveredBody}
+    <div
+      class="system-body-hover"
+      data-hovered-body-id={hoveredBody.ref.bodyId}
+    >
+      <strong>{hoveredBody.name ?? `Body ${hoveredBody.ref.bodyId}`}</strong>
+      <span
+        >{hoveredBody.bodyClass?.value ??
+          hoveredBody.class?.value ??
+          'Unknown body type'}</span
+      >
+      {#if hoveredBody.bodyClass?.provenance?.some((entry: Provenance) => entry.source === 'ratings-v4-derived')}
+        <small>Source: Ratings V4 derived catalogue</small>
+      {/if}
+    </div>
+  {/if}
   <svg
     class="galaxy-label-leaders"
     aria-hidden="true"
@@ -1216,6 +1257,9 @@
     {/each}
   </div>
 </div>
+{#if scene?.kind === 'system'}
+  <SystemBodyLegend bodies={scene.bodies} />
+{/if}
 <p
   class="renderer-status"
   role="status"
@@ -1227,6 +1271,25 @@
 </p>
 
 <style>
+  .system-body-hover {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    display: grid;
+    gap: 0.25rem;
+    max-width: min(20rem, calc(100% - 1.5rem));
+    padding: 0.6rem 0.8rem;
+    border: 1px solid #344c61;
+    border-radius: 0.4rem;
+    background: #101e2cee;
+    color: #dbedf7;
+    font-size: 0.8rem;
+    pointer-events: none;
+  }
+  .system-body-hover span,
+  .system-body-hover small {
+    color: #b3c5d2;
+  }
   .spatial-canvas {
     position: relative;
     width: 100%;

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import {
     ANY_ARCHETYPE,
     ANY_ARCHETYPE_DESCRIPTION,
@@ -16,12 +17,14 @@
     onArchetypeChange,
     onMinimumTierChange,
     disabled = false,
+    rankingTools,
   }: {
     archetype: typeof ANY_ARCHETYPE | ArchetypeKey;
     minimumTier: SelectedMinimumTier | null;
     onArchetypeChange: (archetype: typeof ANY_ARCHETYPE | ArchetypeKey) => void;
     onMinimumTierChange: (tier: SelectedMinimumTier) => void;
     disabled?: boolean;
+    rankingTools?: Snippet;
   } = $props();
 
   const id = $props.id();
@@ -74,8 +77,7 @@
       </select>
     </label>
   {/if}
-  <!-- Reserved for the later weight pop-out; no unavailable control is shown. -->
-  <div class="ranking-tools"></div>
+  <div class="ranking-tools">{@render rankingTools?.()}</div>
 </div>
 
 <style>

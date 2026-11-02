@@ -34,6 +34,50 @@ check, lint, formatting, all 1,517 Vitest tests across 75 files, and static buil
 This is a user-visible interaction change that needs Product E2E/visual
 validation before production promotion. It is **not deployed**.
 
+## 2026-11-02 — System Map factual planet classes and body families (M12)
+
+The bodies API now exposes the recorded planet class and its
+`ratings-v4-derived` source from the published derived generation. Missing
+generations, body rows or observed subtypes leave the class unknown. Inspect
+and System Map show the raw class, while a pure presentation classifier gives
+planet families distinct restrained materials and a legend of the families
+present. Unknown classes retain neutral grey with a dim treatment. Stellar
+classification, rings, landability, hierarchy and Ratings V4 scoring are unchanged.
+
+Regenerated the checked-in Svelte and shared OpenAPI client contracts through
+`pnpm generate:api`; added API contract/PostgreSQL, family mapping, scene,
+NullEngine material and component coverage. No SQL migration or workflow change.
+Validation passed: full Python unit suite (8,500 passed, 533 skipped), 34 focused
+API/PostgreSQL checks on disposable PostgreSQL 18, Ruff, frozen web install,
+Svelte check, lint/format, all 1,529 web tests and build.
+This visible change needs Product E2E/visual validation before production
+promotion and is **not deployed**.
+
+## 2026-11-02 — Galaxy Finder markers stay visible independently of catalogue density
+
+Splits `apps/web` Galaxy stars into separate catalogue and Finder/selected
+thin-instance batches. Density cross-fading now changes only catalogue stars
+and their stellar accents; Finder and selected markers remain opaque and
+pickable. Both picking paths preserve system id64 and prefer Finder markers
+on ties. Existing layer receipts retain their fields with additive batch counts.
+
+This is a visible rendering change that needs Product E2E/visual validation
+before production promotion. It is not deployed.
+
+## 2026-11-02 — Migration 023 applied; eighth F2d release `a8d1b794` accepted: system-name search restored
+
+Owner-approved. The governed plan run 41449585823 listed pending exactly `[023]`
+and apply run 41449682997 built the Search name-prefix index in about seven
+minutes (estimate was 1–3 hours), with no payload change. Release run 41462330572
+(source `a8d1b794`) then passed preflight run 41463550705 and was accepted by
+promotion run 41465888068 at 2026-11-02T14:52:15Z to slot blue. Live checks:
+health reports `a8d1b794`; autocomplete for Sol, Achenar and Alioth returns in
+under a second (it timed out at 15 s before); stars near Sol render in their
+spectral colours; the Ratings V4 public smoke passed 8/8. The `293bc72b`
+backend is the recorded rollback artifact. Receipts under
+`docs/operations/evidence/2026-11-02-*`. Records the accepted attestation and
+observed runtime and updates the status lines.
+
 ## 2026-11-02 — Galaxy density and local-star hand-off (M04, M07)
 
 Closes the 7,000–8,000 LY gap where density had faded out before local stars
@@ -58,6 +102,22 @@ revisions only with accepted data reduces the non-F4 interaction workload from
 and transitions unchanged. This visible map change needs Product E2E/visual
 validation before production promotion and is not deployed. No API, SQL or
 workflow changes are included.
+
+## 2026-11-01 — Explore body filters and refresh-safe search anchors
+
+Explore keeps the committed search anchor in a bounded, lossless `near` URL
+parameter and restores its name and coordinates on reload or from a shared link.
+Invalid or unresolved anchors are removed with a notice; a plain Explore visit
+still waits for a requested search.
+
+The Body filters pop-out groups the API's 19 body counts into Planets, Stars and
+Features, with whole-count ranges, number inputs and unlimited maxima. Apply
+commits the draft with one search; removable chips and Clear all update results.
+Filters are shared through the bounded `bodies` URL parameter and are paused
+outside an anchored Any search. Both features work with the F4 flag on or off;
+filters are never persisted to local storage. Unit/component coverage exercises
+validation, draft controls, accessibility and history; Product E2E covers Apply,
+the request body, URL-only reload restoration and the open pop-out's accessibility.
 
 ## 2026-11-02 — Galaxy nebula inventory and planetary landmarks (M02)
 
@@ -413,7 +473,6 @@ requires a reviewed code change. Withdrawal still supersedes lineage batches,
 and all consent and export reads remain available. Database-free route tests
 cover the refusals and withdrawal; PostgreSQL integration coverage preserves
 the export-builder and consent flows with the pause explicitly disabled.
-
 
 ## 2026-10-31 — Finder: ranking rows carry their best rival archetype (F4b fit label)
 
