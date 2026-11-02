@@ -40,6 +40,7 @@ import {
   getGalaxyImpact,
   getHealth,
   getCommanderTravelHeatmap,
+  getCommanderJournalSummary,
   getMapHeatmap,
   getSystem,
   searchExploreSystems,
@@ -279,6 +280,30 @@ describe('typed V3 API facade over the generated Hey API SDK', () => {
     const failure = await getSystem('42' as never).catch((error) => error);
     expect(failure).toBeInstanceOf(ApiError);
     expect((failure as ApiError).status).toBe(404);
+  });
+
+  it('reads account-wide journal import metadata with session credentials', async () => {
+    const summary = {
+      imported_files: 0,
+      events_stored: 0,
+      systems_observed: 0,
+      unique_bodies: 0,
+      unique_bio_observations: 0,
+      last_imported_at: null,
+      event_counts: {},
+    };
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse(summary));
+    const controller = new AbortController();
+    expect(await getCommanderJournalSummary(controller.signal)).toEqual(
+      summary,
+    );
+    const request = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(new URL(request.url).pathname).toBe('/api/v1/journal/summary');
+    expect(request.credentials).toBe('include');
+    controller.abort();
+    expect(request.signal.aborted).toBe(true);
   });
 
   it('reads the signed-in travel heatmap from the V3 journal route', async () => {

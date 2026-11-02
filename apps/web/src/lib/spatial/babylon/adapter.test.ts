@@ -122,6 +122,134 @@ function densityBatchScene(
 }
 
 describe('Babylon spatial adapter boundary', () => {
+  it.each(['CATALOGUE', 'FINDER'] as const)(
+    'reports the id64 and name when hovering a pickable %s system',
+    (owner) => {
+      const engine = new NullEngine({
+        renderWidth: 640,
+        renderHeight: 360,
+        textureSize: 512,
+        deterministicLockstep: true,
+        lockstepMaxSteps: 1,
+      });
+      const session = createBabylonSession(engine, 'WEBGL2');
+      const events = vi.fn();
+      const point = {
+        systemId64: '9007199254740993',
+        name: 'Hover catalogue star',
+        positionLy: { x: 0, y: 0, z: 0 },
+        primaryStar: { type: 'G2' },
+      };
+      const density = buildFixtureCatalogueDensity([point], {
+        generationId: 'fixture:hover-star-density',
+        pyramidVersion: 'fixture-pyramid-v1',
+        level: 2,
+        cellSizeLy: 100,
+        cellOriginLy: { x: -1_000, y: -1_000, z: -1_000 },
+        boundsLy: {
+          min: { x: -1_000, y: -1_000, z: -1_000 },
+          max: { x: 1_000, y: 1_000, z: 1_000 },
+        },
+        coverageAsOf: '2026-11-02T00:00:00Z',
+      });
+      const contract: GalaxySceneContract = {
+        kind: 'galaxy',
+        revision: 1,
+        camera: {
+          focusLy: point.positionLy,
+          distanceLy: 500,
+          bearingRad: 0,
+          pitchRad: 0.5,
+          projection: 'perspective',
+          revision: 1,
+        },
+        selection: [],
+        contributions: [
+          createCatalogueDensityContribution(density, 1),
+          {
+            id: 'hover-systems',
+            owner,
+            revision: 1,
+            layers: [
+              {
+                id:
+                  owner === 'CATALOGUE'
+                    ? 'catalogue-systems'
+                    : 'finder-systems',
+                version: 1,
+                representation: 'AUTHORITATIVE',
+                targetCount: 1,
+                truncated: false,
+                payload: { systems: [point] },
+              },
+            ],
+          },
+        ],
+      };
+      try {
+        session.execute?.({ type: 'LOAD_SCENE', scene: contract }, events);
+        const scene = engine.scenes.at(-1)!;
+        const updateTransforms = () => {
+          scene.updateTransformMatrix(true);
+          for (const mesh of scene.meshes) mesh.computeWorldMatrix(true);
+        };
+        updateTransforms();
+        const hover = { type: 'HOVER', screenX: 320, screenY: 180 } as const;
+        events.mockClear();
+        session.execute?.(hover, events);
+        expect(events).toHaveBeenCalledWith({
+          type: 'TARGET_HOVERED',
+          target: {
+            kind: 'system',
+            systemId64: point.systemId64,
+            name: point.name,
+          },
+          screenX: 320,
+          screenY: 180,
+        });
+        // Stable pointer movement does not repeatedly invalidate label candidates.
+        events.mockClear();
+        session.execute?.(hover, events);
+        expect(events).not.toHaveBeenCalled();
+        session.execute?.({ type: 'CLEAR_HOVER' }, events);
+        expect(events).toHaveBeenCalledWith({ type: 'TARGET_HOVERED' });
+
+        session.execute?.(
+          {
+            type: 'SET_CAMERA',
+            camera: {
+              ...contract.camera,
+              distanceLy: DENSITY_CROSSFADE_FAR_LY + 1,
+              revision: 2,
+            },
+          },
+          events,
+        );
+        updateTransforms();
+        events.mockClear();
+        session.execute?.(hover, events);
+        if (owner === 'CATALOGUE') {
+          // Fully faded catalogue stars cannot intercept hover through density.
+          expect(events).not.toHaveBeenCalled();
+        } else {
+          expect(events).toHaveBeenCalledWith(
+            expect.objectContaining({
+              type: 'TARGET_HOVERED',
+              target: {
+                kind: 'system',
+                systemId64: point.systemId64,
+                name: point.name,
+              },
+            }),
+          );
+        }
+      } finally {
+        session.dispose();
+        engine.dispose();
+      }
+    },
+  );
+
   it('keeps the selected marker when a replacement page omits the selected Finder system', () => {
     const selected = {
       id64: parseId64('9007199254740993'),
@@ -952,7 +1080,13 @@ describe('Babylon spatial adapter boundary', () => {
         );
         expect(events).toHaveBeenLastCalledWith({
           type: 'TARGET_HOVERED',
-          target: { kind: 'system', systemId64: selectedPoint.systemId64 },
+          target: {
+            kind: 'system',
+            systemId64: selectedPoint.systemId64,
+            name: selectedPoint.name,
+          },
+          screenX: engine.getRenderWidth() / 2,
+          screenY: engine.getRenderHeight() / 2,
         });
       }
       session.execute?.(
@@ -1008,10 +1142,26 @@ describe('Babylon spatial adapter boundary', () => {
         },
         events,
       );
-      expect(events).toHaveBeenLastCalledWith({
-        type: path === 'exact' ? 'TARGET_HOVERED' : 'TARGET_PICKED',
-        target: { kind: 'system', systemId64: batchFinderPoint.systemId64 },
-      });
+      expect(events).toHaveBeenLastCalledWith(
+        path === 'exact'
+          ? {
+              type: 'TARGET_HOVERED',
+              target: {
+                kind: 'system',
+                systemId64: batchFinderPoint.systemId64,
+                name: batchFinderPoint.name,
+              },
+              screenX: 320,
+              screenY: 180,
+            }
+          : {
+              type: 'TARGET_PICKED',
+              target: {
+                kind: 'system',
+                systemId64: batchFinderPoint.systemId64,
+              },
+            },
+      );
       pick.mockRestore();
 
       // Move the Finder target well outside the click tolerance: catalogue

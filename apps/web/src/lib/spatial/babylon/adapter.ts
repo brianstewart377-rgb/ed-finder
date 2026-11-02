@@ -1341,6 +1341,7 @@ function nearestStarTargetByScreen(
   deviceX: number,
   deviceY: number,
   tolerancePx: number,
+  includeSystemName = false,
 ): SpatialTarget | undefined {
   const scene = product.scene;
   const transform = scene.getTransformMatrix();
@@ -1378,7 +1379,13 @@ function nearestStarTargetByScreen(
       }
     }
   }
-  return best ? { kind: 'system', systemId64: best.systemId64 } : undefined;
+  return best
+    ? {
+        kind: 'system',
+        systemId64: best.systemId64,
+        ...(includeSystemName ? { name: best.name } : {}),
+      }
+    : undefined;
 }
 
 function pickGalaxyTarget(
@@ -1386,7 +1393,10 @@ function pickGalaxyTarget(
   product: BabylonGalaxyProduct,
   screenX: number,
   screenY: number,
-  allowNearestStar = false,
+  options: Readonly<{
+    allowNearestStar?: boolean;
+    includeSystemName?: boolean;
+  }> = {},
 ): SpatialTarget | undefined {
   const canvas = engine.getRenderingCanvas();
   const scaleX = canvas?.clientWidth
@@ -1395,7 +1405,9 @@ function pickGalaxyTarget(
   const scaleY = canvas?.clientHeight
     ? engine.getRenderHeight() / canvas.clientHeight
     : 1;
-  let nearestHit: { distance: number; systemId64: string } | undefined;
+  let nearestHit:
+    | { distance: number; systemId64: string; name: string | undefined }
+    | undefined;
   // Separate ray picks make batch tie-breaking independent of scene mesh order.
   // A predicate bypasses Babylon's isPickable gate, so gate each batch here.
   for (const batch of [product.finderStars, product.catalogueStars]) {
@@ -1409,27 +1421,41 @@ function pickGalaxyTarget(
       (mesh) => (interactive && mesh === batch.mesh) || mesh === selectedMarker,
     );
     if (!hit?.hit) continue;
+    const point =
+      hit.pickedMesh === selectedMarker
+        ? batch.points.find(
+            (candidate) => candidate.systemId64 === product.selectedSystemId64,
+          )
+        : hit.pickedMesh === batch.mesh && hit.thinInstanceIndex >= 0
+          ? batch.points[hit.thinInstanceIndex]
+          : undefined;
     const systemId64 =
       hit.pickedMesh === selectedMarker
         ? product.selectedSystemId64
-        : hit.pickedMesh === batch.mesh && hit.thinInstanceIndex >= 0
-          ? batch.points[hit.thinInstanceIndex]?.systemId64
-          : undefined;
+        : point?.systemId64;
     if (systemId64 && (!nearestHit || hit.distance < nearestHit.distance)) {
-      nearestHit = { distance: hit.distance, systemId64 };
+      nearestHit = { distance: hit.distance, systemId64, name: point?.name };
     }
   }
-  if (nearestHit) return { kind: 'system', systemId64: nearestHit.systemId64 };
+  if (nearestHit)
+    return {
+      kind: 'system',
+      systemId64: nearestHit.systemId64,
+      ...(options.includeSystemName && nearestHit.name
+        ? { name: nearestHit.name }
+        : {}),
+    };
   // Stars render only a few pixels wide, so an exact ray can narrowly miss.
   // Fall back to the nearest projected star within a small screen tolerance
   // before considering a region plane, keeping individual stars clickable.
-  const nearestStar = allowNearestStar
+  const nearestStar = options.allowNearestStar
     ? nearestStarTargetByScreen(
         engine,
         product,
         screenX * scaleX,
         screenY * scaleY,
         12 * Math.max(scaleX, scaleY),
+        options.includeSystemName === true,
       )
     : undefined;
   if (nearestStar) return nearestStar;
@@ -2736,7 +2762,12 @@ export const createBabylonSession = (
               target?.kind === 'body' ? target.ref.bodyId : null,
             );
             warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
-            emit({ type: 'TARGET_HOVERED', target });
+            emit({
+              type: 'TARGET_HOVERED',
+              target,
+              screenX: command.screenX,
+              screenY: command.screenY,
+            });
           }
           return { status: 'executed' };
         }
@@ -2746,6 +2777,7 @@ export const createBabylonSession = (
           product,
           command.screenX,
           command.screenY,
+          { includeSystemName: true },
         );
         const nextKey = targetKey(target);
         warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
@@ -2756,7 +2788,12 @@ export const createBabylonSession = (
         );
         if (nextKey !== hoveredTargetKey) {
           hoveredTargetKey = nextKey;
-          emit({ type: 'TARGET_HOVERED', target });
+          emit({
+            type: 'TARGET_HOVERED',
+            target,
+            screenX: command.screenX,
+            screenY: command.screenY,
+          });
         }
         return { status: 'executed' };
       }
@@ -2803,7 +2840,7 @@ export const createBabylonSession = (
           product,
           command.screenX,
           command.screenY,
-          true,
+          { allowNearestStar: true },
         );
         emit({
           type: 'TARGET_PICKED',
