@@ -48,6 +48,7 @@ import {
   claimOwnerApiV1AuthOwnerClaimPost,
   frontierLinkApiV1AuthFrontierLinkPost,
   getArchetypeRankingsApiArchetypesRankingsGet,
+  getSystemArchetypesApiArchetypesSystemId64Get,
   getSystemArchetypeExplanationApiArchetypesSystemId64ExplanationGet,
   getProfileSyncApiProfileSyncSyncKeyGet,
   getV3CurrentGeneration,
@@ -1061,6 +1062,29 @@ export function normalizeRankingsResponse(
     query_ms: data.query_ms,
   };
 }
+
+/**
+ * One system's published archetype scores (`GET /api/archetypes/system/{id64}`),
+ * read through the configured generated client so the wire id64 stays a
+ * lossless decimal string. Used by the compare Refresh action.
+ */
+export async function getSystemArchetypes(
+  id64: Id64,
+  signal?: AbortSignal,
+): Promise<SystemArchetypesWire> {
+  const { data } = await getSystemArchetypesApiArchetypesSystemId64Get({
+    path: { id64: parseId64(id64) as unknown as number },
+    throwOnError: true,
+    signal,
+  });
+  if (!data) throw new Error('Empty system archetypes response');
+  return data;
+}
+export type SystemArchetypesWire = NonNullable<
+  Awaited<
+    ReturnType<typeof getSystemArchetypesApiArchetypesSystemId64Get>
+  >['data']
+>;
 
 /**
  * Selected-archetype ranking (`GET /api/archetypes/rankings`). The facade

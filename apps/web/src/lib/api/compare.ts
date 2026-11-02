@@ -5,19 +5,14 @@ import {
   type CompareEntry,
 } from '$lib/persistence/storage';
 import { isArchetypeKey } from '$lib/features/explore/archetypes';
-import { normalizeRankingProvenance } from './client';
-import { getSystemArchetypesApiArchetypesSystemId64Get } from './generated/sdk.gen';
+import { getSystemArchetypes, normalizeRankingProvenance } from './client';
 
 /** Refresh one saved candidate with one read of the published Finder product. */
 export async function refreshCompareSnapshot(
   previous: CompareEntry,
   signal?: AbortSignal,
 ): Promise<CompareEntry> {
-  const { data } = await getSystemArchetypesApiArchetypesSystemId64Get({
-    path: { id64: previous.id64 as unknown as number },
-    throwOnError: true,
-    signal,
-  });
+  const data = await getSystemArchetypes(previous.id64, signal);
   // The configured SDK transport preserves wire identifiers as decimal strings.
   const rawId: unknown = data.id64;
   const id64 = parseId64(
