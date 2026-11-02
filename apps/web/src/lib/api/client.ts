@@ -90,6 +90,8 @@ import type {
   HealthResponse,
   LocalSearchRequest,
   BodyV1,
+  MapHeatmapApiMapHeatmapGetData,
+  MapHeatmapPyramidResponse,
   MapViewportResponse,
   RankingIdentity,
   RatingExplanationResponse,
@@ -555,13 +557,14 @@ export type SystemDetailRing = Readonly<{
 /** One catalogued body as Inspect renders it (V3 canonical generation). */
 export type SystemDetailBody = Readonly<{
   /**
-   * Frontier in-system BodyID: the 3D map / selection reference. Null when the
-   * catalogue has none (or it is not a unique safe integer); such a body is
-   * counted but cannot be selected in the system map.
+   * Frontier in-system BodyID, when uniquely available as a safe integer.
+   * System Map selection requires this ID; parent links use the key below.
    */
   id: number | null;
   /** Canonical V3 body key (lossless decimal). */
   bodyKey: string;
+  /** Canonical V3 parent key, which may refer to an unloaded body. */
+  directParentBodyKey: string | null;
   name: string;
   /** V3 public body-type code: `star`, `planet`, `barycentre`, `belt_cluster`. */
   bodyType: string | null;
@@ -573,6 +576,7 @@ export type SystemDetailBody = Readonly<{
   luminosityClass: string | null;
   isLandable: boolean | null;
   radiusKm: number | null;
+  semiMajorAxisKm: number | null;
   distanceFromArrivalLs: number | null;
   rings: readonly SystemDetailRing[];
   signals: readonly Readonly<{ signalType: string; count: number }>[];
@@ -672,39 +676,10 @@ export type CatalogueViewportResponse = Readonly<{
   truncated: boolean;
 }>;
 
-export interface MapHeatmapPyramidCell {
-  origin_x_ly: number;
-  origin_y_ly: number;
-  origin_z_ly: number;
-  centroid_x_ly: number;
-  centroid_y_ly: number;
-  centroid_z_ly: number;
-  system_count: number;
-}
-
-export interface MapHeatmapPyramidResponse {
-  source: 'pyramid';
-  generation_id: string;
-  spatial_generation_id: string;
-  spatial_pyramid_version: string;
-  source_system_count: number;
-  coverage_at: string | null;
-  level: number;
-  cell_size_ly: number;
-  voxel_size: number;
-  bounds: {
-    min_x: number | null;
-    max_x: number | null;
-    min_y: number | null;
-    max_y: number | null;
-    min_z: number | null;
-    max_z: number | null;
-  };
-  cells: MapHeatmapPyramidCell[];
-  count: number;
-  max_cells: number;
-  truncated: boolean;
-}
+export type {
+  MapHeatmapPyramidCell,
+  MapHeatmapPyramidResponse,
+} from './generated';
 
 export type MapHeatmapResponse =
   | MapHeatmapPyramidResponse
@@ -1220,8 +1195,12 @@ export async function getCatalogueViewportSystems(
   };
 }
 
+export type MapHeatmapRequest = NonNullable<
+  MapHeatmapApiMapHeatmapGetData['query']
+>;
+
 export const getMapHeatmap = async (
-  query: { voxel_size?: number; min_systems?: number; max_cells?: number },
+  query: MapHeatmapRequest,
   signal?: AbortSignal,
 ): Promise<MapHeatmapResponse> =>
   (await mapHeatmapApiMapHeatmapGet({ query, throwOnError: true, signal }))
@@ -1355,6 +1334,7 @@ export function systemDetailFromV3(
       .map((body): SystemDetailBody => ({
         id: ids.get(body.body_id) ?? null,
         bodyKey: body.body_id,
+        directParentBodyKey: body.direct_parent_body_id,
         name: body.name,
         bodyType: body.body_type,
         bodyClass: body.body_class ?? null,
@@ -1365,6 +1345,7 @@ export function systemDetailFromV3(
         luminosityClass: body.luminosity_class,
         isLandable: body.is_landable,
         radiusKm: body.radius_km,
+        semiMajorAxisKm: body.semi_major_axis_km,
         distanceFromArrivalLs: body.distance_from_arrival_ls,
         rings: ringsByBody.get(body.body_id) ?? [],
         signals: body.signals.map((signal) => ({

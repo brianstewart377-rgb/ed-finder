@@ -71,11 +71,16 @@ import {
 } from '../galaxy-nebulae';
 import {
   galaxyNebulaVisibility,
+  nebulaCloudEnabled,
   selectGalaxyNebulaLandmarks,
   NEBULA_LANDMARK_CELL_LY,
   NEBULA_LANDMARK_LIMIT,
   NEBULA_LANDMARK_FADE_START_LY,
   NEBULA_LANDMARK_FADE_END_LY,
+  NEBULA_CLOUD_REENTER_LY,
+  NEBULA_LANDMARK_MARKER_RADIUS_LY,
+  NEBULA_SCHEMATIC_RADIUS_MIN_LY,
+  NEBULA_SCHEMATIC_RADIUS_MAX_LY,
   PLANETARY_NEBULA_FADE_START_LY,
   PLANETARY_NEBULA_FADE_END_LY,
   PLANETARY_NEBULA_MARKER_RADIUS_LY,
@@ -83,6 +88,12 @@ import {
   type NebulaKind,
 } from '../galaxy-nebulae-policy';
 import { createCatalogueDensityMesh } from './catalogue-density';
+import {
+  createGalaxyNebulaCloudMesh,
+  createGalaxyNebulaLandmarkMesh,
+  NEBULA_CLOUD_QUADS_PER_LANDMARK,
+} from './nebula-meshes';
+
 import { densityCrossfadeT } from '../galaxy-density-crossfade';
 import {
   DENSITY_CROSSFADE_NEAR_LY,
@@ -107,8 +118,11 @@ import {
 import {
   bodyFamilyPresentation,
   systemBodyLayout,
+  systemOrbitGuides,
   type SystemBodyLayout,
 } from '../system-scene';
+
+export { nebulaCloudRadiusLy } from '../galaxy-nebulae-policy';
 
 const disposeEngine = (engine: AbstractEngine): void => {
   try {
@@ -193,7 +207,8 @@ export type BabylonGalaxyProduct = Readonly<{
   stellarAccentMeshes: readonly Mesh[];
   densityMesh: Mesh | null;
   commanderHistoryMesh: ReturnType<typeof CreateSphere> | null;
-  nebulaMesh: ReturnType<typeof CreateSphere> | null;
+  nebulaMesh: Mesh | null;
+  nebulaCloudMesh: Mesh | null;
   planetaryNebulaMesh: ReturnType<typeof CreateSphere> | null;
   nebulaeMetadata: ReturnType<typeof galaxyNebulaeMetadata> | null;
   regionBoundaryMesh: ReturnType<typeof CreateLineSystem> | null;
@@ -210,7 +225,7 @@ export type BabylonGalaxyProduct = Readonly<{
 
 export type BabylonSystemBodyMesh = Readonly<{
   layout: SystemBodyLayout;
-  mesh: ReturnType<typeof CreateSphere>;
+  mesh: Mesh;
   ringMeshes: readonly ReturnType<typeof CreateTorus>[];
 }>;
 
@@ -221,6 +236,8 @@ export type BabylonSystemProduct = Readonly<{
   contract: SystemSceneContract;
   bodies: readonly BabylonSystemBodyMesh[];
   orbitMesh: ReturnType<typeof CreateLineSystem> | null;
+  parentLinkMesh: ReturnType<typeof CreateLineSystem> | null;
+  hoveredBodyId: number | null;
   visualGlow: GlowLayer;
   renderedLayers: readonly RenderedLayerReceipt[];
 }>;
@@ -1061,84 +1078,6 @@ function commanderHistoryReceipt(
   };
 }
 
-export function nebulaCloudRadiusLy(): number {
-  // Mapcharts publishes a reference-system coordinate, not a physical boundary.
-  // This bounded radius is deliberately schematic map presentation — sized so a
-  // landmark reads as a soft cloud at the Galaxy-scale camera (~10^5 ly), not the
-  // sub-pixel dot the earlier 56/160 ly radii produced.
-  return 2_000;
-}
-
-// Emission-nebula palette: warm rose, teal, gold, violet, cyan, jade. Balanced
-// so the layer reads as varied landmarks rather than a single blue smear.
-const NEBULA_PALETTE = [
-  [0.86, 0.34, 0.52],
-  [0.3, 0.68, 0.74],
-  [0.9, 0.6, 0.3],
-  [0.58, 0.4, 0.82],
-  [0.34, 0.6, 0.86],
-  [0.4, 0.74, 0.54],
-] as const;
-
-/** Deterministic 0..1 hash from a stable nebula identity. */
-function nebulaIdentityHash(id: string): number {
-  let hash = 2_166_136_261;
-  for (let index = 0; index < id.length; index += 1) {
-    hash ^= id.charCodeAt(index);
-    hash = Math.imul(hash, 16_777_619);
-  }
-  return ((hash >>> 0) % 100_000) / 100_000;
-}
-
-function createGalaxyNebulaeMesh(
-  scene: Scene,
-  landmarks: readonly GalaxyNebula[],
-): ReturnType<typeof CreateSphere> | null {
-  if (!landmarks.length) return null;
-  const mesh = CreateSphere(
-    'galaxy-nebula-landmarks',
-    { diameter: 2, segments: 16 },
-    scene,
-  );
-  mesh.isPickable = false;
-  mesh.thinInstanceEnablePicking = false;
-  mesh.hasVertexAlpha = true;
-  mesh.alphaIndex = 0;
-  const material = new StandardMaterial('galaxy-nebula-material', scene);
-  material.disableLighting = true;
-  material.backFaceCulling = false;
-  material.disableDepthWrite = true;
-  material.diffuseColor = Color3.White();
-  material.emissiveColor = new Color3(0.24, 0.26, 0.4);
-  material.specularColor = Color3.Black();
-  material.alpha = 0.45;
-  mesh.material = material;
-  mesh.onDisposeObservable.addOnce(() => material.dispose());
-
-  const matrices = new Float32Array(landmarks.length * 16);
-  const colours = new Float32Array(landmarks.length * 4);
-  landmarks.forEach((nebula, index) => {
-    const hash = nebulaIdentityHash(nebula.id);
-    // Vary size so clouds read as distinct landmarks, not a uniform stipple.
-    const radius = nebulaCloudRadiusLy() * (0.65 + hash * 1.25);
-    const position = nebula.positionLy.value;
-    Matrix.Compose(
-      new Vector3(radius, radius * 0.62, radius),
-      Quaternion.Identity(),
-      new Vector3(position.x, position.y, position.z),
-    ).copyToArray(matrices, index * 16);
-    const paletteIndex =
-      (nebula.regionId ?? Math.floor(hash * NEBULA_PALETTE.length)) %
-      NEBULA_PALETTE.length;
-    const colour = NEBULA_PALETTE[paletteIndex]!;
-    colours.set([...colour, 0.4 + hash * 0.25], index * 4);
-  });
-  mesh.thinInstanceSetBuffer('matrix', matrices, 16, true);
-  mesh.thinInstanceSetBuffer('color', colours, 4, true);
-  mesh.thinInstanceRefreshBoundingInfo(true);
-  return mesh;
-}
-
 function createPlanetaryNebulaeMesh(
   scene: Scene,
   landmarks: readonly GalaxyNebula[],
@@ -1186,9 +1125,11 @@ function galaxyNebulaeMetadata(
     usageBasis: nebulae.payload.usageBasis,
     sourceByteCount: nebulae.payload.sourceByteCount,
     sourceSha256: nebulae.payload.sourceSha256,
-    // Counts describe enabled scene instances at the current zoom, not pixel
-    // coverage or a per-instance frustum/occlusion query.
+    // Target counts describe unique landmarks with enabled markers at this
+    // zoom, not pixel coverage/frustum/occlusion. Decorative cloud quads never
+    // add targets to M02 receipts or the inventory/status line.
     visibilityMeaning: 'scene-instances-enabled-at-current-zoom',
+    targetCountMeaning: 'unique-enabled-landmark-markers-excluding-cloud-quads',
   };
   const kindMetadata = (kind: NebulaKind) => ({
     ...common,
@@ -1204,8 +1145,33 @@ function galaxyNebulaeMetadata(
       landmarkCellLy: NEBULA_LANDMARK_CELL_LY,
       landmarkLimit: NEBULA_LANDMARK_LIMIT,
       selectionRule: 'named-then-regional-then-lowest-codepoint-id',
-      fadeStartLy: NEBULA_LANDMARK_FADE_START_LY,
-      fadeEndLy: NEBULA_LANDMARK_FADE_END_LY,
+      markerRadiusLy: NEBULA_LANDMARK_MARKER_RADIUS_LY,
+      markerScreenDiameterPx: [3, 6],
+      markerVisibility: 'persistent-at-all-galaxy-zooms',
+      extentMeaning: 'schematic extent; catalogue supplies positions only',
+      schematicRadiusMinLy: NEBULA_SCHEMATIC_RADIUS_MIN_LY,
+      schematicRadiusMaxLy: NEBULA_SCHEMATIC_RADIUS_MAX_LY,
+      clouds: {
+        id: GALAXY_NEBULAE_LAYER_ID,
+        kind: 'nebula-cloud',
+        representation: 'AMBIENT',
+        selectedLandmarkCount: selection.counts.nebula.selectedLandmarkCount,
+        quadsPerLandmark: NEBULA_CLOUD_QUADS_PER_LANDMARK,
+        instanceCount:
+          selection.counts.nebula.selectedLandmarkCount *
+          NEBULA_CLOUD_QUADS_PER_LANDMARK,
+        enabledLandmarkCount: 0,
+        enabledQuadCount: 0,
+        visibilityMeaning:
+          'enabled-decoration-batch-before-camera-proximity-frustum-and-occlusion',
+        targetCountMeaning: 'decoration-excluded-from-target-counts',
+        extentMeaning: 'schematic extent; catalogue supplies positions only',
+        schematicRadiusMinLy: NEBULA_SCHEMATIC_RADIUS_MIN_LY,
+        schematicRadiusMaxLy: NEBULA_SCHEMATIC_RADIUS_MAX_LY,
+        fadeStartLy: NEBULA_LANDMARK_FADE_START_LY,
+        fadeEndLy: NEBULA_LANDMARK_FADE_END_LY,
+        reenterLy: NEBULA_CLOUD_REENTER_LY,
+      },
     },
     'planetary-nebula': {
       ...kindMetadata('planetary-nebula'),
@@ -1221,6 +1187,9 @@ function galaxyNebulaeMetadata(
   return {
     ...common,
     countsByKind,
+    // Reused by camera updates so the nebula frame path allocates no scratch
+    // objects. Diffuse opacity belongs to clouds; markers always stay visible.
+    zoomOpacityByKind: { nebula: 0, 'planetary-nebula': 0 },
     catalogueRecordCount:
       diffuse.catalogueRecordCount + planetary.catalogueRecordCount,
     acceptedFeatureCount:
@@ -1237,27 +1206,48 @@ function galaxyNebulaeMetadata(
 
 function updateGalaxyNebulaVisibility(
   nebulaMesh: Mesh | null,
+  nebulaCloudMesh: Mesh | null,
   planetaryNebulaMesh: Mesh | null,
   metadata: ReturnType<typeof galaxyNebulaeMetadata> | null,
   camera: CameraState,
 ): void {
   if (!metadata) return;
-  const visibility = galaxyNebulaVisibility(camera.distanceLy);
-  const meshes = {
-    nebula: nebulaMesh,
-    'planetary-nebula': planetaryNebulaMesh,
-  };
-  for (const kind of ['nebula', 'planetary-nebula'] as const) {
-    const mesh = meshes[kind];
-    if (mesh) {
-      mesh.setEnabled(visibility[kind] > 0);
-      mesh.visibility = visibility[kind];
-    }
-    const counts = metadata.countsByKind[kind];
-    counts.currentlyVisibleCount =
-      mesh?.isEnabled() && mesh.visibility > 0 ? mesh.thinInstanceCount : 0;
-    counts.renderedPointCount = counts.currentlyVisibleCount;
+  const visibility = galaxyNebulaVisibility(
+    camera.distanceLy,
+    metadata.zoomOpacityByKind,
+  );
+  if (nebulaMesh) {
+    nebulaMesh.setEnabled(true);
+    nebulaMesh.visibility = 1;
   }
+  const diffuse = metadata.countsByKind.nebula;
+  diffuse.currentlyVisibleCount = nebulaMesh?.thinInstanceCount ?? 0;
+  diffuse.renderedPointCount = diffuse.currentlyVisibleCount;
+  if (nebulaCloudMesh) {
+    const enabled = nebulaCloudEnabled(
+      camera.distanceLy,
+      nebulaCloudMesh.isEnabled(),
+    );
+    nebulaCloudMesh.setEnabled(enabled);
+    nebulaCloudMesh.visibility = enabled ? visibility.nebula : 0;
+  }
+  const clouds = diffuse.clouds;
+  clouds.enabledQuadCount =
+    nebulaCloudMesh?.isEnabled() && nebulaCloudMesh.visibility > 0
+      ? nebulaCloudMesh.thinInstanceCount
+      : 0;
+  clouds.enabledLandmarkCount =
+    clouds.enabledQuadCount / NEBULA_CLOUD_QUADS_PER_LANDMARK;
+  if (planetaryNebulaMesh) {
+    planetaryNebulaMesh.setEnabled(visibility['planetary-nebula'] > 0);
+    planetaryNebulaMesh.visibility = visibility['planetary-nebula'];
+  }
+  const planetary = metadata.countsByKind['planetary-nebula'];
+  planetary.currentlyVisibleCount =
+    planetaryNebulaMesh?.isEnabled() && planetaryNebulaMesh.visibility > 0
+      ? planetaryNebulaMesh.thinInstanceCount
+      : 0;
+  planetary.renderedPointCount = planetary.currentlyVisibleCount;
   metadata.currentlyVisibleCount =
     metadata.countsByKind.nebula.currentlyVisibleCount +
     metadata.countsByKind['planetary-nebula'].currentlyVisibleCount;
@@ -1653,7 +1643,11 @@ export const createBabylonGalaxyScene = (
   const nebulaSelection = nebulae
     ? selectGalaxyNebulaLandmarks(nebulae.payload)
     : null;
-  const nebulaMesh = createGalaxyNebulaeMesh(
+  const nebulaMesh = createGalaxyNebulaLandmarkMesh(
+    scene,
+    nebulaSelection?.landmarks.nebula ?? [],
+  );
+  const nebulaCloudMesh = createGalaxyNebulaCloudMesh(
     scene,
     nebulaSelection?.landmarks.nebula ?? [],
   );
@@ -1667,12 +1661,17 @@ export const createBabylonGalaxyScene = (
       : null;
   if (nebulaMesh && nebulaeMetadata)
     nebulaMesh.metadata = { spatialLayer: nebulaeMetadata.countsByKind.nebula };
+  if (nebulaCloudMesh && nebulaeMetadata)
+    nebulaCloudMesh.metadata = {
+      spatialLayer: nebulaeMetadata.countsByKind.nebula.clouds,
+    };
   if (planetaryNebulaMesh && nebulaeMetadata)
     planetaryNebulaMesh.metadata = {
       spatialLayer: nebulaeMetadata.countsByKind['planetary-nebula'],
     };
   updateGalaxyNebulaVisibility(
     nebulaMesh,
+    nebulaCloudMesh,
     planetaryNebulaMesh,
     nebulaeMetadata,
     cameraState,
@@ -1721,7 +1720,6 @@ export const createBabylonGalaxyScene = (
     scene,
     [
       densityMesh,
-      nebulaMesh,
       commanderHistoryMesh,
       selectedMarker,
       ...stellarAccentMeshes,
@@ -1782,6 +1780,7 @@ export const createBabylonGalaxyScene = (
     densityMesh,
     commanderHistoryMesh,
     nebulaMesh,
+    nebulaCloudMesh,
     planetaryNebulaMesh,
     nebulaeMetadata,
     regionBoundaryMesh,
@@ -1883,7 +1882,12 @@ export function applySystemCamera(
   bodies: readonly BabylonSystemBodyMesh[],
 ): void {
   const target = systemCameraTarget(state, bodies);
-  const distance = Math.max(6, Math.min(120, state.semanticDistance));
+  const distance = Number.isFinite(state.semanticDistance)
+    ? Math.max(6, Math.min(Number.MAX_SAFE_INTEGER, state.semanticDistance))
+    : 38;
+  // Large nested groups need a wider fit than Babylon's default far plane.
+  // Keep the clip distance finite even for malformed camera commands.
+  camera.maxZ = Math.max(10_000, distance * 4);
   const pitch = Math.max(0.08, Math.min(1.42, state.pitchRad));
   const horizontal = Math.cos(pitch) * distance;
   camera.position.set(
@@ -1899,18 +1903,16 @@ function createSystemOrbitMesh(
   scene: Scene,
   layouts: readonly SystemBodyLayout[],
 ): ReturnType<typeof CreateLineSystem> | null {
-  const radii = [
-    ...new Set(
-      layouts
-        .map((layout) => Number(layout.orbitRadius.toFixed(4)))
-        .filter((radius) => radius > 0),
-    ),
-  ];
-  if (radii.length === 0) return null;
-  const lines = radii.map((radius) =>
+  const guides = systemOrbitGuides(layouts);
+  if (guides.length === 0) return null;
+  const lines = guides.map(({ position, radius }) =>
     Array.from({ length: 97 }, (_, index) => {
       const angle = (index / 96) * Math.PI * 2;
-      return new Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+      return new Vector3(
+        position.x + Math.cos(angle) * radius,
+        position.y,
+        position.z + Math.sin(angle) * radius,
+      );
     }),
   );
   const orbitMesh = CreateLineSystem(
@@ -1925,10 +1927,139 @@ function createSystemOrbitMesh(
     spatialLayer: {
       id: 'system-semantic-orbits',
       representation: 'SCHEMATIC',
-      meaning: 'ordered-distance-layout-not-observed-orbital-elements',
+      meaning: 'known-parent-groups-not-observed-orbital-elements',
     },
+    guides,
   };
   return orbitMesh;
+}
+
+function selectedSystemBodyId(camera: SystemCameraState): number | null {
+  return camera.focus.kind === 'body' ? camera.focus.ref.bodyId : null;
+}
+
+function createSystemParentLinkMesh(
+  scene: Scene,
+  layouts: readonly SystemBodyLayout[],
+  selectedBodyId: number | null,
+  hoveredBodyId: number | null,
+): ReturnType<typeof CreateLineSystem> | null {
+  if (selectedBodyId === null && hoveredBodyId === null) return null;
+  const byId = new Map(
+    layouts.map((layout) => [layout.body.ref.bodyId, layout]),
+  );
+  const links = layouts.flatMap((layout) => {
+    const parent =
+      layout.parentBodyId === null ? undefined : byId.get(layout.parentBodyId);
+    if (!parent) return [];
+    if (
+      ![layout.body.ref.bodyId, parent.body.ref.bodyId].some(
+        (id) => id === selectedBodyId || id === hoveredBodyId,
+      )
+    )
+      return [];
+    return [{ parent, child: layout }];
+  });
+  if (links.length === 0) return null;
+  const mesh = CreateLineSystem(
+    'system-parent-links',
+    {
+      lines: links.map(({ parent, child }) => [
+        new Vector3(parent.position.x, parent.position.y, parent.position.z),
+        new Vector3(child.position.x, child.position.y, child.position.z),
+      ]),
+    },
+    scene,
+  );
+  mesh.color = new Color3(0.42, 0.65, 0.74);
+  mesh.alpha = 0.72;
+  mesh.isPickable = false;
+  mesh.metadata = {
+    spatialLayer: { id: 'system-parent-links', representation: 'SCHEMATIC' },
+    links: links.map(({ parent, child }) => ({
+      parentBodyId: parent.body.ref.bodyId,
+      bodyId: child.body.ref.bodyId,
+    })),
+  };
+  return mesh;
+}
+
+function refreshSystemParentLinks(
+  product: BabylonSystemProduct,
+  camera: SystemCameraState,
+  hoveredBodyId = product.hoveredBodyId,
+): BabylonSystemProduct {
+  if (
+    selectedSystemBodyId(camera) ===
+      selectedSystemBodyId(product.cameraState) &&
+    hoveredBodyId === product.hoveredBodyId
+  )
+    return product;
+  product.parentLinkMesh?.dispose();
+  const parentLinkMesh = createSystemParentLinkMesh(
+    product.scene,
+    product.bodies.map(({ layout }) => layout),
+    selectedSystemBodyId(camera),
+    hoveredBodyId,
+  );
+  return { ...product, parentLinkMesh, hoveredBodyId };
+}
+
+function createSystemBodyMesh(
+  scene: Scene,
+  layout: SystemBodyLayout,
+  visual: ReturnType<typeof systemBodyColour>,
+): Mesh {
+  const { body } = layout;
+  const name = `system-body-${body.ref.bodyId}`;
+  if (layout.placement === 'unplaced' || body.class?.value === 'Barycentre') {
+    const unplaced = layout.placement === 'unplaced';
+    const radius = unplaced ? Math.max(0.55, body.displayRadius) : 0.45;
+    const lines = unplaced
+      ? [
+          [
+            new Vector3(-radius, 0, 0),
+            new Vector3(0, 0, radius),
+            new Vector3(radius, 0, 0),
+            new Vector3(0, 0, -radius),
+            new Vector3(-radius, 0, 0),
+          ],
+        ]
+      : [
+          [new Vector3(-radius, 0, 0), new Vector3(radius, 0, 0)],
+          [new Vector3(0, 0, -radius), new Vector3(0, 0, radius)],
+        ];
+    const marker = CreateLineSystem(name, { lines }, scene);
+    marker.color = unplaced
+      ? new Color3(0.94, 0.67, 0.3)
+      : new Color3(0.58, 0.72, 0.78);
+    marker.intersectionThreshold = radius * 0.45;
+    return marker;
+  }
+  const mesh = CreateSphere(
+    name,
+    { diameter: body.displayRadius * 2, segments: 24 },
+    scene,
+  );
+  const material = new StandardMaterial(
+    `system-body-material-${body.ref.bodyId}`,
+    scene,
+  );
+  material.diffuseColor = visual.darkCore ? Color3.Black() : visual.diffuse;
+  material.emissiveColor = visual.darkCore
+    ? new Color3(0.005, 0.005, 0.008)
+    : visual.emissive;
+  material.specularColor = visual.darkCore
+    ? new Color3(0.08, 0.08, 0.1)
+    : new Color3(0.24, 0.24, 0.26);
+  material.specularPower = 48;
+  if (visual.unknown) {
+    material.alpha = 0.42;
+    material.specularColor = new Color3(0.06, 0.06, 0.07);
+  }
+  mesh.material = material;
+  mesh.onDisposeObservable.addOnce(() => material.dispose());
+  return mesh;
 }
 
 export const createBabylonSystemScene = (
@@ -1951,19 +2082,23 @@ export const createBabylonSystemScene = (
   const bodies = layouts.map((layout): BabylonSystemBodyMesh => {
     const body = layout.body;
     const visual = systemBodyColour(body);
-    const mesh = CreateSphere(
-      `system-body-${body.ref.bodyId}`,
-      { diameter: body.displayRadius * 2, segments: 24 },
-      scene,
-    );
+    const mesh = createSystemBodyMesh(scene, layout, visual);
     mesh.position.set(layout.position.x, layout.position.y, layout.position.z);
-    if (visual.banded) applyGiantBands(mesh, body.displayRadius);
+    if (visual.banded && layout.placement === 'placed')
+      applyGiantBands(mesh, body.displayRadius);
     mesh.metadata = {
       spatialTarget: {
         kind: 'body',
         ref: body.ref,
       },
       bodyName: body.name,
+      markerKind:
+        layout.placement === 'unplaced'
+          ? 'position-unknown'
+          : body.class?.value === 'Barycentre'
+            ? 'barycentre'
+            : 'body',
+      positionUnknownReason: layout.positionUnknownReason,
       bodyFamily: body.bodyFamily,
       classTreatment: visual.unknown ? 'unknown-dim' : 'known',
       representation: {
@@ -1971,25 +2106,6 @@ export const createBabylonSystemScene = (
         bodyFacts: 'AUTHORITATIVE',
       },
     };
-    const material = new StandardMaterial(
-      `system-body-material-${body.ref.bodyId}`,
-      scene,
-    );
-    material.diffuseColor = visual.darkCore ? Color3.Black() : visual.diffuse;
-    material.emissiveColor = visual.darkCore
-      ? new Color3(0.005, 0.005, 0.008)
-      : visual.emissive;
-    material.specularColor = visual.darkCore
-      ? new Color3(0.08, 0.08, 0.1)
-      : new Color3(0.24, 0.24, 0.26);
-    material.specularPower = 48;
-    if (visual.unknown) {
-      material.alpha = 0.42;
-      material.specularColor = new Color3(0.06, 0.06, 0.07);
-    }
-    mesh.material = material;
-    mesh.onDisposeObservable.addOnce(() => material.dispose());
-
     const ringMeshes =
       body.rings?.state === 'PRESENT'
         ? [
@@ -2022,11 +2138,19 @@ export const createBabylonSystemScene = (
     return { layout, mesh, ringMeshes };
   });
   const orbitMesh = createSystemOrbitMesh(scene, layouts);
+  const parentLinkMesh = createSystemParentLinkMesh(
+    scene,
+    layouts,
+    selectedSystemBodyId(contract.camera),
+    null,
+  );
   applySystemCamera(camera, contract.camera, bodies);
   const glowMeshes = bodies
     .filter((body) => {
       const identity = `${body.layout.body.class?.value ?? ''} ${body.layout.body.subtype?.value ?? ''}`;
-      return /star|black hole/i.test(identity);
+      return (
+        body.layout.placement === 'placed' && /star|black hole/i.test(identity)
+      );
     })
     .map((body) => body.mesh);
   const visualGlow = createGalaxyVisualFinish(scene, glowMeshes);
@@ -2055,6 +2179,8 @@ export const createBabylonSystemScene = (
     contract,
     bodies,
     orbitMesh,
+    parentLinkMesh,
+    hoveredBodyId: null,
     visualGlow,
     renderedLayers,
   };
@@ -2073,13 +2199,63 @@ function pickSystemTarget(
   const scaleY = canvas?.clientHeight
     ? engine.getRenderHeight() / canvas.clientHeight
     : 1;
+  const bodiesByMesh = new Map<unknown, BabylonSystemBodyMesh>(
+    product.bodies
+      .filter(
+        ({ mesh }) =>
+          mesh.isEnabled() &&
+          mesh.isVisible &&
+          mesh.visibility > 0 &&
+          mesh.isPickable,
+      )
+      .map((body) => [body.mesh, body]),
+  );
   const hit = product.scene.pick(screenX * scaleX, screenY * scaleY, (mesh) =>
-    product.bodies.some((body) => body.mesh === mesh),
+    bodiesByMesh.has(mesh),
   );
-  const body = product.bodies.find(
-    (candidate) => candidate.mesh === hit?.pickedMesh,
+  const body = bodiesByMesh.get(hit?.pickedMesh);
+  if (body) return { kind: 'body', ref: body.layout.body.ref };
+
+  // Compact moon glyphs retain a six-CSS-pixel selection radius at any DPR.
+  // Native surface hits take priority; the fallback changes no visible size.
+  const { camera } = product;
+  const transform = camera.getTransformationMatrix();
+  const viewport = camera.viewport.toGlobal(
+    engine.getRenderWidth(),
+    engine.getRenderHeight(),
   );
-  return body ? { kind: 'body', ref: body.layout.body.ref } : undefined;
+  const forward = camera.getForwardRay().direction;
+  const identity = Matrix.Identity();
+  const projected = Vector3.Zero();
+  const fromCamera = Vector3.Zero();
+  let closest: BabylonSystemBodyMesh | undefined;
+  let closestDistanceSq = 6 * 6;
+  for (const candidate of bodiesByMesh.values()) {
+    const position = candidate.mesh.getAbsolutePosition();
+    position.subtractToRef(camera.globalPosition, fromCamera);
+    if (Vector3.Dot(fromCamera, forward) <= 0) continue;
+    Vector3.ProjectToRef(position, identity, transform, viewport, projected);
+    if (
+      projected.z < 0 ||
+      projected.z > 1 ||
+      projected.x < viewport.x ||
+      projected.x > viewport.x + viewport.width ||
+      projected.y < viewport.y ||
+      projected.y > viewport.y + viewport.height
+    )
+      continue;
+    const dx = projected.x / scaleX - screenX;
+    const dy = projected.y / scaleY - screenY;
+    const distanceSq = dx * dx + dy * dy;
+    if (
+      distanceSq < closestDistanceSq ||
+      (!closest && distanceSq <= closestDistanceSq)
+    ) {
+      closest = candidate;
+      closestDistanceSq = distanceSq;
+    }
+  }
+  return closest ? { kind: 'body', ref: closest.layout.body.ref } : undefined;
 }
 
 export const subscribeToBabylonResourceEvents = (
@@ -2158,6 +2334,7 @@ export const createBabylonSession = (
     updateGalaxyReferenceGridVisibility(referenceGrid, camera);
     updateGalaxyNebulaVisibility(
       product.nebulaMesh,
+      product.nebulaCloudMesh,
       product.planetaryNebulaMesh,
       product.nebulaeMetadata,
       camera,
@@ -2242,6 +2419,7 @@ export const createBabylonSession = (
   ): void => {
     if (!systemProduct) return;
     applySystemCamera(systemProduct.camera, camera, systemProduct.bodies);
+    systemProduct = refreshSystemParentLinks(systemProduct, camera);
     systemProduct = {
       ...systemProduct,
       cameraState: camera,
@@ -2275,6 +2453,7 @@ export const createBabylonSession = (
         updateGalaxyReferenceGridVisibility(referenceGrid, product.cameraState);
         updateGalaxyNebulaVisibility(
           product.nebulaMesh,
+          product.nebulaCloudMesh,
           product.planetaryNebulaMesh,
           product.nebulaeMetadata,
           product.cameraState,
@@ -2575,6 +2754,12 @@ export const createBabylonSession = (
           const nextKey = targetKey(target);
           if (nextKey !== hoveredTargetKey) {
             hoveredTargetKey = nextKey;
+            systemProduct = refreshSystemParentLinks(
+              systemProduct,
+              systemProduct.cameraState,
+              target?.kind === 'body' ? target.ref.bodyId : null,
+            );
+            warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
             emit({
               type: 'TARGET_HOVERED',
               target,
@@ -2614,6 +2799,12 @@ export const createBabylonSession = (
         if (systemProduct) {
           if (hoveredTargetKey) {
             hoveredTargetKey = '';
+            systemProduct = refreshSystemParentLinks(
+              systemProduct,
+              systemProduct.cameraState,
+              null,
+            );
+            warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
             emit({ type: 'TARGET_HOVERED' });
           }
           return { status: 'executed' };
