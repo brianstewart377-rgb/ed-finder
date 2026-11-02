@@ -458,7 +458,7 @@ describe('Explore load and interaction work budget', () => {
         patches: enabled ? 1 : 0,
         // Viewport catalogue cells add their observers; the Layers pop-out adds
         // the disabled account-summary observer in both modes.
-        activeQueries: enabled ? 16 : 15,
+        activeQueries: 16,
         transitions: 1,
         api: { ...idleApi, finder: 0, catalogue: 25, density: 2 },
       });
@@ -474,7 +474,7 @@ describe('Explore load and interaction work budget', () => {
         patches: enabled ? 1 : 0,
         // The committed anchor and selected result have separate query
         // identities; the account-summary observer adds one in both modes.
-        activeQueries: enabled ? 16 : 15,
+        activeQueries: enabled ? 17 : 16,
         transitions: 4,
         api: {
           ...idleApi,
@@ -569,7 +569,7 @@ describe('Explore load and interaction work budget', () => {
         loads: 10,
         patches: 1,
         // Includes the disabled account-summary observer from the Layers pop-out.
-        activeQueries: 16,
+        activeQueries: 17,
         transitions: 4,
         api: {
           ...idleApi,

@@ -357,8 +357,11 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     );
     // The stub runtime reports completed flights but does not emit their camera
     // receipts. Supply a settled overview camera before testing a layer change.
+    // Focus the overview on the fixture star so the viewport-aware catalogue
+    // sample keeps it in frame at galaxy scale.
     const camera = {
       ...currentScene().camera,
+      focusLy: { x: 0, y: 0, z: 0 },
       distanceLy: 118_000,
       revision: 10,
     };
@@ -370,8 +373,10 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
       ),
     );
     const selection = currentScene().selection;
+    await waitFor(() =>
+      expect(scenePointIds()).toContain(catalogueFixture.systems[0].id64),
+    );
     const stars = scenePointIds();
-    expect(stars).toContain(catalogueFixture.systems[0].id64);
     const fetches = vi.mocked(api.getMapHeatmap).mock.calls.length;
     const density = screen.getByRole('switch', {
       name: 'Known-system density',
