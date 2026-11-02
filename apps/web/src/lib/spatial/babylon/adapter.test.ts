@@ -263,6 +263,8 @@ describe('Babylon spatial adapter boundary', () => {
               body_id: String(index),
               frontier_body_id: String(index),
               body_type: 'planet',
+              // A known arrival distance keeps each body a placed sphere.
+              distance_from_arrival_ls: 100 * (index + 1),
               // Even a suggestive name must not invent a class.
               name: 'Earth-like world',
               body_class: bodyClass,
