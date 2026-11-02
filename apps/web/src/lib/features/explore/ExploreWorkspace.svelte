@@ -74,10 +74,17 @@
   } from '$lib/spatial/explore-scene';
   import { collectGalaxySpatialContributions } from '$lib/spatial/galaxy-overlays';
   import {
+    classifyDensityError,
     densityContributionFrom,
     heatmapVoxelSizeForDistance,
+    mapHeatmapToDensityPayload,
+    type GalaxyDensityResult,
   } from '$lib/spatial/galaxy-density-source';
-  import { DENSITY_CROSSFADE_NEAR_LY } from '$lib/spatial/galaxy-density-crossfade';
+  import {
+    DENSITY_CROSSFADE_NEAR_LY,
+    galaxyDetailMode,
+    type GalaxyDetailMode,
+  } from '$lib/spatial/galaxy-detail-policy';
   import {
     fitGalaxyPlaneCamera,
     focusGalaxyCamera,
@@ -105,6 +112,7 @@
     createCatalogueStarsContribution,
     galaxyStarViewport,
     withinGalaxyDisk,
+    type GalaxyStarViewport,
   } from '$lib/spatial/galaxy-star-stream';
 
   const { selectedSystem, pins, compare } = usePersistenceContext();
@@ -195,9 +203,13 @@
     revision: 0,
   });
   let streamRevision = $state(0);
+  let starDetailMode = $state<GalaxyDetailMode>('wide');
   let viewportCameraTimeout: number | null = null;
   let pendingViewportCamera: CameraState | null = null;
-  let appliedCataloguePacket = $state<CatalogueViewportResponse | null>(null);
+  let appliedCataloguePacket = $state.raw<CatalogueViewportResponse | null>(
+    null,
+  );
+  let appliedCatalogueViewport = $state.raw<GalaxyStarViewport | null>(null);
   let appliedCatalogueRevision = $state(0);
   let layerToggleRevision = $state(0);
   let showTravelHeatmap = $state(false);
@@ -648,7 +660,9 @@
     void navigateWithAnchor(inspectHref(id64, page.url));
   }
 
-  const starViewport = $derived(galaxyStarViewport(streamCamera));
+  const starViewport = $derived(
+    galaxyStarViewport(streamCamera, starDetailMode),
+  );
   const viewportRequest = $derived(
     starViewport
       ? {
@@ -688,9 +702,11 @@
     if (
       catalogueStars.data &&
       !catalogueStars.isPlaceholderData &&
-      catalogueStars.dataUpdatedAt !== appliedCatalogueRevision
+      (catalogueStars.data !== appliedCataloguePacket ||
+        catalogueStars.dataUpdatedAt !== appliedCatalogueRevision)
     ) {
       appliedCataloguePacket = catalogueStars.data;
+      appliedCatalogueViewport = starViewport;
       appliedCatalogueRevision = catalogueStars.dataUpdatedAt;
     }
   });
@@ -758,6 +774,9 @@
   const heatmapVoxelSize = $derived(
     heatmapVoxelSizeForDistance(streamCamera?.distanceLy ?? 118_000),
   );
+  const densityEnabled = $derived(
+    (streamCamera?.distanceLy ?? 0) >= DENSITY_CROSSFADE_NEAR_LY,
+  );
   const heatmap = createQuery(() => ({
     queryKey: ['map-heatmap', heatmapVoxelSize],
     queryFn: ({ signal }) =>
@@ -775,7 +794,7 @@
       ),
     // Enabled across the zoomed-out + overlap band; below `nearLy` density is
     // fully faded so no fetch needed.
-    enabled: (streamCamera?.distanceLy ?? 0) >= DENSITY_CROSSFADE_NEAR_LY,
+    enabled: densityEnabled,
     staleTime: 60_000,
     placeholderData: (previousData) => previousData,
   }));
@@ -787,51 +806,82 @@
     revision: 0,
     layers: [],
   };
-  const legacyDensityContribution = $derived(
-    densityContributionFrom(heatmap.data, heatmap.dataUpdatedAt),
+  const densityResult = $derived(
+    heatmap.isError
+      ? classifyDensityError(heatmap.error)
+      : heatmap.data === undefined
+        ? undefined
+        : mapHeatmapToDensityPayload(heatmap.data),
   );
+  type ReadyDensity = Extract<GalaxyDensityResult, { kind: 'ready' }>;
+  let lastGoodDensity = $state.raw<ReadyDensity | null>(null);
   let densityContribution = $state.raw<SpatialContribution | null>(null);
   let appliedDensityData: typeof heatmap.data;
-  let densityRevision = 0;
+  let densityRevision = $state(0);
   let densityRemovalRevision = $state(0);
   $effect(() => {
     // A placeholder is the already-applied density, not a new empty revision.
-    if (!FINDER_F4_ENABLED || heatmap.isPlaceholderData) return;
+    if (heatmap.isPlaceholderData) return;
+    const result = densityResult;
+    // A transport or validation failure must not erase the last good layer.
+    // A valid unpublished/empty response, on the other hand, replaces it.
+    if (!result || (result.kind !== 'ready' && result.kind !== 'none')) return;
     const data = heatmap.data;
     if (data === appliedDensityData) return;
     appliedDensityData = data;
     // Cached viewport responses can have older timestamps. The renderer's
     // patch revision must advance even when returning to one of those views.
-    const replacement = densityContributionFrom(data, ++densityRevision);
+    const nextDensityRevision = untrack(() => densityRevision) + 1;
+    densityRevision = nextDensityRevision;
+    const mapped = densityContributionFrom(result, nextDensityRevision);
+    const replacement = mapped.kind === 'ready' ? mapped.contribution : null;
+    lastGoodDensity = result.kind === 'ready' ? result : null;
     if (!replacement && untrack(() => densityContribution) !== null) {
       // A null contribution is not dispatched as a patch; reload to remove it.
       densityRemovalRevision = untrack(() => densityRemovalRevision) + 1;
     }
     densityContribution = replacement;
   });
-  const densityCellCount = $derived(
-    heatmap.data && heatmap.data.source === 'pyramid' ? heatmap.data.count : 0,
+  const densityFailure = $derived(
+    densityResult?.kind === 'unavailable' || densityResult?.kind === 'invalid'
+      ? densityResult
+      : null,
   );
-  const densityTruncated = $derived(
-    heatmap.data && heatmap.data.source === 'pyramid'
-      ? heatmap.data.truncated
-      : false,
+  const densityState = $derived(
+    densityFailure
+      ? lastGoodDensity
+        ? 'stale'
+        : densityFailure.kind
+      : heatmap.isPending || heatmap.isPlaceholderData
+        ? 'loading'
+        : densityResult?.kind === 'none'
+          ? 'none'
+          : lastGoodDensity?.area === 'empty'
+            ? 'empty'
+            : lastGoodDensity?.area === 'truncated'
+              ? 'truncated'
+              : 'ready',
   );
-  const cataloguePacketIsCurrent = $derived(
-    catalogueStars.data === appliedCataloguePacket &&
-      !catalogueStars.isPlaceholderData,
-  );
+  const densityCellCount = $derived(lastGoodDensity?.payload.cells.length ?? 0);
+  const densityTruncated = $derived(lastGoodDensity?.area === 'truncated');
   const filteredCatalogueSystems = $derived(
     (appliedCataloguePacket?.systems ?? []).filter((system) => {
-      if (!starViewport || !streamCamera) return true;
+      // Keep the accepted packet's visibility mask until its replacement is
+      // ready. Applying the next viewport's mask to placeholder stars would
+      // reveal wide-sample corners or remove local stars during the hand-off.
+      const viewport = appliedCatalogueViewport;
+      if (!viewport) return true;
       // Wide galaxy scale: shape the axis-aligned API sample into the
       // canonical galactic disk so it reads as a swirling star field rather
       // than a rectangular slab, and feather the rim so nothing clips square.
-      if (starViewport.wide) return withinGalaxyDisk(system.x, system.z);
-      if (!cataloguePacketIsCurrent) return true;
-      const focus = streamCamera.focusLy;
-      const horizontalRadius = (starViewport.maxX - starViewport.minX) / 2;
-      const verticalRadius = (starViewport.maxY - starViewport.minY) / 2;
+      if (viewport.wide) return withinGalaxyDisk(system.x, system.z);
+      const focus = {
+        x: (viewport.minX + viewport.maxX) / 2,
+        y: (viewport.minY + viewport.maxY) / 2,
+        z: (viewport.minZ + viewport.maxZ) / 2,
+      };
+      const horizontalRadius = (viewport.maxX - viewport.minX) / 2;
+      const verticalRadius = (viewport.maxY - viewport.minY) / 2;
       if (horizontalRadius <= 0 || verticalRadius <= 0) return true;
       const dx = (system.x - focus.x) / horizontalRadius;
       const dz = (system.z - focus.z) / horizontalRadius;
@@ -1065,7 +1115,7 @@
         appliedCatalogueRevision +
         commanderVisits.dataUpdatedAt +
         nebulaResourceRevision +
-        (heatmap.dataUpdatedAt ?? 0),
+        densityRevision,
       {
         finderContribution,
         finderRevision,
@@ -1073,7 +1123,7 @@
         spatialContributions: collectGalaxySpatialContributions({
           regions: regionContribution,
           nebulae: nebulaContribution,
-          density: legacyDensityContribution,
+          density: densityContribution,
           catalogueStars: catalogueStarsContribution,
           commanderHistory: commanderHistoryContribution,
         }),
@@ -1128,7 +1178,7 @@
       selectionRevision += 1;
     }
     streamRevision += 1;
-    streamCamera = {
+    updateStreamCamera({
       focusLy: {
         x: hit.x ?? 0,
         y: hit.y ?? 0,
@@ -1139,7 +1189,7 @@
       pitchRad: 0.55,
       projection: 'perspective',
       revision: streamRevision,
-    };
+    });
     focusTarget = { kind: 'system', systemId64: hit.id64 };
     focusRevision += 1;
   }
@@ -1200,6 +1250,11 @@
     selectResult(system);
   }
 
+  function updateStreamCamera(camera: CameraState): void {
+    starDetailMode = galaxyDetailMode(camera.distanceLy, starDetailMode);
+    streamCamera = camera;
+  }
+
   function retainCamera(camera: CameraState): void {
     retainedCamera = { finderRevision, camera };
     pendingViewportCamera = camera;
@@ -1210,7 +1265,7 @@
       viewportCameraTimeout = null;
       const nextCamera = pendingViewportCamera;
       pendingViewportCamera = null;
-      if (nextCamera) streamCamera = nextCamera;
+      if (nextCamera) updateStreamCamera(nextCamera);
     }, 180);
   }
 
@@ -1911,16 +1966,49 @@
             · {nebulae.rightsNotice}
           {/if}
         </span>
+        {#if densityEnabled}
+          <span
+            role="status"
+            aria-label="Catalogue density"
+            data-density-state={densityState}
+            data-density-reason={densityFailure?.reason}
+            data-density-cell-count={densityCellCount}
+          >
+            {#if densityState === 'loading'}
+              Loading catalogue density…{lastGoodDensity
+                ? ' · showing previous area'
+                : ''}
+            {:else if densityState === 'stale'}
+              {densityCellCount.toLocaleString()} density cells{densityTruncated
+                ? ' · bounded view'
+                : ''} · stale · {densityFailure?.kind === 'invalid'
+                ? 'density response invalid'
+                : 'density refresh unavailable'}
+            {:else if densityState === 'unavailable'}
+              Density layer unavailable
+            {:else if densityState === 'invalid'}
+              Density response invalid
+            {:else if densityState === 'none'}
+              No published density pyramid
+            {:else if densityState === 'empty'}
+              No density cells in this area
+            {:else}
+              {densityCellCount.toLocaleString()} density cells{densityTruncated
+                ? ' · bounded view'
+                : ''}
+            {/if}
+            {#if densityFailure}
+              · <button type="button" onclick={() => void heatmap.refetch()}
+                >Retry</button
+              >
+            {/if}
+          </span>
+        {/if}
         <span
           data-catalogue-star-count={appliedCataloguePacket?.systems.length ??
             0}
-          data-density-cell-count={densityCellCount}
         >
-          {#if FINDER_F4_ENABLED ? densityContribution : legacyDensityContribution}
-            {densityCellCount.toLocaleString()} density cells{densityTruncated
-              ? ' · bounded view'
-              : ''}
-          {:else if !starViewport}
+          {#if !starViewport}
             Known-system density · zoom in for individual stars
           {:else if catalogueStars.isPending}
             Loading exact catalogue stars…

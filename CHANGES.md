@@ -11,6 +11,7 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+<<<<<<< HEAD
 ## 2026-11-01 — Explore body filters and refresh-safe search anchors
 
 Explore keeps the committed search anchor in a bounded, lossless `near` URL
@@ -26,6 +27,46 @@ outside an anchored Any search. Both features work with the F4 flag on or off;
 filters are never persisted to local storage. Unit/component coverage exercises
 validation, draft controls, accessibility and history; Product E2E covers Apply,
 the request body, URL-only reload restoration and the open pop-out's accessibility.
+=======
+## 2026-11-02 — Migration 023 applied; eighth F2d release `a8d1b794` accepted: system-name search restored
+
+Owner-approved. The governed plan run 41449585823 listed pending exactly `[023]`
+and apply run 41449682997 built the Search name-prefix index in about seven
+minutes (estimate was 1–3 hours), with no payload change. Release run 41462330572
+(source `a8d1b794`) then passed preflight run 41463550705 and was accepted by
+promotion run 41465888068 at 2026-11-02T14:52:15Z to slot blue. Live checks:
+health reports `a8d1b794`; autocomplete for Sol, Achenar and Alioth returns in
+under a second (it timed out at 15 s before); stars near Sol render in their
+spectral colours; the Ratings V4 public smoke passed 8/8. The `293bc72b`
+backend is the recorded rollback artifact. Receipts under
+`docs/operations/evidence/2026-11-02-*`. Records the accepted attestation and
+observed runtime and updates the status lines.
+
+## 2026-11-02 — Galaxy density and local-star hand-off (M04, M07)
+
+Closes the 7,000–8,000 LY gap where density had faded out before local stars
+started streaming. A shared detail policy now fades density from 40,000 to
+6,000 LY, enters local streaming at 9,000 LY and returns to the wide sample
+only above 9,500 LY. Density remains fetched throughout the overlap; previous
+star data stays visible while the next viewport loads. The five local star
+budgets and 15,000 LY API cube bound are preserved.
+
+Density has its own loading, ready, stale, unavailable, invalid, unpublished,
+empty and truncated status, separate from exact stars. Failed or invalid
+refreshes retain the last valid layer with a stale marker; Retry requests fresh
+data. Only validated pyramid responses are accepted, with the existing
+`min_systems: 1` / `max_cells: 40_000` request unchanged.
+
+Vitest coverage checks the continuous overlap invariant, hysteresis camera path,
+budgets and bounds, each density result, Retry, retained stale data and separate
+exact-star status. The test that pinned the old 7,000 LY streaming boundary now
+asserts the shared overlap policy. Retaining viewport masks and applying density
+revisions only with accepted data reduces the non-F4 interaction workload from
+51 to 39 scene builds; its exact workload assertions are updated, with API calls
+and transitions unchanged. This visible map change needs Product E2E/visual
+validation before production promotion and is not deployed. No API, SQL or
+workflow changes are included.
+>>>>>>> origin/main
 
 ## 2026-11-02 — Galaxy nebula inventory and planetary landmarks (M02)
 

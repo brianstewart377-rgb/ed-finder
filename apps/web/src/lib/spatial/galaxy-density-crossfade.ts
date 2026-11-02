@@ -7,8 +7,15 @@
  * from, so the two presentations never fight for the same visual budget.
  */
 
-export const DENSITY_CROSSFADE_NEAR_LY = 8_000;
-export const DENSITY_CROSSFADE_FAR_LY = 40_000;
+import {
+  DENSITY_CROSSFADE_NEAR_LY,
+  DENSITY_CROSSFADE_FAR_LY,
+} from './galaxy-detail-policy';
+
+export {
+  DENSITY_CROSSFADE_NEAR_LY,
+  DENSITY_CROSSFADE_FAR_LY,
+} from './galaxy-detail-policy';
 
 /**
  * Fraction of the density presentation to show at `distanceLy`: `0` at or

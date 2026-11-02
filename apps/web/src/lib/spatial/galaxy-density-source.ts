@@ -5,10 +5,40 @@ import {
   validateCatalogueDensityPayload,
   type CatalogueDensityPayload,
 } from './galaxy-density';
-import type {
-  MapHeatmapResponse,
-  MapHeatmapPyramidResponse,
-} from '$lib/api/client';
+import { ApiError, type MapHeatmapPyramidResponse } from '$lib/api/client';
+
+export type GalaxyDensityResult =
+  | {
+      kind: 'ready';
+      payload: CatalogueDensityPayload;
+      area: 'complete' | 'empty' | 'truncated';
+    }
+  | { kind: 'unavailable'; reason: string }
+  | { kind: 'invalid'; reason: string }
+  | { kind: 'none' };
+
+/** Transport failures are distinct from a valid, empty published pyramid. */
+export function classifyDensityError(
+  error: unknown,
+): Extract<GalaxyDensityResult, { kind: 'unavailable' | 'invalid' }> {
+  if (
+    error instanceof SyntaxError ||
+    (error instanceof ApiError && error.body instanceof SyntaxError)
+  ) {
+    return { kind: 'invalid', reason: 'malformed-json' };
+  }
+  return {
+    kind: 'unavailable',
+    reason:
+      error instanceof ApiError && error.status > 0
+        ? `http-${error.status}`
+        : 'network',
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 function minBy(
   cells: MapHeatmapPyramidResponse['cells'],
@@ -25,21 +55,57 @@ function maxBy(
 }
 
 export function mapHeatmapToDensityPayload(
-  res: MapHeatmapResponse,
-): CatalogueDensityPayload | null {
-  if (res.source !== 'pyramid') return null;
+  value: unknown,
+): GalaxyDensityResult {
+  // This endpoint uses the legacy lane when no published pyramid is available.
+  // It must never be accepted as the catalogue's canonical density layer.
+  if (isRecord(value) && value.source === 'legacy-fallback') {
+    return { kind: 'none' };
+  }
   // The facade casts external JSON to `MapHeatmapResponse`, so a malformed
   // `source: 'pyramid'` body (missing/malformed `bounds` or `cells`) is still
   // possible. Keep every response-shape dereference inside the guarded block
-  // so a bad payload fails closed to `null` rather than throwing out of the
+  // so a bad payload fails closed to `invalid` rather than throwing out of the
   // synchronous `$derived` evaluation that maps it.
   try {
-    const cells = res.cells ?? [];
-    if (!cells.length) return null;
-    const originX = res.bounds.min_x ?? minBy(cells, 'origin_x_ly');
-    const originY = res.bounds.min_y ?? minBy(cells, 'origin_y_ly');
-    const originZ = res.bounds.min_z ?? minBy(cells, 'origin_z_ly');
-    return validateCatalogueDensityPayload({
+    if (!isRecord(value) || value.source !== 'pyramid') {
+      throw new Error('Density response must identify its pyramid source');
+    }
+    if (!isRecord(value.bounds) || !Array.isArray(value.cells)) {
+      throw new Error('Density response must include bounds and a cells array');
+    }
+    for (const bound of [
+      'min_x',
+      'min_y',
+      'min_z',
+      'max_x',
+      'max_y',
+      'max_z',
+    ]) {
+      const coordinate = value.bounds[bound];
+      if (coordinate !== null && !Number.isFinite(coordinate)) {
+        throw new Error(
+          'Density bounds must contain finite or null coordinates',
+        );
+      }
+    }
+    if (typeof value.truncated !== 'boolean') {
+      throw new Error('Density response truncated must be boolean');
+    }
+    if (value.count !== value.cells.length) {
+      throw new Error('Density response count must match its cells');
+    }
+    const res = value as unknown as MapHeatmapPyramidResponse;
+    const cells = res.cells;
+    // An empty published pyramid still passes the full metadata/count
+    // validation. With no occupied cells, null bounds have zero extent.
+    const originX =
+      res.bounds.min_x ?? (cells.length ? minBy(cells, 'origin_x_ly') : 0);
+    const originY =
+      res.bounds.min_y ?? (cells.length ? minBy(cells, 'origin_y_ly') : 0);
+    const originZ =
+      res.bounds.min_z ?? (cells.length ? minBy(cells, 'origin_z_ly') : 0);
+    const payload = validateCatalogueDensityPayload({
       schemaVersion: CATALOGUE_DENSITY_SCHEMA_VERSION,
       generationId: res.generation_id,
       pyramidVersion: res.spatial_pyramid_version,
@@ -53,9 +119,21 @@ export function mapHeatmapToDensityPayload(
           z: res.bounds.min_z ?? originZ,
         },
         max: {
-          x: res.bounds.max_x ?? maxBy(cells, 'origin_x_ly') + res.cell_size_ly,
-          y: res.bounds.max_y ?? maxBy(cells, 'origin_y_ly') + res.cell_size_ly,
-          z: res.bounds.max_z ?? maxBy(cells, 'origin_z_ly') + res.cell_size_ly,
+          x:
+            res.bounds.max_x ??
+            (cells.length
+              ? maxBy(cells, 'origin_x_ly') + res.cell_size_ly
+              : originX),
+          y:
+            res.bounds.max_y ??
+            (cells.length
+              ? maxBy(cells, 'origin_y_ly') + res.cell_size_ly
+              : originY),
+          z:
+            res.bounds.max_z ??
+            (cells.length
+              ? maxBy(cells, 'origin_z_ly') + res.cell_size_ly
+              : originZ),
         },
       },
       sourceSystemCount: res.source_system_count,
@@ -76,18 +154,37 @@ export function mapHeatmapToDensityPayload(
         systemCount: c.system_count,
       })),
     });
-  } catch {
-    return null;
+    return {
+      kind: 'ready',
+      payload,
+      area: res.truncated ? 'truncated' : cells.length ? 'complete' : 'empty',
+    };
+  } catch (error) {
+    return {
+      kind: 'invalid',
+      reason:
+        error instanceof Error ? error.message : 'Invalid density payload',
+    };
   }
 }
 
 export function densityContributionFrom(
-  data: MapHeatmapResponse | undefined,
+  result: GalaxyDensityResult,
   revision: number,
-): SpatialContribution | null {
-  if (!data) return null;
-  const payload = mapHeatmapToDensityPayload(data);
-  return payload ? createCatalogueDensityContribution(payload, revision) : null;
+):
+  | (Extract<GalaxyDensityResult, { kind: 'ready' }> & {
+      contribution: SpatialContribution;
+    })
+  | Exclude<GalaxyDensityResult, { kind: 'ready' }> {
+  return result.kind === 'ready'
+    ? {
+        ...result,
+        contribution: createCatalogueDensityContribution(
+          result.payload,
+          revision,
+        ),
+      }
+    : result;
 }
 
 /**

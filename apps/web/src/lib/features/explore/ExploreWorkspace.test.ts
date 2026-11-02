@@ -26,6 +26,12 @@ import type {
 import type { ExploreAnchor } from './navigation';
 import * as galaxyRegions from '$lib/spatial/galaxy-regions';
 import * as galaxyNebulae from '$lib/spatial/galaxy-nebulae';
+import {
+  DENSITY_CROSSFADE_NEAR_LY,
+  GALAXY_WIDE_STAR_LIMIT,
+  LOCAL_STAR_ENTER_LY,
+  LOCAL_STAR_EXIT_LY,
+} from '$lib/spatial/galaxy-detail-policy';
 import { createManagedSpatialRuntime } from '$lib/spatial/lifecycle';
 import ExploreWorkspaceTestHost from './ExploreWorkspaceTestHost.svelte';
 
@@ -116,6 +122,36 @@ const coarsePyramidFixture: api.MapHeatmapPyramidResponse = {
 };
 
 const legacyFixture: api.MapHeatmapResponse = { source: 'legacy-fallback' };
+
+const emptyPyramidFixture: api.MapHeatmapPyramidResponse = {
+  ...pyramidFixture,
+  cells: [],
+  count: 0,
+  source_system_count: 0,
+};
+
+const catalogueFixture: api.CatalogueViewportResponse = {
+  systems: [
+    {
+      id64: parseId64('9007199254740993'),
+      name: 'Catalogue star',
+      x: 0,
+      y: 0,
+      z: 0,
+      mainStarClass: 'G',
+      populated: false,
+    },
+  ],
+  truncated: false,
+};
+
+function densityStatus(): HTMLElement {
+  return screen.getByRole('status', { name: 'Catalogue density' });
+}
+
+function exactStarStatus(): HTMLElement {
+  return document.querySelector<HTMLElement>('[data-catalogue-star-count]')!;
+}
 
 function stubRuntime(): void {
   vi.stubGlobal(
@@ -232,6 +268,8 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
 
     await waitFor(() => expect(api.getMapHeatmap).toHaveBeenCalled());
     expect(await screen.findByText(/2 density cells/)).toBeInTheDocument();
+    expect(densityStatus()).toHaveAttribute('data-density-state', 'ready');
+    expect(exactStarStatus()).toHaveTextContent('0 exact stars');
     expect(
       screen.queryByText(/Known-system density · zoom in/),
     ).not.toBeInTheDocument();
@@ -248,16 +286,265 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     );
   });
 
-  it('reports no density contribution and no error for a legacy-fallback heatmap', async () => {
+  it('reports no published pyramid separately from exact stars for a legacy fallback', async () => {
     vi.mocked(api.getMapHeatmap).mockResolvedValue(legacyFixture);
 
     render(ExploreWorkspaceTestHost);
 
     await waitFor(() => expect(api.getMapHeatmap).toHaveBeenCalled());
     await screen.findByText(/exact stars/);
+    await waitFor(() =>
+      expect(densityStatus()).toHaveAttribute('data-density-state', 'none'),
+    );
+    expect(densityStatus()).toHaveTextContent(/no published/i);
+    expect(
+      within(densityStatus()).queryByRole('button'),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText(/density cells/)).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
+
+  it('shows density loading independently while exact stars are ready', async () => {
+    let finish!: (response: api.MapHeatmapResponse) => void;
+    vi.mocked(api.getMapHeatmap).mockImplementation(
+      () => new Promise((resolve) => (finish = resolve)),
+    );
+    vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue(
+      catalogueFixture,
+    );
+    render(ExploreWorkspaceTestHost);
+
+    await screen.findByText('1 exact stars');
+    expect(densityStatus()).toHaveAttribute('data-density-state', 'loading');
+    expect(densityStatus()).toHaveTextContent(/loading/i);
+    finish(pyramidFixture);
+    await waitFor(() =>
+      expect(densityStatus()).toHaveAttribute('data-density-state', 'ready'),
+    );
+    expect(exactStarStatus()).toHaveTextContent('1 exact stars');
+  });
+
+  it.each([
+    { name: '503', error: new api.ApiError(503, '/api/map/heatmap', {}) },
+    { name: 'network', error: new TypeError('Failed to fetch') },
+  ])(
+    'offers a density-only Retry after a $name failure and recovers',
+    async ({ error }) => {
+      vi.mocked(api.getMapHeatmap).mockRejectedValue(error);
+      vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue(
+        catalogueFixture,
+      );
+      render(ExploreWorkspaceTestHost);
+
+      await waitFor(
+        () =>
+          expect(densityStatus()).toHaveAttribute(
+            'data-density-state',
+            'unavailable',
+          ),
+        { timeout: 3_000 },
+      );
+      expect(exactStarStatus()).toHaveTextContent('1 exact stars');
+      expect(
+        screen.queryByText('Exact-star layer unavailable'),
+      ).not.toBeInTheDocument();
+      const calls = vi.mocked(api.getMapHeatmap).mock.calls.length;
+      vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
+      await fireEvent.click(
+        within(densityStatus()).getByRole('button', { name: 'Retry' }),
+      );
+
+      await waitFor(() =>
+        expect(densityStatus()).toHaveAttribute('data-density-state', 'ready'),
+      );
+      expect(api.getMapHeatmap).toHaveBeenCalledTimes(calls + 1);
+      expect(densityStatus()).toHaveTextContent('2 density cells');
+      expect(
+        within(densityStatus()).queryByRole('button'),
+      ).not.toBeInTheDocument();
+      expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(1);
+      expect(exactStarStatus()).toHaveTextContent('1 exact stars');
+    },
+  );
+
+  it('reports an invalid density payload with Retry independently from exact stars', async () => {
+    featureGate.enabled = true;
+    vi.mocked(api.getMapHeatmap).mockResolvedValue({
+      source: 'pyramid',
+    } as api.MapHeatmapPyramidResponse);
+    vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue(
+      catalogueFixture,
+    );
+    render(ExploreWorkspaceTestHost);
+
+    await waitFor(() =>
+      expect(densityStatus()).toHaveAttribute('data-density-state', 'invalid'),
+    );
+    expect(exactStarStatus()).toHaveTextContent('1 exact stars');
+    vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
+    await fireEvent.click(
+      within(densityStatus()).getByRole('button', { name: 'Retry' }),
+    );
+    await waitFor(() =>
+      expect(densityStatus()).toHaveAttribute('data-density-state', 'ready'),
+    );
+    expect(densityStatus()).toHaveTextContent('2 density cells');
+  });
+
+  it.each([
+    { state: 'empty', fixture: emptyPyramidFixture },
+    {
+      state: 'truncated',
+      fixture: { ...coarsePyramidFixture, truncated: true },
+    },
+  ])(
+    'distinguishes a valid $state density area from failure',
+    async ({ state, fixture }) => {
+      vi.mocked(api.getMapHeatmap).mockResolvedValue(fixture);
+      render(ExploreWorkspaceTestHost);
+
+      await waitFor(() =>
+        expect(densityStatus()).toHaveAttribute('data-density-state', state),
+      );
+      expect(
+        within(densityStatus()).queryByRole('button'),
+      ).not.toBeInTheDocument();
+      expect(exactStarStatus()).toHaveTextContent('0 exact stars');
+      if (state === 'truncated') {
+        expect(densityStatus()).toHaveTextContent('1 density cells');
+        expect(densityStatus()).toHaveTextContent('bounded view');
+      }
+    },
+  );
+
+  it.each([false, true])(
+    'keeps the exact-star failure status independent of ready density (F4=%s)',
+    async (enabled) => {
+      featureGate.enabled = enabled;
+      vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
+      vi.mocked(api.getCatalogueViewportSystems).mockRejectedValue(
+        new api.ApiError(503, '/api/map/catalogue-viewport', {}),
+      );
+      render(ExploreWorkspaceTestHost);
+
+      await screen.findByText(
+        'Exact-star layer unavailable',
+        {},
+        { timeout: 3_000 },
+      );
+      expect(densityStatus()).toHaveAttribute('data-density-state', 'ready');
+      expect(densityStatus()).toHaveTextContent('2 density cells');
+      expect(exactStarStatus()).toHaveTextContent(
+        'Exact-star layer unavailable',
+      );
+    },
+  );
+
+  it.each([
+    { enabled: false, failure: 'unavailable' },
+    { enabled: true, failure: 'unavailable' },
+    { enabled: false, failure: 'invalid' },
+    { enabled: true, failure: 'invalid' },
+  ])(
+    'keeps last good density after $failure on refetch (F4=$enabled)',
+    async ({ enabled, failure }) => {
+      featureGate.enabled = enabled;
+      vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
+      render(ExploreWorkspaceTestHost);
+      await screen.findByText('2 density cells');
+      await waitFor(() => expect(currentScene()).toBeDefined());
+      const loads = runtimeCommands().filter(
+        (command) => command.type === 'LOAD_SCENE',
+      ).length;
+      const patches = runtimeCommands().filter(
+        (command) => command.type === 'PATCH_CONTRIBUTION',
+      ).length;
+      if (failure === 'unavailable') {
+        vi.mocked(api.getMapHeatmap).mockRejectedValue(
+          new api.ApiError(503, '/api/map/heatmap', {}),
+        );
+      } else {
+        vi.mocked(api.getMapHeatmap).mockResolvedValue({
+          source: 'pyramid',
+        } as api.MapHeatmapPyramidResponse);
+      }
+      await queryClient.invalidateQueries({ queryKey: ['map-heatmap'] });
+
+      await waitFor(
+        () =>
+          expect(densityStatus()).toHaveAttribute(
+            'data-density-state',
+            'stale',
+          ),
+        { timeout: 3_000 },
+      );
+      expect(densityStatus().getAttribute('data-density-reason')).toBeTruthy();
+      expect(densityStatus()).toHaveTextContent(/stale/i);
+      expect(densityStatus()).toHaveTextContent('2 density cells');
+      expect(densityStatus()).toHaveAttribute('data-density-cell-count', '2');
+      expect(
+        runtimeCommands().filter((command) => command.type === 'LOAD_SCENE'),
+      ).toHaveLength(loads);
+      expect(
+        runtimeCommands().filter(
+          (command) => command.type === 'PATCH_CONTRIBUTION',
+        ),
+      ).toHaveLength(patches);
+      expect(exactStarStatus()).toHaveTextContent('0 exact stars');
+
+      vi.mocked(api.getMapHeatmap).mockResolvedValue(coarsePyramidFixture);
+      await fireEvent.click(
+        within(densityStatus()).getByRole('button', { name: 'Retry' }),
+      );
+      await waitFor(() =>
+        expect(densityStatus()).toHaveAttribute('data-density-state', 'ready'),
+      );
+      expect(densityStatus()).toHaveTextContent('1 density cells');
+      expect(densityStatus()).not.toHaveAttribute('data-density-reason');
+    },
+  );
+
+  it.each([false, true])(
+    'retains last good density when a different viewport fails (F4=%s)',
+    async (enabled) => {
+      featureGate.enabled = enabled;
+      vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
+      render(ExploreWorkspaceTestHost);
+      await screen.findByText('2 density cells');
+      await waitFor(() => expect(currentScene()).toBeDefined());
+      vi.mocked(api.getMapHeatmap).mockRejectedValue(
+        new TypeError('Failed to fetch'),
+      );
+      emitRuntime({
+        type: 'CAMERA_CHANGED',
+        camera: { ...currentScene().camera, distanceLy: 180_000, revision: 1 },
+      });
+
+      await waitFor(
+        () =>
+          expect(densityStatus()).toHaveAttribute(
+            'data-density-state',
+            'stale',
+          ),
+        { timeout: 3_000 },
+      );
+      expect(api.getMapHeatmap).toHaveBeenLastCalledWith(
+        expect.objectContaining({ voxel_size: 900 }),
+        expect.anything(),
+      );
+      expect(densityStatus()).toHaveTextContent('2 density cells');
+      expect(densityStatus()).toHaveAttribute('data-density-reason', 'network');
+      expect(
+        currentScene().contributions.flatMap(
+          (contribution) => contribution.layers,
+        ),
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'catalogue-density', targetCount: 2 }),
+        ]),
+      );
+    },
+  );
 
   it('patches an older cached density viewport without reloading the scene', async () => {
     featureGate.enabled = true;
@@ -323,7 +610,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     ).toHaveLength(initialLoads);
   });
 
-  it('removes a density contribution once when a refreshed response is unavailable', async () => {
+  it('removes a density contribution once when a refreshed response reports no published pyramid', async () => {
     featureGate.enabled = true;
     vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
     render(ExploreWorkspaceTestHost);
@@ -345,11 +632,257 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
         .some((layer) => layer.id === 'catalogue-density'),
     ).toBe(false);
     expect(screen.queryByText(/density cells/)).not.toBeInTheDocument();
+    expect(densityStatus()).toHaveAttribute('data-density-state', 'none');
     await queryClient.invalidateQueries({ queryKey: ['map-heatmap'] });
     await tick();
     expect(
       runtimeCommands().filter((command) => command.type === 'LOAD_SCENE'),
     ).toHaveLength(initialLoads + 1);
+  });
+
+  it('coordinates local detail with the density overlap and retains the wide sample until detail arrives', async () => {
+    featureGate.enabled = true;
+    vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
+    const wideFixture = {
+      ...catalogueFixture,
+      systems: [
+        ...catalogueFixture.systems,
+        {
+          ...catalogueFixture.systems[0],
+          id64: parseId64('9007199254740995'),
+          name: 'Masked galaxy corner',
+          x: 52_000,
+          z: 78_000,
+        },
+      ],
+    };
+    vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue(wideFixture);
+    render(ExploreWorkspaceTestHost);
+    await screen.findByText('2 exact stars');
+    await screen.findByText('2 density cells');
+    await waitFor(() =>
+      expect(scenePointIds()).toEqual([catalogueFixture.systems[0].id64]),
+    );
+    let finish!: (response: api.CatalogueViewportResponse) => void;
+    const pendingLocal = new Promise<api.CatalogueViewportResponse>(
+      (resolve) => (finish = resolve),
+    );
+    vi.mocked(api.getCatalogueViewportSystems).mockImplementation((request) =>
+      request.limit === GALAXY_WIDE_STAR_LIMIT
+        ? Promise.resolve(wideFixture)
+        : pendingLocal,
+    );
+    emitRuntime({
+      type: 'CAMERA_CHANGED',
+      camera: {
+        ...currentScene().camera,
+        distanceLy: LOCAL_STAR_ENTER_LY,
+        revision: 1,
+      },
+    });
+    await waitFor(() =>
+      expect(api.getCatalogueViewportSystems).toHaveBeenLastCalledWith(
+        expect.objectContaining({ limit: 40_000 }),
+        expect.anything(),
+      ),
+    );
+    expect(api.getCatalogueViewportSystems).toHaveBeenLastCalledWith(
+      expect.objectContaining({ limit: 40_000 }),
+      expect.anything(),
+    );
+    expect(api.getMapHeatmap).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        voxel_size: 200,
+        min_systems: 1,
+        max_cells: 40_000,
+      }),
+      expect.anything(),
+    );
+    await waitFor(() =>
+      expect(densityStatus()).toHaveAttribute('data-density-state', 'ready'),
+    );
+    expect(exactStarStatus()).toHaveTextContent('2 exact stars');
+    expect(exactStarStatus()).toHaveAttribute('data-catalogue-star-count', '2');
+    expect(scenePointIds()).toEqual([catalogueFixture.systems[0].id64]);
+    const localStars = {
+      systems: [
+        ...catalogueFixture.systems,
+        {
+          ...catalogueFixture.systems[0],
+          id64: parseId64('9007199254740994'),
+          name: 'Local star',
+        },
+      ],
+      truncated: false,
+    };
+    finish(localStars);
+    await waitFor(() =>
+      expect(scenePointIds()).toEqual(
+        localStars.systems.map((system) => system.id64),
+      ),
+    );
+    expect(exactStarStatus()).toHaveAttribute('data-catalogue-star-count', '2');
+
+    const starFetches = vi.mocked(api.getCatalogueViewportSystems).mock.calls
+      .length;
+    emitRuntime({
+      type: 'CAMERA_CHANGED',
+      camera: {
+        ...currentScene().camera,
+        distanceLy: DENSITY_CROSSFADE_NEAR_LY,
+        revision: 2,
+      },
+    });
+    await waitFor(() =>
+      expect(
+        vi.mocked(api.getCatalogueViewportSystems).mock.calls.length,
+      ).toBeGreaterThan(starFetches),
+    );
+    // Active-query invalidation must still refetch at the fade endpoint;
+    // cached data alone would also be visible with an incorrectly disabled query.
+    const fetches = vi.mocked(api.getMapHeatmap).mock.calls.length;
+    await queryClient.invalidateQueries({ queryKey: ['map-heatmap'] });
+    await waitFor(() =>
+      expect(api.getMapHeatmap).toHaveBeenCalledTimes(fetches + 1),
+    );
+    expect(densityStatus()).toHaveAttribute('data-density-state', 'ready');
+  });
+
+  it('preserves the previous local mask until the returning wide sample arrives', async () => {
+    featureGate.enabled = true;
+    vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
+    vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue(
+      catalogueFixture,
+    );
+    render(ExploreWorkspaceTestHost);
+    await screen.findByText('1 exact stars');
+    await waitFor(() => expect(currentScene()).toBeDefined());
+    const focusLy = { x: 52_000, y: 0, z: 78_000 };
+    const localFixture = {
+      ...catalogueFixture,
+      systems: [
+        {
+          ...catalogueFixture.systems[0],
+          ...focusLy,
+          id64: parseId64('9007199254740994'),
+          name: 'Local rim star',
+        },
+        {
+          ...catalogueFixture.systems[0],
+          x: 59_000,
+          z: 85_000,
+          id64: parseId64('9007199254740995'),
+          name: 'Masked local corner',
+        },
+      ],
+    };
+    vi.mocked(api.getCatalogueViewportSystems).mockResolvedValue(localFixture);
+    emitRuntime({
+      type: 'CAMERA_CHANGED',
+      camera: {
+        ...currentScene().camera,
+        focusLy,
+        distanceLy: LOCAL_STAR_ENTER_LY,
+        revision: 1,
+      },
+    });
+    await waitFor(() =>
+      expect(scenePointIds()).toEqual([localFixture.systems[0].id64]),
+    );
+    queryClient.removeQueries({
+      queryKey: [...queryKeys.all, 'map', 'catalogue-stars'],
+      type: 'inactive',
+    });
+    let finish!: (response: api.CatalogueViewportResponse) => void;
+    const pendingWide = new Promise<api.CatalogueViewportResponse>(
+      (resolve) => (finish = resolve),
+    );
+    vi.mocked(api.getCatalogueViewportSystems).mockImplementation(
+      () => pendingWide,
+    );
+    emitRuntime({
+      type: 'CAMERA_CHANGED',
+      camera: {
+        ...currentScene().camera,
+        focusLy,
+        distanceLy: LOCAL_STAR_EXIT_LY + 100,
+        revision: 2,
+      },
+    });
+    await waitFor(() =>
+      expect(api.getCatalogueViewportSystems).toHaveBeenLastCalledWith(
+        expect.objectContaining({ limit: GALAXY_WIDE_STAR_LIMIT }),
+        expect.anything(),
+      ),
+    );
+    expect(exactStarStatus()).toHaveTextContent('2 exact stars');
+    // A wide disk mask would hide this valid local rim star; removing the
+    // local mask would reveal its corner. Both stay as last rendered until data.
+    expect(scenePointIds()).toEqual([localFixture.systems[0].id64]);
+    finish(catalogueFixture);
+    await waitFor(() =>
+      expect(scenePointIds()).toEqual([catalogueFixture.systems[0].id64]),
+    );
+  });
+
+  it('keeps the star viewport mode while the camera reverses inside the hysteresis band', async () => {
+    featureGate.enabled = true;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
+    const localFixture: api.CatalogueViewportResponse = {
+      ...catalogueFixture,
+      systems: [
+        ...catalogueFixture.systems,
+        {
+          ...catalogueFixture.systems[0],
+          id64: parseId64('9007199254740994'),
+          name: 'Local star',
+        },
+      ],
+    };
+    vi.mocked(api.getCatalogueViewportSystems).mockImplementation(
+      async (request) =>
+        request.limit === GALAXY_WIDE_STAR_LIMIT
+          ? catalogueFixture
+          : localFixture,
+    );
+    render(ExploreWorkspaceTestHost);
+    await vi.waitFor(
+      () => expect(exactStarStatus()).toHaveTextContent('1 exact stars'),
+      { interval: 1 },
+    );
+
+    const path = [
+      { distance: LOCAL_STAR_ENTER_LY + 300, count: 1 },
+      { distance: LOCAL_STAR_ENTER_LY - 100, count: 2 },
+      { distance: LOCAL_STAR_ENTER_LY + 200, count: 2 },
+      { distance: LOCAL_STAR_EXIT_LY + 100, count: 1 },
+      { distance: LOCAL_STAR_ENTER_LY - 200, count: 2 },
+    ];
+    for (const [index, step] of path.entries()) {
+      emitRuntime({
+        type: 'CAMERA_CHANGED',
+        camera: {
+          ...currentScene().camera,
+          distanceLy: step.distance,
+          revision: index + 1,
+        },
+      });
+      await vi.advanceTimersByTimeAsync(180);
+      await vi.waitFor(
+        () =>
+          expect(exactStarStatus()).toHaveTextContent(
+            `${step.count} exact stars`,
+          ),
+        { interval: 1 },
+      );
+    }
+    expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(4);
+    expect(
+      vi
+        .mocked(api.getCatalogueViewportSystems)
+        .mock.calls.map(([request]) => request.limit),
+    ).toEqual([GALAXY_WIDE_STAR_LIMIT, 40_000, 40_000, 40_000]);
   });
 });
 
@@ -2244,7 +2777,7 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
       ).toBe(1);
       expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(1);
       expect(api.getCatalogueViewportSystems).toHaveBeenCalledWith(
-        expect.objectContaining({ limit: 8_000 }),
+        expect.objectContaining({ limit: GALAXY_WIDE_STAR_LIMIT }),
         expect.anything(),
       );
       // Even a first density response after settle must keep the same overlay
