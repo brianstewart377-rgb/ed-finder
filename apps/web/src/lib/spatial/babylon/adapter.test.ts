@@ -126,6 +126,7 @@ describe('Babylon spatial adapter boundary', () => {
         },
         {
           ref: { systemId64: '42', bodyId: 2 },
+          parent: { systemId64: '42', bodyId: 0 },
           name: 'Test Giant',
           class: { value: 'Planet', representation: 'AUTHORITATIVE' },
           subtype: {
@@ -152,7 +153,7 @@ describe('Babylon spatial adapter boundary', () => {
     expect(product.orbitMesh?.metadata).toMatchObject({
       spatialLayer: {
         representation: 'SCHEMATIC',
-        meaning: 'ordered-distance-layout-not-observed-orbital-elements',
+        meaning: 'known-parent-groups-not-observed-orbital-elements',
       },
     });
     expect(product.scene.metadata).toMatchObject({

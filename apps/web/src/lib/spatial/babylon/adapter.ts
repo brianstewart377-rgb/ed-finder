@@ -104,7 +104,11 @@ import {
   stellarPresentation,
   type StellarPresentation,
 } from '../stellar-presentation';
-import { systemBodyLayout, type SystemBodyLayout } from '../system-scene';
+import {
+  systemBodyLayout,
+  systemOrbitGuides,
+  type SystemBodyLayout,
+} from '../system-scene';
 
 const disposeEngine = (engine: AbstractEngine): void => {
   try {
@@ -202,7 +206,7 @@ export type BabylonGalaxyProduct = Readonly<{
 
 export type BabylonSystemBodyMesh = Readonly<{
   layout: SystemBodyLayout;
-  mesh: ReturnType<typeof CreateSphere>;
+  mesh: Mesh;
   ringMeshes: readonly ReturnType<typeof CreateTorus>[];
 }>;
 
@@ -213,6 +217,8 @@ export type BabylonSystemProduct = Readonly<{
   contract: SystemSceneContract;
   bodies: readonly BabylonSystemBodyMesh[];
   orbitMesh: ReturnType<typeof CreateLineSystem> | null;
+  parentLinkMesh: ReturnType<typeof CreateLineSystem> | null;
+  hoveredBodyId: number | null;
   visualGlow: GlowLayer;
   renderedLayers: readonly RenderedLayerReceipt[];
 }>;
@@ -1750,7 +1756,12 @@ export function applySystemCamera(
   bodies: readonly BabylonSystemBodyMesh[],
 ): void {
   const target = systemCameraTarget(state, bodies);
-  const distance = Math.max(6, Math.min(120, state.semanticDistance));
+  const distance = Number.isFinite(state.semanticDistance)
+    ? Math.max(6, Math.min(Number.MAX_SAFE_INTEGER, state.semanticDistance))
+    : 38;
+  // Large nested groups need a wider fit than Babylon's default far plane.
+  // Keep the clip distance finite even for malformed camera commands.
+  camera.maxZ = Math.max(10_000, distance * 4);
   const pitch = Math.max(0.08, Math.min(1.42, state.pitchRad));
   const horizontal = Math.cos(pitch) * distance;
   camera.position.set(
@@ -1766,18 +1777,16 @@ function createSystemOrbitMesh(
   scene: Scene,
   layouts: readonly SystemBodyLayout[],
 ): ReturnType<typeof CreateLineSystem> | null {
-  const radii = [
-    ...new Set(
-      layouts
-        .map((layout) => Number(layout.orbitRadius.toFixed(4)))
-        .filter((radius) => radius > 0),
-    ),
-  ];
-  if (radii.length === 0) return null;
-  const lines = radii.map((radius) =>
+  const guides = systemOrbitGuides(layouts);
+  if (guides.length === 0) return null;
+  const lines = guides.map(({ position, radius }) =>
     Array.from({ length: 97 }, (_, index) => {
       const angle = (index / 96) * Math.PI * 2;
-      return new Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+      return new Vector3(
+        position.x + Math.cos(angle) * radius,
+        position.y,
+        position.z + Math.sin(angle) * radius,
+      );
     }),
   );
   const orbitMesh = CreateLineSystem(
@@ -1792,10 +1801,132 @@ function createSystemOrbitMesh(
     spatialLayer: {
       id: 'system-semantic-orbits',
       representation: 'SCHEMATIC',
-      meaning: 'ordered-distance-layout-not-observed-orbital-elements',
+      meaning: 'known-parent-groups-not-observed-orbital-elements',
     },
+    guides,
   };
   return orbitMesh;
+}
+
+function selectedSystemBodyId(camera: SystemCameraState): number | null {
+  return camera.focus.kind === 'body' ? camera.focus.ref.bodyId : null;
+}
+
+function createSystemParentLinkMesh(
+  scene: Scene,
+  layouts: readonly SystemBodyLayout[],
+  selectedBodyId: number | null,
+  hoveredBodyId: number | null,
+): ReturnType<typeof CreateLineSystem> | null {
+  if (selectedBodyId === null && hoveredBodyId === null) return null;
+  const byId = new Map(
+    layouts.map((layout) => [layout.body.ref.bodyId, layout]),
+  );
+  const links = layouts.flatMap((layout) => {
+    const parent =
+      layout.parentBodyId === null ? undefined : byId.get(layout.parentBodyId);
+    if (!parent) return [];
+    if (
+      ![layout.body.ref.bodyId, parent.body.ref.bodyId].some(
+        (id) => id === selectedBodyId || id === hoveredBodyId,
+      )
+    )
+      return [];
+    return [{ parent, child: layout }];
+  });
+  if (links.length === 0) return null;
+  const mesh = CreateLineSystem(
+    'system-parent-links',
+    {
+      lines: links.map(({ parent, child }) => [
+        new Vector3(parent.position.x, parent.position.y, parent.position.z),
+        new Vector3(child.position.x, child.position.y, child.position.z),
+      ]),
+    },
+    scene,
+  );
+  mesh.color = new Color3(0.42, 0.65, 0.74);
+  mesh.alpha = 0.72;
+  mesh.isPickable = false;
+  mesh.metadata = {
+    spatialLayer: { id: 'system-parent-links', representation: 'SCHEMATIC' },
+    links: links.map(({ parent, child }) => ({
+      parentBodyId: parent.body.ref.bodyId,
+      bodyId: child.body.ref.bodyId,
+    })),
+  };
+  return mesh;
+}
+
+function refreshSystemParentLinks(
+  product: BabylonSystemProduct,
+  camera: SystemCameraState,
+  hoveredBodyId = product.hoveredBodyId,
+): BabylonSystemProduct {
+  if (
+    selectedSystemBodyId(camera) ===
+      selectedSystemBodyId(product.cameraState) &&
+    hoveredBodyId === product.hoveredBodyId
+  )
+    return product;
+  product.parentLinkMesh?.dispose();
+  const parentLinkMesh = createSystemParentLinkMesh(
+    product.scene,
+    product.bodies.map(({ layout }) => layout),
+    selectedSystemBodyId(camera),
+    hoveredBodyId,
+  );
+  return { ...product, parentLinkMesh, hoveredBodyId };
+}
+
+function createSystemBodyMesh(scene: Scene, layout: SystemBodyLayout): Mesh {
+  const { body } = layout;
+  const name = `system-body-${body.ref.bodyId}`;
+  if (layout.placement === 'unplaced' || body.class?.value === 'Barycentre') {
+    const unplaced = layout.placement === 'unplaced';
+    const radius = unplaced ? Math.max(0.55, body.displayRadius) : 0.45;
+    const lines = unplaced
+      ? [
+          [
+            new Vector3(-radius, 0, 0),
+            new Vector3(0, 0, radius),
+            new Vector3(radius, 0, 0),
+            new Vector3(0, 0, -radius),
+            new Vector3(-radius, 0, 0),
+          ],
+        ]
+      : [
+          [new Vector3(-radius, 0, 0), new Vector3(radius, 0, 0)],
+          [new Vector3(0, 0, -radius), new Vector3(0, 0, radius)],
+        ];
+    const marker = CreateLineSystem(name, { lines }, scene);
+    marker.color = unplaced
+      ? new Color3(0.94, 0.67, 0.3)
+      : new Color3(0.58, 0.72, 0.78);
+    marker.intersectionThreshold = radius * 0.45;
+    return marker;
+  }
+  const visual = systemBodyColour(body);
+  const mesh = CreateSphere(
+    name,
+    { diameter: body.displayRadius * 2, segments: 24 },
+    scene,
+  );
+  const material = new StandardMaterial(
+    `system-body-material-${body.ref.bodyId}`,
+    scene,
+  );
+  material.diffuseColor = visual.darkCore ? Color3.Black() : visual.diffuse;
+  material.emissiveColor = visual.darkCore
+    ? new Color3(0.005, 0.005, 0.008)
+    : visual.emissive;
+  material.specularColor = visual.darkCore
+    ? new Color3(0.08, 0.08, 0.1)
+    : new Color3(0.24, 0.24, 0.26);
+  material.specularPower = 48;
+  mesh.material = material;
+  mesh.onDisposeObservable.addOnce(() => material.dispose());
+  return mesh;
 }
 
 export const createBabylonSystemScene = (
@@ -1817,12 +1948,7 @@ export const createBabylonSystemScene = (
   const layouts = systemBodyLayout(contract.bodies);
   const bodies = layouts.map((layout): BabylonSystemBodyMesh => {
     const body = layout.body;
-    const visual = systemBodyColour(body);
-    const mesh = CreateSphere(
-      `system-body-${body.ref.bodyId}`,
-      { diameter: body.displayRadius * 2, segments: 24 },
-      scene,
-    );
+    const mesh = createSystemBodyMesh(scene, layout);
     mesh.position.set(layout.position.x, layout.position.y, layout.position.z);
     mesh.metadata = {
       spatialTarget: {
@@ -1830,26 +1956,18 @@ export const createBabylonSystemScene = (
         ref: body.ref,
       },
       bodyName: body.name,
+      markerKind:
+        layout.placement === 'unplaced'
+          ? 'position-unknown'
+          : body.class?.value === 'Barycentre'
+            ? 'barycentre'
+            : 'body',
+      positionUnknownReason: layout.positionUnknownReason,
       representation: {
         position: 'SCHEMATIC',
         bodyFacts: 'AUTHORITATIVE',
       },
     };
-    const material = new StandardMaterial(
-      `system-body-material-${body.ref.bodyId}`,
-      scene,
-    );
-    material.diffuseColor = visual.darkCore ? Color3.Black() : visual.diffuse;
-    material.emissiveColor = visual.darkCore
-      ? new Color3(0.005, 0.005, 0.008)
-      : visual.emissive;
-    material.specularColor = visual.darkCore
-      ? new Color3(0.08, 0.08, 0.1)
-      : new Color3(0.24, 0.24, 0.26);
-    material.specularPower = 48;
-    mesh.material = material;
-    mesh.onDisposeObservable.addOnce(() => material.dispose());
-
     const ringMeshes =
       body.rings?.state === 'PRESENT'
         ? [
@@ -1882,11 +2000,19 @@ export const createBabylonSystemScene = (
     return { layout, mesh, ringMeshes };
   });
   const orbitMesh = createSystemOrbitMesh(scene, layouts);
+  const parentLinkMesh = createSystemParentLinkMesh(
+    scene,
+    layouts,
+    selectedSystemBodyId(contract.camera),
+    null,
+  );
   applySystemCamera(camera, contract.camera, bodies);
   const glowMeshes = bodies
     .filter((body) => {
       const identity = `${body.layout.body.class?.value ?? ''} ${body.layout.body.subtype?.value ?? ''}`;
-      return /star|black hole/i.test(identity);
+      return (
+        body.layout.placement === 'placed' && /star|black hole/i.test(identity)
+      );
     })
     .map((body) => body.mesh);
   const visualGlow = createGalaxyVisualFinish(scene, glowMeshes);
@@ -1915,6 +2041,8 @@ export const createBabylonSystemScene = (
     contract,
     bodies,
     orbitMesh,
+    parentLinkMesh,
+    hoveredBodyId: null,
     visualGlow,
     renderedLayers,
   };
@@ -1933,12 +2061,13 @@ function pickSystemTarget(
   const scaleY = canvas?.clientHeight
     ? engine.getRenderHeight() / canvas.clientHeight
     : 1;
+  const bodiesByMesh = new Map<unknown, BabylonSystemBodyMesh>(
+    product.bodies.map((body) => [body.mesh, body]),
+  );
   const hit = product.scene.pick(screenX * scaleX, screenY * scaleY, (mesh) =>
-    product.bodies.some((body) => body.mesh === mesh),
+    bodiesByMesh.has(mesh),
   );
-  const body = product.bodies.find(
-    (candidate) => candidate.mesh === hit?.pickedMesh,
-  );
+  const body = bodiesByMesh.get(hit?.pickedMesh);
   return body ? { kind: 'body', ref: body.layout.body.ref } : undefined;
 }
 
@@ -2101,6 +2230,7 @@ export const createBabylonSession = (
   ): void => {
     if (!systemProduct) return;
     applySystemCamera(systemProduct.camera, camera, systemProduct.bodies);
+    systemProduct = refreshSystemParentLinks(systemProduct, camera);
     systemProduct = {
       ...systemProduct,
       cameraState: camera,
@@ -2395,6 +2525,12 @@ export const createBabylonSession = (
           const nextKey = targetKey(target);
           if (nextKey !== hoveredTargetKey) {
             hoveredTargetKey = nextKey;
+            systemProduct = refreshSystemParentLinks(
+              systemProduct,
+              systemProduct.cameraState,
+              target?.kind === 'body' ? target.ref.bodyId : null,
+            );
+            warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
             emit({ type: 'TARGET_HOVERED', target });
           }
           return { status: 'executed' };
@@ -2423,6 +2559,12 @@ export const createBabylonSession = (
         if (systemProduct) {
           if (hoveredTargetKey) {
             hoveredTargetKey = '';
+            systemProduct = refreshSystemParentLinks(
+              systemProduct,
+              systemProduct.cameraState,
+              null,
+            );
+            warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
             emit({ type: 'TARGET_HOVERED' });
           }
           return { status: 'executed' };

@@ -361,7 +361,52 @@ describe('Ratings V4 facade', () => {
   });
 });
 
-describe('Inspect mapping of rings and stations', () => {
+describe('Inspect mapping of bodies, rings and stations', () => {
+  it('preserves canonical parent keys and orbital distances without Frontier-ID joins', () => {
+    const parentKey = '36028797018963969';
+    const childKey = '108086391056891905';
+    const missingParentKey = '180143985094819841';
+    const detail = systemDetailFromV3(
+      v3System(),
+      [
+        v3Body({ body_id: parentKey, frontier_body_id: '4' }),
+        v3Body({
+          body_id: childKey,
+          frontier_body_id: null,
+          direct_parent_body_id: parentKey,
+          is_main_star: false,
+          semi_major_axis_km: 149_597_870.7,
+        }),
+        v3Body({
+          body_id: '216172782113783809',
+          frontier_body_id: '7',
+          direct_parent_body_id: missingParentKey,
+          is_main_star: false,
+        }),
+      ],
+      [],
+      [],
+    );
+
+    expect(
+      detail.bodies.find((body) => body.bodyKey === parentKey),
+    ).toMatchObject({
+      id: 4,
+      directParentBodyKey: null,
+      semiMajorAxisKm: null,
+    });
+    expect(
+      detail.bodies.find((body) => body.bodyKey === childKey),
+    ).toMatchObject({
+      id: null,
+      directParentBodyKey: parentKey,
+      semiMajorAxisKm: 149_597_870.7,
+    });
+    expect(
+      detail.bodies.find((body) => body.id === 7)?.directParentBodyKey,
+    ).toBe(missingParentKey);
+  });
+
   it('keeps hotspots, reserves, resolved placement and economies', () => {
     const detail = systemDetailFromV3(
       v3System(),

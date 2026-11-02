@@ -11,6 +11,33 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-02 — Hierarchy-aware schematic System Map (M13)
+
+The System Map now builds a deterministic forest from canonical parent keys:
+stars, barycentres, planets and nested moons have their own schematic regions.
+Sibling bands reserve complete descendant and display-ring footprints so moons
+do not overlap their planet or cross a sibling planet's band. Known semi-major
+axes determine order, with arrival distance and then name as fallbacks and body
+keys breaking ties; spacing is logarithmic. Existing body display sizes and
+Frontier BodyID picking identities are preserved. The frontend mapper now
+retains the parent key and semi-major axis already present on the wire; no API
+change is included.
+
+One faint guide marks each parent region. Barycentres use crosses, and links
+appear only for selected or hovered bodies. Missing parents stay in an explicit
+unattached group; missing distances, cyclic links and pathological layout ranges
+are visibly unplaced instead of being stacked at the star. The truth note and
+legend explain the schematic and unknown-position markers. Catalogue bodies
+without a usable Frontier BodyID remain listed outside the map; resolved station
+body labels and the station list retain their existing catalogue associations.
+
+The former flat-spiral scene assertions now test parent membership and local
+regions. Vitest coverage includes Sol-like and binary hierarchies, nested moon
+and ring bounds, fallback ordering, shuffled-input determinism, malformed links,
+NullEngine guides/picking/selection/hover, and the component truth note. This
+visible change needs Product E2E/visual validation before production promotion
+and is not deployed.
+
 ## 2026-11-02 — Migration 023 applied; eighth F2d release `a8d1b794` accepted: system-name search restored
 
 Owner-approved. The governed plan run 41449585823 listed pending exactly `[023]`

@@ -113,6 +113,7 @@ export type GalaxySystemsPayload = Readonly<{
 
 export type OrbitalDescriptor = Readonly<{
   periodDays?: Truth<number>;
+  semiMajorAxisKm?: Truth<number>;
   semiMajorAxisAu?: Truth<number>;
   eccentricity?: Truth<number>;
   inclinationDeg?: Truth<number>;
@@ -138,6 +139,10 @@ export type RingDescriptor = Readonly<{
 export type BodyVisualDescriptor = Readonly<{
   ref: BodyRef;
   name: string;
+  /** Canonical keys resolve hierarchy without changing the picking identity. */
+  bodyKey?: string;
+  directParentBodyKey?: string | null;
+  isMainStar?: boolean;
   parent?: BodyRef;
   class?: Truth<string>;
   subtype?: Truth<string>;

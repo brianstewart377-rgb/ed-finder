@@ -13,6 +13,7 @@ import {
   buildSystemScene,
   stellarPresentationSubtype,
   systemBodyLayout,
+  systemOrbitGuides,
 } from './system-scene';
 import { stellarPresentation } from './stellar-presentation';
 
@@ -55,11 +56,18 @@ describe('system scene', () => {
     expect(scene.bodies[1]).not.toHaveProperty('subtype');
   });
 
-  it('uses catalogue distance only to order a deterministic semantic layout', () => {
+  it('replaces the shared flat spiral with a known-parent region', () => {
     const scene = buildSystemScene(fixture, 4);
     const layout = systemBodyLayout(scene.bodies);
-    expect(layout[0]?.position).toEqual({ x: 0, y: 0, z: 0 });
-    expect(layout[1]?.orbitRadius).toBeGreaterThan(4.8);
+    expect(layout[0]?.position.x).toBeCloseTo(0);
+    expect(layout[1]?.parentBodyId).toBe(0);
+    expect(layout[1]?.group).toBe('attached');
+    expect(layout[1]!.orbitRadius).toBeGreaterThan(
+      layout[0]!.body.displayRadius + layout[1]!.body.displayRadius,
+    );
+    expect(
+      systemOrbitGuides(layout).map((guide) => guide.parentBodyId),
+    ).toEqual([0]);
     expect(layout[1]?.position.y).toBe(0);
     expect(systemBodyLayout(scene.bodies)).toEqual(layout);
   });
@@ -171,5 +179,301 @@ describe('system scene', () => {
         luminosityClass: null,
       }),
     ).toBeNull();
+  });
+});
+
+const hierarchyBody = (
+  id: number,
+  name: string,
+  parentId: number | null,
+  axis: number | null,
+  overrides: Parameters<typeof v3Body>[0] = {},
+) =>
+  v3Body({
+    body_id: String(1000 + id),
+    frontier_body_id: String(id),
+    direct_parent_body_id: parentId === null ? null : String(1000 + parentId),
+    name,
+    body_type: 'planet',
+    is_main_star: false,
+    spectral_class: null,
+    luminosity_class: null,
+    radius_km: 6000,
+    semi_major_axis_km: axis,
+    distance_from_arrival_ls: null,
+    ...overrides,
+  });
+
+function hierarchyFixture() {
+  return systemDetailFromV3(
+    v3System(),
+    [
+      hierarchyBody(0, 'Sol', null, null, {
+        body_type: 'star',
+        is_main_star: true,
+        distance_from_arrival_ls: 0,
+      }),
+      hierarchyBody(1, 'Earth', 0, 150_000_000),
+      hierarchyBody(2, 'Luna', 1, 384_400),
+      hierarchyBody(3, 'Nested moon', 2, 5_000),
+      hierarchyBody(4, 'Mars', 0, 228_000_000),
+      hierarchyBody(5, 'Phobos', 4, 9_000),
+      hierarchyBody(6, 'Deimos', 4, 23_000),
+      hierarchyBody(7, 'Binary centre', null, null, {
+        body_type: 'barycentre',
+        distance_from_arrival_ls: 0,
+      }),
+      hierarchyBody(8, 'Binary A', 7, 12_000_000, { body_type: 'star' }),
+      hierarchyBody(9, 'Binary B', 7, 24_000_000, { body_type: 'star' }),
+      hierarchyBody(10, 'Lost body', 999, 1_000),
+      hierarchyBody(11, 'Moon without distance', 1, null),
+    ],
+    [],
+    [],
+  );
+}
+
+describe('hierarchy-aware system layout', () => {
+  it('builds known star, planet, nested moon and barycentre groups without crossing sibling bands', () => {
+    const scene = buildSystemScene(hierarchyFixture(), 1);
+    const layout = systemBodyLayout(scene.bodies);
+    const byId = new Map(layout.map((item) => [item.body.ref.bodyId, item]));
+    for (const [id, parentId] of [
+      [1, 0],
+      [2, 1],
+      [3, 2],
+      [4, 0],
+      [5, 4],
+      [6, 4],
+      [8, 7],
+      [9, 7],
+    ]) {
+      expect(byId.get(id!)!).toMatchObject({
+        group: 'attached',
+        parentBodyId: parentId,
+        placement: 'placed',
+      });
+    }
+    expect(byId.get(0)).toMatchObject({ group: 'root', parentBodyId: null });
+    expect(byId.get(7)).toMatchObject({ group: 'root', parentBodyId: null });
+    const earth = byId.get(1)!;
+    const mars = byId.get(4)!;
+    expect(earth.orbitRadius + earth.regionRadius).toBeLessThan(
+      mars.orbitRadius - mars.regionRadius,
+    );
+    expect(byId.get(2)!.orbitRadius).toBeLessThan(earth.orbitRadius);
+    expect(byId.get(3)!.orbitRadius).toBeLessThan(byId.get(2)!.orbitRadius);
+    expect(
+      systemOrbitGuides(layout).map((guide) => guide.parentBodyId),
+    ).toEqual([0, 1, 2, 4, 7]);
+    expect(layout.every((item) => item.position.y === 0)).toBe(true);
+  });
+
+  it('keeps dangling parents unattached and unknown distances marked away from the star', () => {
+    const layout = systemBodyLayout(
+      buildSystemScene(hierarchyFixture(), 1).bodies,
+    );
+    const star = layout.find((item) => item.body.ref.bodyId === 0)!;
+    const missing = layout.find((item) => item.body.ref.bodyId === 10)!;
+    const unknownDistance = layout.find((item) => item.body.ref.bodyId === 11)!;
+    expect(missing).toMatchObject({
+      group: 'unattached',
+      parentBodyId: null,
+      placement: 'unplaced',
+      orbitRadius: 0,
+      positionUnknownReason: 'parent unavailable',
+    });
+    expect(unknownDistance).toMatchObject({
+      group: 'attached',
+      parentBodyId: 1,
+      placement: 'unplaced',
+      orbitRadius: 0,
+    });
+    expect(missing.position).not.toEqual(star.position);
+    expect(unknownDistance.position).not.toEqual(star.position);
+    expect(missing.body.directParentBodyKey).toBe('1999');
+  });
+
+  it('sorts by semi-major axis, falls back to arrival distance in kilometres, then name and canonical key', () => {
+    const bodies = [
+      hierarchyBody(0, 'Sol', null, null, {
+        body_type: 'star',
+        distance_from_arrival_ls: 0,
+      }),
+      hierarchyBody(1, 'Outer axis', 0, 200, { distance_from_arrival_ls: 1 }),
+      hierarchyBody(2, 'Inner axis', 0, 100, {
+        distance_from_arrival_ls: 9999,
+      }),
+      hierarchyBody(3, 'Arrival fallback', 0, null, {
+        distance_from_arrival_ls: 0.001,
+      }),
+      hierarchyBody(4, 'Z tie', 0, 400),
+      hierarchyBody(5, 'A tie', 0, 400),
+      hierarchyBody(6, 'Zulu unknown', 0, null),
+      hierarchyBody(7, 'Alpha unknown', 0, null),
+      hierarchyBody(8, 'Alpha unknown', 0, null),
+    ];
+    const layout = systemBodyLayout(
+      buildSystemScene(systemDetailFromV3(v3System(), bodies, [], []), 1)
+        .bodies,
+    );
+    const parent = layout.find((item) => item.body.ref.bodyId === 0)!;
+    const byRadius = layout
+      .filter((item) => item.parentBodyId === 0)
+      .sort(
+        (a, b) =>
+          Math.hypot(
+            a.position.x - parent.position.x,
+            a.position.z - parent.position.z,
+          ) -
+          Math.hypot(
+            b.position.x - parent.position.x,
+            b.position.z - parent.position.z,
+          ),
+      );
+    expect(byRadius.map((item) => item.body.ref.bodyId)).toEqual([
+      2, 1, 3, 4, 5, 7, 8, 6,
+    ]);
+  });
+
+  it('does not round close axes to the same sort key when logarithmic distances coincide', () => {
+    const detail = systemDetailFromV3(
+      v3System(),
+      [
+        hierarchyBody(0, 'Star', null, null, {
+          body_type: 'star',
+          distance_from_arrival_ls: 0,
+        }),
+        hierarchyBody(1, 'Outer', 0, 1e12 + 0.001),
+        hierarchyBody(2, 'Inner', 0, 1e12),
+      ],
+      [],
+      [],
+    );
+    const layout = systemBodyLayout(buildSystemScene(detail, 1).bodies);
+    expect(
+      layout.find((item) => item.body.ref.bodyId === 2)!.orbitRadius,
+    ).toBeLessThan(
+      layout.find((item) => item.body.ref.bodyId === 1)!.orbitRadius,
+    );
+  });
+
+  it('keeps positions and membership deterministic across revisions, selection and input permutations', () => {
+    const detail = hierarchyFixture();
+    const layout = systemBodyLayout(buildSystemScene(detail, 1).bodies);
+    const reordered = systemBodyLayout(
+      buildSystemScene(
+        { ...detail, bodies: [...detail.bodies].reverse() },
+        99,
+        6,
+      ).bodies,
+    );
+    expect(
+      new Map(reordered.map((item) => [item.body.ref.bodyId, item])),
+    ).toEqual(new Map(layout.map((item) => [item.body.ref.bodyId, item])));
+  });
+
+  it('does not turn omitted or ambiguous Frontier identities into roots or guess a parent', () => {
+    const detail = systemDetailFromV3(
+      v3System(),
+      [
+        hierarchyBody(0, 'Unselectable barycentre', null, null, {
+          body_type: 'barycentre',
+          frontier_body_id: null,
+        }),
+        hierarchyBody(1, 'Member star', 0, 100, { body_type: 'star' }),
+      ],
+      [],
+      [],
+    );
+    const scene = buildSystemScene(detail, 1);
+    expect(scene.bodies).toHaveLength(1);
+    expect(systemBodyLayout(scene.bodies)[0]).toMatchObject({
+      group: 'unattached',
+      placement: 'unplaced',
+      parentBodyId: null,
+    });
+    expect(scene.bodies[0]!.ref.bodyId).toBe(1);
+  });
+
+  it('handles cyclic parent links without recursion or silently choosing a different parent', () => {
+    const detail = systemDetailFromV3(
+      v3System(),
+      [
+        hierarchyBody(1, 'A', 2, 100),
+        hierarchyBody(2, 'B', 1, 200),
+        hierarchyBody(3, 'Self', 3, 300),
+        hierarchyBody(4, 'Known child of A', 1, 10),
+      ],
+      [],
+      [],
+    );
+    const layout = systemBodyLayout(buildSystemScene(detail, 1).bodies);
+    for (const item of layout.filter((item) => item.body.ref.bodyId !== 4)) {
+      expect(item).toMatchObject({
+        group: 'unattached',
+        placement: 'unplaced',
+        parentBodyId: null,
+        positionUnknownReason: 'cyclic parent links',
+      });
+      expect(Number.isFinite(item.position.x)).toBe(true);
+    }
+    expect(
+      layout.find((item) => item.body.ref.bodyId === 4)!.parentBodyId,
+    ).toBe(1);
+  });
+
+  it('marks missing, non-positive and non-finite distances as unknown except a known root origin', () => {
+    const detail = systemDetailFromV3(
+      v3System(),
+      [
+        hierarchyBody(0, 'Star', null, null, {
+          body_type: 'star',
+          distance_from_arrival_ls: 0,
+        }),
+        ...[null, 0, -1, Infinity, NaN].map((distance, index) =>
+          hierarchyBody(index + 1, `Unknown ${index}`, 0, distance, {
+            distance_from_arrival_ls: distance,
+          }),
+        ),
+      ],
+      [],
+      [],
+    );
+    const layout = systemBodyLayout(buildSystemScene(detail, 1).bodies);
+    expect(layout.find((item) => item.body.ref.bodyId === 0)!.placement).toBe(
+      'placed',
+    );
+    expect(
+      layout
+        .filter((item) => item.body.ref.bodyId !== 0)
+        .every((item) => item.placement === 'unplaced'),
+    ).toBe(true);
+  });
+
+  it('keeps pathological deep hierarchy bounded and explicitly unplaced', () => {
+    const detail = systemDetailFromV3(
+      v3System(),
+      Array.from({ length: 2000 }, (_, id) =>
+        hierarchyBody(id, `Body ${id}`, id === 0 ? null : id - 1, 1000),
+      ),
+      [],
+      [],
+    );
+    const layout = systemBodyLayout(buildSystemScene(detail, 1).bodies);
+    expect(layout).toHaveLength(2000);
+    expect(
+      layout.every(
+        (item) =>
+          item.placement === 'unplaced' &&
+          item.orbitRadius === 0 &&
+          Number.isFinite(item.position.x) &&
+          Number.isFinite(item.position.z),
+      ),
+    ).toBe(true);
+    expect(layout[1]!.parentBodyId).toBe(0);
+    expect(layout[0]!.positionUnknownReason).toBe(
+      'hierarchy exceeds schematic range',
+    );
   });
 });
