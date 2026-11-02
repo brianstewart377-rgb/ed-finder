@@ -524,6 +524,28 @@ describe('getMapHeatmap', () => {
       }),
     );
   });
+
+  it('forwards complete coverage and the bounded viewport through the facade', async () => {
+    const query = {
+      coverage: 'complete' as const,
+      voxel_size: 640,
+      min_systems: 1,
+      max_cells: 40_000,
+      min_x: -4_000,
+      max_x: 4_000,
+      min_y: -2_000,
+      max_y: 2_000,
+      min_z: 12_000,
+      max_z: 20_000,
+    };
+    const signal = new AbortController().signal;
+    await getMapHeatmap(query, signal);
+    expect(vi.mocked(sdk.mapHeatmapApiMapHeatmapGet)).toHaveBeenLastCalledWith({
+      query,
+      signal,
+      throwOnError: true,
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

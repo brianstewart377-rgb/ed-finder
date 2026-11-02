@@ -90,6 +90,8 @@ import type {
   HealthResponse,
   LocalSearchRequest,
   BodyV1,
+  MapHeatmapApiMapHeatmapGetData,
+  MapHeatmapPyramidResponse,
   MapViewportResponse,
   RankingIdentity,
   RatingExplanationResponse,
@@ -674,39 +676,10 @@ export type CatalogueViewportResponse = Readonly<{
   truncated: boolean;
 }>;
 
-export interface MapHeatmapPyramidCell {
-  origin_x_ly: number;
-  origin_y_ly: number;
-  origin_z_ly: number;
-  centroid_x_ly: number;
-  centroid_y_ly: number;
-  centroid_z_ly: number;
-  system_count: number;
-}
-
-export interface MapHeatmapPyramidResponse {
-  source: 'pyramid';
-  generation_id: string;
-  spatial_generation_id: string;
-  spatial_pyramid_version: string;
-  source_system_count: number;
-  coverage_at: string | null;
-  level: number;
-  cell_size_ly: number;
-  voxel_size: number;
-  bounds: {
-    min_x: number | null;
-    max_x: number | null;
-    min_y: number | null;
-    max_y: number | null;
-    min_z: number | null;
-    max_z: number | null;
-  };
-  cells: MapHeatmapPyramidCell[];
-  count: number;
-  max_cells: number;
-  truncated: boolean;
-}
+export type {
+  MapHeatmapPyramidCell,
+  MapHeatmapPyramidResponse,
+} from './generated';
 
 export type MapHeatmapResponse =
   | MapHeatmapPyramidResponse
@@ -1222,8 +1195,12 @@ export async function getCatalogueViewportSystems(
   };
 }
 
+export type MapHeatmapRequest = NonNullable<
+  MapHeatmapApiMapHeatmapGetData['query']
+>;
+
 export const getMapHeatmap = async (
-  query: { voxel_size?: number; min_systems?: number; max_cells?: number },
+  query: MapHeatmapRequest,
   signal?: AbortSignal,
 ): Promise<MapHeatmapResponse> =>
   (await mapHeatmapApiMapHeatmapGet({ query, throwOnError: true, signal }))

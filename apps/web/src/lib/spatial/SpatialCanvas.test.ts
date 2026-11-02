@@ -214,7 +214,8 @@ describe('SpatialCanvas', () => {
   });
 
   it('publishes accessible readiness and forwards observed dimensions', async () => {
-    render(SpatialCanvas);
+    const onViewportChange = vi.fn();
+    render(SpatialCanvas, { props: { onViewportChange } });
 
     await waitFor(() =>
       expect(screen.getByRole('status')).toHaveAttribute(
@@ -232,11 +233,12 @@ describe('SpatialCanvas', () => {
       height: 360,
       dpr: 1,
     });
+    expect(onViewportChange).toHaveBeenCalledWith({ width: 640, height: 360 });
 
     observerCallback(
       [
         {
-          contentRect: { width: 800, height: 450 },
+          contentRect: { width: 800.4, height: 450.2 },
         } as unknown as ResizeObserverEntry,
       ],
       {} as ResizeObserver,
@@ -246,6 +248,10 @@ describe('SpatialCanvas', () => {
       width: 800,
       height: 450,
       dpr: 1,
+    });
+    expect(onViewportChange).toHaveBeenLastCalledWith({
+      width: 800,
+      height: 450,
     });
   });
 

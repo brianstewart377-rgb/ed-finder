@@ -46,6 +46,57 @@ truth note. M12 class colours, giant bands and unknown-class dimming remain. Thi
 visible change needs Product E2E/visual validation before production promotion
 and is not deployed.
 
+## 2026-11-02 — Complete known-system density follows the camera (M06)
+
+Explore requests known-system density inside an overscanned, bucketed camera
+box with `coverage=complete`. The API counts matching cells at the requested
+published pyramid level and walks only its registered coarser levels until the
+whole view fits the cell budget, preserving sparse geography. Complete requests
+fail closed when no published pyramid or fitting registered level is available.
+The default popularity-limited mode and legacy rated fallback remain available
+to existing callers, with separate cache entries.
+
+Pyramid responses identify the requested and served levels, complete/truncated
+coverage and the served level's cell count (unknown for a truncated legacy
+request). Layers reports “Complete at … LY” with the cell count, generation and
+view scope. Camera debouncing and discrete request buckets keep cache keys
+stable; complete viewport coverage no longer claims whole-catalogue coverage.
+The viewport box now projects the canvas corners and edge midpoints through
+the renderer's camera/FOV and actual aspect ratio, with 15% plus one requested
+cell of overscan and outward bucket snapping. Shallow horizon rays extend the
+affected sides to navigation bounds; Y retains the elevation/radius policy.
+Resize updates the query bounds, so regional views include the far visible
+plane strip that the earlier focus-centred cube omitted. Projection, horizon,
+overview, small-movement cache reuse and resize regressions cover the correction.
+API, web and generated OpenAPI contracts cover the new mode. No migration,
+pyramid rebuild, new level or production operation is part of this change.
+
+## 2026-11-02 — Soft Galaxy nebula clouds and persistent landmarks (M03)
+
+Diffuse nebulae now separate a small marker at the catalogue position from
+three soft, irregular cloud billboards. A deterministic procedural alpha atlas
+and additive, depth-tested blending replace the dark-edged spheres. Clouds fade
+on approach with distinct exit/re-entry thresholds; their markers persist at
+close zoom. Cloud radii are bounded to 600–1,800 LY as **schematic extent** only:
+no authorised source supplies measured nebula extents. The layer status and
+renderer metadata expose that distinction.
+
+M02 catalogue inventory, landmark selection, deduplication and cap remain
+unchanged. Visible counts and receipts count each enabled landmark marker once;
+decorative cloud quads are reported separately and never inflate target counts.
+Planetary nebulae retain their existing markers and zoom fade. Clouds and diffuse
+markers each use one instanced draw with no new assets or dependencies.
+
+Validation passed on Node 24 / pnpm 11.25.0: web typecheck, lint, formatting,
+all 1,719 Vitest tests, and static build. Local Cypress diagnostics on
+SwiftShader/ANGLE compiled both shaders and captured overview, regional
+perspective/orthographic and close-range frames; isolated nebula rendering used
+two draws with clouds and one after they faded. These diagnostic screenshots
+are not Product E2E acceptance evidence.
+
+Product E2E screenshots and visual validation are required before any production
+promotion. This change is **not deployed**.
+
 ## 2026-11-02 — Inspect source freshness and saved comparison capture times (A04)
 
 Inspect adds a compact, non-modal **Sources & freshness** pop-out beside the

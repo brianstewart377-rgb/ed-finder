@@ -719,6 +719,11 @@ export const mapClusterHullsApiMapClustersHullsGet = <ThrowOnError extends boole
  * has ever been published -- instead uses the legacy rated-MV/live-
  * aggregate lane this endpoint has always served, tagged explicitly
  * `"source": "legacy-fallback"` so callers can tell them apart.
+ *
+ * With `coverage=complete`, count matching cells first and walk the registered
+ * ladder toward coarser cell sizes until the whole requested view fits. An
+ * unavailable pyramid or a budget that even the coarsest level cannot meet
+ * returns 503; this mode never drops sparse cells or uses the rated fallback.
  */
 export const mapHeatmapApiMapHeatmapGet = <ThrowOnError extends boolean = false>(options?: Options<MapHeatmapApiMapHeatmapGetData, ThrowOnError>): RequestResult<MapHeatmapApiMapHeatmapGetResponses, MapHeatmapApiMapHeatmapGetErrors, ThrowOnError> => (options?.client ?? client).get<MapHeatmapApiMapHeatmapGetResponses, MapHeatmapApiMapHeatmapGetErrors, ThrowOnError>({ url: '/api/map/heatmap', ...options });
 

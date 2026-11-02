@@ -79,8 +79,10 @@
   import { collectGalaxySpatialContributions } from '$lib/spatial/galaxy-overlays';
   import {
     classifyDensityError,
+    densityCoverageLabel,
     densityContributionFrom,
-    heatmapVoxelSizeForDistance,
+    heatmapViewportQueryKey,
+    heatmapViewportRequest,
     mapHeatmapToDensityPayload,
     type GalaxyDensityResult,
   } from '$lib/spatial/galaxy-density-source';
@@ -92,6 +94,7 @@
   import {
     fitGalaxyPlaneCamera,
     focusGalaxyCamera,
+    type GalaxyCameraViewport,
   } from '$lib/spatial/galaxy-camera';
   import {
     createGalaxyRegionsContribution,
@@ -215,6 +218,7 @@
   let mapSection = $state<HTMLElement>();
   let resultList = $state<HTMLUListElement>();
   let initialGalaxyViewRequested = false;
+  let canvasViewport = $state<GalaxyCameraViewport>();
   let streamCamera = $state<CameraState | null>({
     focusLy: { x: 0, y: 0, z: 0 },
     distanceLy: 118_000,
@@ -258,22 +262,19 @@
     )
       return 'Preparing nebula landmarks…';
     const visibility = galaxyNebulaVisibility(nebulaCameraDistanceLy);
-    const diffuseFaded = nebulaKinds.diffuse && visibility.nebula === 0;
     const count = renderedNebulaReceipt.renderedTargetCount;
     if (count === 0) {
-      if (diffuseFaded)
-        return 'No landmarks at this zoom · diffuse landmarks faded out';
       if (nebulaKinds.planetary && visibility['planetary-nebula'] === 0)
         return 'No landmarks at this zoom · planetary nebulae appear at close range';
       return 'No landmarks at this zoom';
     }
     const kinds = [
-      nebulaKinds.diffuse && visibility.nebula > 0 ? 'diffuse' : null,
+      nebulaKinds.diffuse ? 'diffuse' : null,
       nebulaKinds.planetary && visibility['planetary-nebula'] > 0
         ? 'planetary'
         : null,
     ].filter(Boolean);
-    return `${count.toLocaleString()} ${count === 1 ? 'landmark' : 'landmarks'} shown (${kinds.join(' and ')} nebulae)${diffuseFaded ? ' · diffuse landmarks faded out' : ''}`;
+    return `${count.toLocaleString()} ${count === 1 ? 'landmark' : 'landmarks'} shown (${kinds.join(' and ')} nebulae)${nebulaKinds.diffuse ? ' · schematic extent (clouds fade on approach)' : ''}`;
   });
 
   const normalizedQuery = $derived(query.trim());
@@ -825,37 +826,33 @@
       return commanderVisits.data.count === 0 ? 'empty' : 'ready';
     },
   );
-  // Normalize the raw camera distance to the discrete voxel size once, then key
-  // the query AND its request params by it, so several nearby zoom stops that
-  // round to the same voxel size reuse one cached response instead of issuing a
-  // fresh request (and burning the route's 30-req/min budget) on every settle.
-  const heatmapVoxelSize = $derived(
-    heatmapVoxelSizeForDistance(streamCamera?.distanceLy ?? 118_000),
+  // Request and cache key share the bucketed projection bounds, updated after
+  // the camera debounce or a canvas resize. The server chooses a complete level.
+  const heatmapRequest = $derived(
+    heatmapViewportRequest(streamCamera, canvasViewport),
+  );
+  const heatmapRequestIdentity = $derived(
+    heatmapViewportQueryKey(heatmapRequest)[1],
   );
   const densityEnabled = $derived(
     showDensity && (streamCamera?.distanceLy ?? 0) >= DENSITY_CROSSFADE_NEAR_LY,
   );
-  const heatmap = createQuery(() => ({
-    queryKey: ['map-heatmap', heatmapVoxelSize],
-    queryFn: ({ signal }) =>
-      getMapHeatmap(
-        {
-          voxel_size: heatmapVoxelSize,
-          // The density swirl wants every occupied cell, so request the full
-          // aggregate. The endpoint defaults to `min_systems: 5`, which would
-          // drop sparse cells and make a non-truncated payload fail its
-          // count-sum reconciliation against the generation-wide source count.
-          min_systems: 1,
-          max_cells: 40_000,
-        },
-        signal,
-      ),
-    // Enabled across the zoomed-out + overlap band; below `nearLy` density is
-    // fully faded so no fetch needed.
-    enabled: densityEnabled,
-    staleTime: 60_000,
-    placeholderData: (previousData) => previousData,
-  }));
+  const heatmap = createQuery(() => {
+    // Equivalent bounds must preserve a pending query when the canvas first
+    // reports its size or a proportional resize leaves its aspect unchanged.
+    // React only to the JSON identity and capture its matching request once.
+    const request = untrack(() => heatmapRequest);
+    const queryKey = heatmapViewportQueryKey(request);
+    return {
+      queryKey: [queryKey[0], heatmapRequestIdentity] as const,
+      queryFn: ({ signal }) => getMapHeatmap(request, signal),
+      // Enabled across the zoomed-out + overlap band; below `nearLy` density is
+      // fully faded so no fetch needed.
+      enabled: densityEnabled,
+      staleTime: 60_000,
+      placeholderData: (previousData) => previousData,
+    };
+  });
   // Reserve its overlay position before the first response. A late patch must
   // not append density after stars and make the next selection rebuild them.
   const emptyDensityContribution: SpatialContribution = {
@@ -928,7 +925,9 @@
                   : 'ready',
   );
   const densityCellCount = $derived(lastGoodDensity?.payload.cells.length ?? 0);
-  const densityTruncated = $derived(lastGoodDensity?.area === 'truncated');
+  const densityCoverage = $derived(
+    lastGoodDensity ? densityCoverageLabel(lastGoodDensity) : null,
+  );
   const filteredCatalogueSystems = $derived(
     (appliedCataloguePacket?.systems ?? []).filter((system) => {
       // Keep the accepted packet's visibility mask until its replacement is
@@ -2055,6 +2054,7 @@
           onNebulaeToggle={toggleNebulae}
           densityCellSizeLy={lastGoodDensity?.payload.cellSizeLy ?? null}
           densityGeneration={lastGoodDensity?.payload.generationId ?? null}
+          {densityCoverage}
           journeysMaxVisits={travelHeatmapState === 'ready'
             ? Math.max(
                 1,
@@ -2083,9 +2083,8 @@
                   ? ' · showing previous area'
                   : ''}
               {:else if densityState === 'stale'}
-                {densityCellCount.toLocaleString()} density cells{densityTruncated
-                  ? ' · bounded view'
-                  : ''} · stale · {densityFailure?.kind === 'invalid'
+                {densityCellCount.toLocaleString()} density cells · {densityCoverage}
+                · stale · {densityFailure?.kind === 'invalid'
                   ? 'density response invalid'
                   : 'density refresh unavailable'}
               {:else if densityState === 'unavailable'}
@@ -2097,8 +2096,9 @@
               {:else if densityState === 'empty'}
                 No density cells in this area
               {:else}
-                {densityCellCount.toLocaleString()} density cells{densityTruncated
-                  ? ' · bounded view'
+                {densityCellCount.toLocaleString()} density cells{lastGoodDensity?.area ===
+                'truncated'
+                  ? ` · ${densityCoverage}`
                   : ''}
               {/if}
               {#if densityEnabled && densityFailure}
@@ -2232,6 +2232,7 @@
           : 0}
         onRuntimeEvent={handleRuntimeEvent}
         onTransitionChange={handleCameraTransitionChange}
+        onViewportChange={(viewport) => (canvasViewport = viewport)}
       />
       {#if selectedMapSystem}
         <article
