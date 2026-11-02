@@ -11,6 +11,23 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-02 — Galaxy system hover cards and nearby labels (M10)
+
+Catalogue stars and Finder markers now expose hover/focus cards with their
+names, raw catalogue star classes, distance from the current anchor, and
+Select/Inspect actions. Nearby labels prioritize selected, hovered, anchor and
+Finder systems before a range-bounded set of catalogue stars nearest the screen
+centre. Overlap handling preserves system id64, and a collapsed Nearby systems
+list provides keyboard selection and focus for the same candidate set.
+
+Label ranking and overlap resolution wait for the camera to settle; source
+indexes and nearest-candidate retrieval are cached across hover changes. Star
+geometry, materials, streaming thresholds and detail policy are unchanged.
+Vitest coverage includes catalogue hover through Babylon NullEngine, ranking,
+overlap, range bounds, keyboard actions, raw facts, navigation and axe checks.
+This visible change needs Product E2E/visual validation before production
+promotion and is not deployed.
+
 ## 2026-11-02 — Explore Layers separates catalogue density, journeys and nebulae
 
 Explore now has a non-modal **Layers** pop-out with independent Known-system
