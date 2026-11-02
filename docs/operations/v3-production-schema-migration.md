@@ -102,8 +102,12 @@ Migration `023_v3_system_search_name_prefix_index.sql` adds
 `system_search_name_lower`. The installed prefix is through `022` (apply run
 41180459540, 2026-10-31). The new exact-head governed **plan must list pending
 exactly `[023]`**; stop and review any other pending set before a separate apply.
-This registration does not claim that 023 has been applied. Apply 023 before
-promoting the autocomplete application fix.
+**Applied 2026-11-02:** plan run 41449585823 (source `981adbfc`) listed pending
+exactly `[023]`; apply run 41449682997 applied it in about seven minutes
+(receipts under `docs/operations/evidence/2026-11-02-v3-production-migration-*-023-*`).
+The installed schema is through-023 (identity `f6a1d3bb…`, migration set
+`9999dbe6…`). The autocomplete application fix was promoted afterwards as the
+eighth F2d release `a8d1b794`.
 
 The runner inserts the ledger row before the migration's terminal `COMMIT`, so
 the ordinary, non-concurrent `CREATE INDEX` and ledger advance atomically. Its

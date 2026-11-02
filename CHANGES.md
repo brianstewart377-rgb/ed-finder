@@ -11,6 +11,20 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-02 — Migration 023 applied; eighth F2d release `a8d1b794` accepted: system-name search restored
+
+Owner-approved. The governed plan run 41449585823 listed pending exactly `[023]`
+and apply run 41449682997 built the Search name-prefix index in about seven
+minutes (estimate was 1–3 hours), with no payload change. Release run 41462330572
+(source `a8d1b794`) then passed preflight run 41463550705 and was accepted by
+promotion run 41465888068 at 2026-11-02T14:52:15Z to slot blue. Live checks:
+health reports `a8d1b794`; autocomplete for Sol, Achenar and Alioth returns in
+under a second (it timed out at 15 s before); stars near Sol render in their
+spectral colours; the Ratings V4 public smoke passed 8/8. The `293bc72b`
+backend is the recorded rollback artifact. Receipts under
+`docs/operations/evidence/2026-11-02-*`. Records the accepted attestation and
+observed runtime and updates the status lines.
+
 ## 2026-11-02 — Galaxy density and local-star hand-off (M04, M07)
 
 Closes the 7,000–8,000 LY gap where density had faded out before local stars
