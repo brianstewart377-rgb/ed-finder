@@ -3603,6 +3603,191 @@ export type LocalSearchRequest = {
 };
 
 /**
+ * MapHeatmapBounds
+ */
+export type MapHeatmapBounds = {
+    /**
+     * Min X
+     */
+    min_x: number | null;
+    /**
+     * Max X
+     */
+    max_x: number | null;
+    /**
+     * Min Y
+     */
+    min_y: number | null;
+    /**
+     * Max Y
+     */
+    max_y: number | null;
+    /**
+     * Min Z
+     */
+    min_z: number | null;
+    /**
+     * Max Z
+     */
+    max_z: number | null;
+};
+
+/**
+ * MapHeatmapLegacyResponse
+ */
+export type MapHeatmapLegacyResponse = {
+    /**
+     * Source
+     */
+    source: 'legacy-fallback';
+    /**
+     * Voxel Size
+     */
+    voxel_size: number;
+    /**
+     * Voxel Bucket
+     */
+    voxel_bucket: number;
+    /**
+     * Economy
+     */
+    economy: string | null;
+    /**
+     * Cells
+     */
+    cells: Array<{
+        [key: string]: number | number | null;
+    }>;
+    /**
+     * Count
+     */
+    count: number;
+    /**
+     * Max Cells
+     */
+    max_cells: number;
+    /**
+     * Truncated
+     */
+    truncated: boolean;
+};
+
+/**
+ * MapHeatmapPyramidCell
+ */
+export type MapHeatmapPyramidCell = {
+    /**
+     * Origin X Ly
+     */
+    origin_x_ly: number;
+    /**
+     * Origin Y Ly
+     */
+    origin_y_ly: number;
+    /**
+     * Origin Z Ly
+     */
+    origin_z_ly: number;
+    /**
+     * Centroid X Ly
+     */
+    centroid_x_ly: number;
+    /**
+     * Centroid Y Ly
+     */
+    centroid_y_ly: number;
+    /**
+     * Centroid Z Ly
+     */
+    centroid_z_ly: number;
+    /**
+     * System Count
+     */
+    system_count: number;
+    /**
+     * Representative System Id64
+     */
+    representative_system_id64?: number | null;
+};
+
+/**
+ * MapHeatmapPyramidResponse
+ */
+export type MapHeatmapPyramidResponse = {
+    /**
+     * Source
+     */
+    source: 'pyramid';
+    /**
+     * Generation Id
+     */
+    generation_id: string;
+    /**
+     * Spatial Generation Id
+     */
+    spatial_generation_id: string;
+    /**
+     * Spatial Pyramid Version
+     */
+    spatial_pyramid_version: string;
+    /**
+     * Source System Count
+     */
+    source_system_count: number;
+    /**
+     * Coverage At
+     */
+    coverage_at: string | null;
+    /**
+     * Level
+     */
+    level: number;
+    /**
+     * Requested Level
+     */
+    requested_level: number;
+    /**
+     * Served Level
+     */
+    served_level: number;
+    /**
+     * Level Cell Count
+     *
+     * Exact matching cell count at the served level; unknown for truncated legacy requests.
+     */
+    level_cell_count: number | null;
+    /**
+     * Coverage
+     */
+    coverage: 'complete' | 'truncated';
+    /**
+     * Cell Size Ly
+     */
+    cell_size_ly: number;
+    /**
+     * Voxel Size
+     */
+    voxel_size: number;
+    bounds: MapHeatmapBounds;
+    /**
+     * Cells
+     */
+    cells: Array<MapHeatmapPyramidCell>;
+    /**
+     * Count
+     */
+    count: number;
+    /**
+     * Max Cells
+     */
+    max_cells: number;
+    /**
+     * Truncated
+     */
+    truncated: boolean;
+};
+
+/**
  * MapViewportResponse
  *
  * Response envelope for viewport system query.
@@ -12047,6 +12232,12 @@ export type MapHeatmapApiMapHeatmapGetData = {
          */
         max_cells?: number;
         /**
+         * Coverage
+         *
+         * Complete chooses a coarser published level that fits; truncated preserves the legacy popularity cap.
+         */
+        coverage?: 'complete' | 'truncated';
+        /**
          * Economy
          *
          * Filter to a specific economy score
@@ -12103,10 +12294,14 @@ export type MapHeatmapApiMapHeatmapGetError = MapHeatmapApiMapHeatmapGetErrors[k
 
 export type MapHeatmapApiMapHeatmapGetResponses = {
     /**
+     * Response Map Heatmap Api Map Heatmap Get
+     *
      * Successful Response
      */
-    200: unknown;
+    200: MapHeatmapPyramidResponse | MapHeatmapLegacyResponse;
 };
+
+export type MapHeatmapApiMapHeatmapGetResponse = MapHeatmapApiMapHeatmapGetResponses[keyof MapHeatmapApiMapHeatmapGetResponses];
 
 export type MapTimelineApiMapTimelineGetData = {
     body?: never;

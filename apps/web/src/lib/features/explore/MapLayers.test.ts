@@ -67,7 +67,7 @@ describe('Map layers pop-out', () => {
         'Known-system density',
         true,
         'data-density-toggle',
-        'Public aggregate of catalogue systems per cell; detail changes with zoom.',
+        'Public aggregate of catalogue systems per cell in this view; detail changes with zoom.',
       ],
       [
         'My journeys',
@@ -168,6 +168,22 @@ describe('Map layers pop-out', () => {
     await rerender({ densityCellSizeLy: null });
     expect(densityLegend).toHaveTextContent('Cell size available when loaded');
     expect(densityLegend).not.toHaveTextContent('320 LY cells');
+  });
+
+  it('shows complete coverage at the served cell size and numbers for truncation', async () => {
+    const { rerender } = renderLayers();
+    await rerender({ densityCoverage: 'Complete at 320 LY' });
+    const { dialog } = await openLayers();
+    const legend = within(dialog).getByLabelText('Known-system density legend');
+    expect(legend).toHaveTextContent('Complete at 320 LY');
+    await rerender({
+      densityCoverage: 'Truncated · 40,000 cells shown at 320 LY',
+    });
+    expect(legend).toHaveTextContent(
+      'Truncated · 40,000 cells shown at 320 LY',
+    );
+    expect(legend).not.toHaveTextContent('Complete at');
+    expect(legend).not.toHaveTextContent('bounded view');
   });
 
   it.each(['Escape', 'Close', 'outside', 'trigger'] as const)(
