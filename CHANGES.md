@@ -11,6 +11,28 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-02 — Explore search scope and bounded radius (A02)
+
+Explore now states the search scope below the results heading and exposes it
+to the results list's accessible description. Anchored Any searches show their
+radius and distance sort, picked archetypes show their galaxy-wide fit ranking
+and minimum tier, and unanchored Any shows galaxy-wide best colony potential.
+Distance-bearing result cards include the radius that produced their results.
+
+The compact Within control offers 100, 250, 500 (default), 1,000 and 2,000 LY
+for anchored Any searches. Its bounded `radius` URL parameter survives reloads
+alongside `near` and `bodies`; invalid or duplicate values are cleared with the
+existing notice. Each change resets pagination and commits one search through
+the body-filter navigation path. The control is disabled with an explanation
+outside anchored Any. No local-storage preference, API change, ranking change,
+archetype request change or page-size change is introduced.
+
+Vitest covers URL/request bounds, scope, control availability, pagination reset
+and reloads. The existing Cypress body-filter journey now checks scope and a
+1,000-LY request; `tests/test_v3_product_journey_contract.py` pins the new text
+and journey assertions. This user-visible change requires Product E2E/visual
+validation before production promotion and is **not deployed**.
+
 ## 2026-11-02 — Migration 023 applied; eighth F2d release `a8d1b794` accepted: system-name search restored
 
 Owner-approved. The governed plan run 41449585823 listed pending exactly `[023]`

@@ -8,12 +8,17 @@ import {
 } from './body-filters';
 
 export const NEAR_URL_PARAMETER = 'near';
+export const RADIUS_URL_PARAMETER = 'radius';
 export const BODIES_URL_PARAMETER = 'bodies';
+export const SEARCH_RADIUS_OPTIONS = [100, 250, 500, 1000, 2000] as const;
+export type SearchRadius = (typeof SEARCH_RADIUS_OPTIONS)[number];
+export const DEFAULT_SEARCH_RADIUS: SearchRadius = 500;
 /** Enough for every supported key with both three-digit bounds. */
 export const MAX_BODIES_PARAMETER_LENGTH = 640;
 
 export type ExploreSearchState = Readonly<{
   near: Id64 | null;
+  radius: SearchRadius;
   bodyFilters: BodyFilterValues;
 }>;
 
@@ -32,6 +37,13 @@ function boundedNear(value: unknown): Id64 | null {
   }
 }
 
+export function normalizeSearchRadius(value: unknown): SearchRadius {
+  return (
+    SEARCH_RADIUS_OPTIONS.find((radius) => radius === value) ??
+    DEFAULT_SEARCH_RADIUS
+  );
+}
+
 /** Canonical order is the control order; unrelated parameters retain their order. */
 export function serializeExploreSearchParams(
   input: Partial<ExploreSearchState>,
@@ -39,9 +51,13 @@ export function serializeExploreSearchParams(
 ): URLSearchParams {
   const output = new URLSearchParams(base);
   output.delete(NEAR_URL_PARAMETER);
+  output.delete(RADIUS_URL_PARAMETER);
   output.delete(BODIES_URL_PARAMETER);
   const near = boundedNear(input.near);
   if (near !== null) output.set(NEAR_URL_PARAMETER, near);
+  const radius = normalizeSearchRadius(input.radius);
+  if (radius !== DEFAULT_SEARCH_RADIUS)
+    output.set(RADIUS_URL_PARAMETER, String(radius));
   const filters = normalizeBodyFilters(input.bodyFilters);
   const bodies = BODY_FILTER_OPTIONS.flatMap(({ key }) => {
     const range = filters[key];
@@ -59,6 +75,17 @@ export function parseExploreSearchParams(
   const near = nearValues.length === 1 ? boundedNear(nearValues[0]) : null;
   if (nearValues.length && near === null)
     issues.push('The search-near link was invalid and has been cleared.');
+
+  const radiusValues = params.getAll(RADIUS_URL_PARAMETER);
+  const parsedRadius =
+    radiusValues.length === 1
+      ? SEARCH_RADIUS_OPTIONS.find(
+          (radius) => String(radius) === radiusValues[0],
+        )
+      : undefined;
+  const radius = parsedRadius ?? DEFAULT_SEARCH_RADIUS;
+  if (radiusValues.length && parsedRadius === undefined)
+    issues.push('Invalid search radius in this link has been cleared.');
 
   let bodyFilters: BodyFilterValues = {};
   const bodyValues = params.getAll(BODIES_URL_PARAMETER);
@@ -101,7 +128,7 @@ export function parseExploreSearchParams(
   }
   if (invalidBodies)
     issues.push('Invalid body filters in this link have been cleared.');
-  const state = { near, bodyFilters };
+  const state = { near, radius, bodyFilters };
   return {
     ...state,
     issues,

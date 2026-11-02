@@ -371,6 +371,7 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     const anchorId = '10477373803000';
     const dialog = '[role="dialog"][data-testid="body-filters-dialog"]';
     let anchoredRequest: Record<string, unknown>;
+    let radiusRequest: Record<string, unknown>;
     cy.viewport(1280, 800);
     // All responses come from the normal Product API and its published V3
     // fixture generation. The anchor is chosen through the shared keyboard
@@ -378,6 +379,7 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.intercept('GET', `/api/v1/systems/${anchorId}`).as('bodyFilterAnchor');
     visitExplore();
     cy.contains('button', /^Body filters$/).should('be.disabled');
+    cy.get('#search-radius').should('be.disabled');
     cy.get('@search.all').should('have.length', 0);
     keyboardChooseAnchor('Achenar');
     cy.get('@search.all')
@@ -405,6 +407,11 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       });
     waitForExploreSettled();
     cy.get('#results-title').should('contain.text', 'Near Achenar');
+    cy.get('#results-scope').should(
+      'have.text',
+      'Within 500 LY of Achenar · sorted by distance',
+    );
+    cy.get('#search-radius').should('be.enabled').and('have.value', '500');
     cy.contains('button', /^Body filters$/).click();
     cy.get(dialog).should('be.visible').and('have.attr', 'aria-modal', 'false');
     cy.get(`${dialog} [aria-label="Earth-like minimum slider"]`)
@@ -473,6 +480,26 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       expect(params.getAll('near')).to.deep.equal([anchorId]);
       expect(params.getAll('bodies')).to.deep.equal(['elw_count:1-']);
     });
+    cy.get('#search-radius').select('1000');
+    cy.wait('@search', { requestTimeout }).then(({ request, response }) => {
+      expect(request.body).to.deep.equal({
+        ...anchoredRequest,
+        filters: { distance: { min: 0, max: 1000 } },
+        body_filters: { elw_count: { min: 1 } },
+      });
+      expect(response?.statusCode).to.equal(200);
+      radiusRequest = request.body;
+    });
+    waitForExploreSettled();
+    cy.get('@search.all').should('have.length', 3);
+    cy.get('#results-scope').should(
+      'have.text',
+      'Within 1,000 LY of Achenar · sorted by distance',
+    );
+    cy.location('search', { timeout: 15_000 }).should((search) => {
+      const params = new URLSearchParams(search);
+      expect(params.getAll('radius')).to.deep.equal(['1000']);
+    });
     // Clear persisted state and SvelteKit's history payload so restoration can
     // only use the URL, even in browsers that retain history state on reload.
     cy.window().then((window) => {
@@ -485,17 +512,19 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       .its('response.statusCode')
       .should('eq', 200);
     cy.wait('@search', { requestTimeout }).then(({ request, response }) => {
-      expect(request.body).to.deep.equal({
-        ...anchoredRequest,
-        body_filters: { elw_count: { min: 1 } },
-      });
+      expect(request.body).to.deep.equal(radiusRequest);
       expect(response?.statusCode).to.equal(200);
       expect(response?.body.results.length).to.be.greaterThan(0);
     });
     waitForExploreSettled();
-    cy.get('@search.all').should('have.length', 3);
+    cy.get('@search.all').should('have.length', 4);
     cy.get('#system-search').should('have.value', 'Achenar');
     cy.get('#results-title').should('contain.text', 'Near Achenar');
+    cy.get('#results-scope').should(
+      'have.text',
+      'Within 1,000 LY of Achenar · sorted by distance',
+    );
+    cy.get('#search-radius').should('be.enabled').and('have.value', '1000');
     cy.get('[data-system-result]').should('have.length.greaterThan', 0);
     cy.contains('Earth-like ≥ 1').should('be.visible');
     cy.get('[aria-label="Remove Earth-like filter"]').should('be.visible');
@@ -504,6 +533,7 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       const params = new URLSearchParams(search);
       expect(params.getAll('near')).to.deep.equal([anchorId]);
       expect(params.getAll('bodies')).to.deep.equal(['elw_count:1-']);
+      expect(params.getAll('radius')).to.deep.equal(['1000']);
     });
   });
 
