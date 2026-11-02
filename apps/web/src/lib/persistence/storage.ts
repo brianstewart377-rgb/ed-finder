@@ -23,6 +23,7 @@ export const PERSISTENCE_KEYS = {
   profileSyncLast: 'ed_profile_sync_last',
   selectedSystem: 'ed-finder:selected-system-context',
   density: 'ed_density_v1',
+  mapLayers: 'ed-finder:map-layers:v1',
   adminToken: SHARED_ADMIN_TOKEN_SESSION_KEY,
 } as const;
 
@@ -40,6 +41,7 @@ export const LOCAL_STORAGE_KEYS = [
   PERSISTENCE_KEYS.profileSyncLast,
   PERSISTENCE_KEYS.selectedSystem,
   PERSISTENCE_KEYS.density,
+  PERSISTENCE_KEYS.mapLayers,
 ] as const;
 
 export const SESSION_STORAGE_KEYS = [PERSISTENCE_KEYS.adminToken] as const;
