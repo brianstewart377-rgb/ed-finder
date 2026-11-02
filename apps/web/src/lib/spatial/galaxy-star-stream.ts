@@ -4,6 +4,15 @@ import type {
   GalaxySystemPoint,
   SpatialContribution,
 } from './contracts';
+import {
+  galaxyDetailMode,
+  galaxyLocalStarLimit,
+  GALAXY_WIDE_STAR_LIMIT,
+  LOCAL_STAR_MIN_RADIUS_LY,
+  LOCAL_STAR_MAX_HORIZONTAL_RADIUS_LY,
+  LOCAL_STAR_MAX_VERTICAL_RADIUS_LY,
+  type GalaxyDetailMode,
+} from './galaxy-detail-policy';
 
 export type GalaxyStarViewport = Readonly<{
   minX: number;
@@ -79,9 +88,10 @@ export function withinGalaxyDisk(x: number, z: number): boolean {
  */
 export function galaxyStarViewport(
   camera: CameraState | null,
+  previousMode: GalaxyDetailMode = 'wide',
 ): GalaxyStarViewport | null {
   if (!camera) return null;
-  if (camera.distanceLy > 7_000) {
+  if (galaxyDetailMode(camera.distanceLy, previousMode) === 'wide') {
     // Wide view: use the authoritative region-plane extent, but keep Y
     // constrained to the galactic disk so the sample reads as a galaxy rather
     // than a full rectangular point cloud. This is a real-system sample lane,
@@ -93,29 +103,20 @@ export function galaxyStarViewport(
       maxY: 2_400,
       minZ: -25_000,
       maxZ: 78_000,
-      limit: 8_000,
+      limit: GALAXY_WIDE_STAR_LIMIT,
       cameraDistanceLy: camera.distanceLy,
       wide: true,
     };
   }
   const horizontalRadius = Math.max(
-    24,
-    Math.min(7_400, camera.distanceLy * 0.82),
+    LOCAL_STAR_MIN_RADIUS_LY,
+    Math.min(LOCAL_STAR_MAX_HORIZONTAL_RADIUS_LY, camera.distanceLy * 0.82),
   );
   const verticalRadius = Math.max(
-    24,
-    Math.min(3_000, camera.distanceLy * 0.34),
+    LOCAL_STAR_MIN_RADIUS_LY,
+    Math.min(LOCAL_STAR_MAX_VERTICAL_RADIUS_LY, camera.distanceLy * 0.34),
   );
-  const limit =
-    camera.distanceLy > 3_500
-      ? 40_000
-      : camera.distanceLy > 1_400
-        ? 24_000
-        : camera.distanceLy > 450
-          ? 12_000
-          : camera.distanceLy > 140
-            ? 5_000
-            : 1_800;
+  const limit = galaxyLocalStarLimit(camera.distanceLy);
   return {
     minX: camera.focusLy.x - horizontalRadius,
     maxX: camera.focusLy.x + horizontalRadius,

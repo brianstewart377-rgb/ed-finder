@@ -25,6 +25,31 @@ backend is the recorded rollback artifact. Receipts under
 `docs/operations/evidence/2026-11-02-*`. Records the accepted attestation and
 observed runtime and updates the status lines.
 
+## 2026-11-02 — Galaxy density and local-star hand-off (M04, M07)
+
+Closes the 7,000–8,000 LY gap where density had faded out before local stars
+started streaming. A shared detail policy now fades density from 40,000 to
+6,000 LY, enters local streaming at 9,000 LY and returns to the wide sample
+only above 9,500 LY. Density remains fetched throughout the overlap; previous
+star data stays visible while the next viewport loads. The five local star
+budgets and 15,000 LY API cube bound are preserved.
+
+Density has its own loading, ready, stale, unavailable, invalid, unpublished,
+empty and truncated status, separate from exact stars. Failed or invalid
+refreshes retain the last valid layer with a stale marker; Retry requests fresh
+data. Only validated pyramid responses are accepted, with the existing
+`min_systems: 1` / `max_cells: 40_000` request unchanged.
+
+Vitest coverage checks the continuous overlap invariant, hysteresis camera path,
+budgets and bounds, each density result, Retry, retained stale data and separate
+exact-star status. The test that pinned the old 7,000 LY streaming boundary now
+asserts the shared overlap policy. Retaining viewport masks and applying density
+revisions only with accepted data reduces the non-F4 interaction workload from
+51 to 39 scene builds; its exact workload assertions are updated, with API calls
+and transitions unchanged. This visible map change needs Product E2E/visual
+validation before production promotion and is not deployed. No API, SQL or
+workflow changes are included.
+
 ## 2026-11-02 — Galaxy nebula inventory and planetary landmarks (M02)
 
 Explore now distinguishes the 5,842 accepted EDAstro catalogue records from
