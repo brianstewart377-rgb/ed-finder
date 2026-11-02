@@ -365,7 +365,9 @@ function partitionGalaxyStars(
   selection: GalaxySceneContract['selection'],
 ): { catalogue: GalaxySystemPoint[]; finder: GalaxySystemPoint[] } {
   // Finder contributions also carry retained selections/reference markers.
-  // A selected catalogue target joins the same always-visible batch.
+  // A selected catalogue target joins the same always-visible batch, as does
+  // any reserved application target (pins, watchlist, search reference) so it
+  // survives the wide/local hand-off and stays pickable behind density.
   const finderIds = new Set(
     layers.flatMap((layer) =>
       layer.layerId === 'finder-systems'
@@ -379,7 +381,10 @@ function partitionGalaxyStars(
   const catalogue: GalaxySystemPoint[] = [];
   const finder: GalaxySystemPoint[] = [];
   for (const point of points) {
-    (finderIds.has(point.systemId64) ? finder : catalogue).push(point);
+    (finderIds.has(point.systemId64) || point.reserved === true
+      ? finder
+      : catalogue
+    ).push(point);
   }
   return { catalogue, finder };
 }

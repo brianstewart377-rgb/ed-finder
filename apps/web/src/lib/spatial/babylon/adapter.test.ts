@@ -226,6 +226,49 @@ describe('Babylon spatial adapter boundary', () => {
     engine.dispose();
   });
 
+  it('keeps reserved catalogue targets in the always-visible batch behind density', () => {
+    const initial = buildExploreGalaxyScene([], null, 1);
+    const engine = new NullEngine();
+    const product = createBabylonGalaxyScene(engine, {
+      ...initial,
+      camera: { ...initial.camera, distanceLy: DENSITY_CROSSFADE_FAR_LY + 1 },
+      contributions: [
+        ...initial.contributions,
+        createCatalogueStarsContribution(
+          [
+            {
+              id64: parseId64('7'),
+              name: 'Background',
+              x: 0,
+              y: 0,
+              z: 0,
+              populated: false,
+            },
+          ],
+          1,
+          false,
+          [
+            {
+              systemId64: '42',
+              name: 'Pinned target',
+              positionLy: { x: 10, y: 0, z: 20 },
+            },
+          ],
+        ),
+      ],
+    });
+    // The pinned (reserved) point is not a Finder result or a selection, yet it
+    // must stay pickable and visible when the catalogue batch fades out.
+    expect(product.finderStars.points.map((point) => point.systemId64)).toEqual(
+      ['42'],
+    );
+    expect(
+      product.catalogueStars.points.map((point) => point.systemId64),
+    ).toEqual(['7']);
+    product.scene.dispose();
+    engine.dispose();
+  });
+
   it.each(['CATALOGUE', 'FINDER'] as const)(
     'reports the id64 and name when hovering a pickable %s system',
     (owner) => {
