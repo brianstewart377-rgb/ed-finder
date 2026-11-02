@@ -320,7 +320,7 @@ const captureFinder = (state: 'any' | 'flexible' | 'flexible-explanation') => {
   );
   cy.get('[data-nebula-resource-state="ready"]', { timeout: 20_000 }).should(
     'contain.text',
-    '5,842 EDAstro nebula landmarks',
+    '5,842 catalogue records',
   );
   cy.document().then((document) => {
     const style = document.createElement('style');
@@ -687,7 +687,7 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       '42/42 regions',
     );
     cy.get('[data-nebula-resource-state="ready"]', { timeout: 20_000 })
-      .should('contain.text', '5,842 EDAstro nebula landmarks')
+      .should('contain.text', '5,842 catalogue records')
       .and('contain.text', 'EDAstro / CMDR Orvidius')
       .and('contain.text', 'source CSV');
     cy.get('[data-galaxy-region-option]').should('have.length', 42);

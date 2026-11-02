@@ -1368,9 +1368,7 @@ describe('Babylon spatial adapter boundary', () => {
     });
     const matrixData = product.nebulaMesh?.thinInstanceGetWorldMatrices()[0];
     expect(matrixData?.getTranslation().asArray()).toEqual([125, -34, 912]);
-    expect(nebulaCloudRadiusLy('planetary-nebula')).toBeLessThan(
-      nebulaCloudRadiusLy('nebula'),
-    );
+    expect(nebulaCloudRadiusLy()).toBe(2_000);
     expect(product.renderedLayers[0]).toMatchObject({
       layerId: 'galaxy-nebulae',
       representation: 'AMBIENT',
