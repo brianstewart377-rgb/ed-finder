@@ -1763,9 +1763,9 @@
               onclick={loadNebulae}>Retry</button
             >
           {:else if nebulae}
-            {nebulae.nebulae.length.toLocaleString()} catalogue
-            {nebulae.nebulae.length === 1 ? 'record' : 'records'} ·
-            {nebulaDisplayStatus} ·
+            {`${nebulae.nebulae.length.toLocaleString()} catalogue ${
+              nebulae.nebulae.length === 1 ? 'record' : 'records'
+            }`} · {nebulaDisplayStatus} ·
             <a
               href="https://edastro.com/mapcharts/files.html"
               target="_blank"
