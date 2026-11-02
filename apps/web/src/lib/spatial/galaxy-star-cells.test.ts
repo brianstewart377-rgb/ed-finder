@@ -5,8 +5,10 @@ import {
 } from './galaxy-detail-policy';
 import {
   GalaxyStarCellCache,
+  GALAXY_STAR_REFINEMENT_QUANTUM_LY,
   MAX_GALAXY_STAR_ACTIVE_CELLS,
   planGalaxyStarCells,
+  refineGalaxyStarCells,
   type GalaxyStarCell,
 } from './galaxy-star-cells';
 import { GALAXY_CATALOGUE_BOUNDS } from './galaxy-star-footprint';
@@ -152,6 +154,86 @@ describe('catalogue cell planning', () => {
     expect(() => planGalaxyStarCells(viewport(0, 0, 15_001, 10))).toThrow(
       RangeError,
     );
+  });
+});
+
+describe('truncated catalogue cell refinement', () => {
+  const closeView = (size: number) => ({
+    ...viewport(200, 200, size, size, 100),
+    minY: 10,
+    maxY: 40,
+  });
+
+  it('tightens only truncated cells in all three axes without raising budgets', () => {
+    const view = closeView(80);
+    const bases = planGalaxyStarCells(view);
+    const truncatedKey = bases.find(
+      (cell) => cell.request.minX === 0 && cell.request.minZ === 0,
+    )!.key;
+    const refined = refineGalaxyStarCells(view, bases, (cell) => ({
+      truncated: cell.key === truncatedKey,
+    }));
+    expect(refined).toHaveLength(bases.length);
+    for (let index = 0; index < bases.length; index++) {
+      const base = bases[index];
+      const cell = refined[index];
+      if (base.key !== truncatedKey) {
+        expect(cell).toBe(base);
+        continue;
+      }
+      expect(cell.parentKey).toBe(base.key);
+      expect(cell.key).not.toBe(base.key);
+      expect(cell.request).toEqual({
+        minX: 125,
+        maxX: 250,
+        minY: 0,
+        maxY: 62.5,
+        minZ: 125,
+        maxZ: 250,
+        limit: 1_800,
+      });
+    }
+  });
+
+  it('narrows a still-truncated sub-volume to 62.5 LY and then reuses its key', () => {
+    const bases = planGalaxyStarCells(closeView(80));
+    const truncated = () => ({ truncated: true });
+    const first = refineGalaxyStarCells(closeView(80), bases, truncated);
+    const smaller = refineGalaxyStarCells(
+      closeView(10),
+      bases,
+      truncated,
+      first,
+    );
+    const smallest = smaller.find((cell) => cell.parentKey)!;
+    expect(smallest.key).not.toBe(first.find((cell) => cell.parentKey)!.key);
+    for (const [min, max] of [
+      [smallest.request.minX, smallest.request.maxX],
+      [smallest.request.minY, smallest.request.maxY],
+      [smallest.request.minZ, smallest.request.maxZ],
+    ])
+      expect(max - min).toBe(GALAXY_STAR_REFINEMENT_QUANTUM_LY);
+    expect(
+      refineGalaxyStarCells(closeView(1), bases, truncated, smaller),
+    ).toEqual(smaller);
+  });
+
+  it('reuses complete base cells and complete covering refinements on zoom-in', () => {
+    const bases = planGalaxyStarCells(closeView(80));
+    expect(
+      refineGalaxyStarCells(closeView(10), bases, () => ({ truncated: false })),
+    ).toEqual(bases);
+    const first = refineGalaxyStarCells(closeView(80), bases, () => ({
+      truncated: true,
+    }));
+    expect(
+      refineGalaxyStarCells(
+        closeView(10),
+        bases,
+        (cell) => ({ truncated: !cell.parentKey }),
+        first,
+      ),
+    ).toEqual(first);
   });
 });
 

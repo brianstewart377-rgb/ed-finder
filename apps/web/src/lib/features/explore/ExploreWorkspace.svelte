@@ -114,6 +114,7 @@
   import { reservedExploreGalaxyPoints } from './reserved-galaxy-points';
 
   import { createCommanderHistoryContribution } from '$lib/spatial/commander-history';
+  import { commanderHistoryViewport } from '$lib/spatial/commander-history-viewport';
   import {
     createCatalogueStarsContribution,
     galaxyStarViewport,
@@ -704,18 +705,8 @@
       ? galaxyStarViewport(streamCamera, starDetailMode, starViewportSize)
       : null,
   );
-  const viewportRequest = $derived(
-    starViewport
-      ? {
-          minX: starViewport.minX,
-          maxX: starViewport.maxX,
-          minY: starViewport.minY,
-          maxY: starViewport.maxY,
-          minZ: starViewport.minZ,
-          maxZ: starViewport.maxZ,
-          limit: starViewport.limit,
-        }
-      : null,
+  const journeyViewport = $derived(
+    commanderHistoryViewport(streamCamera, starViewportSize),
   );
   const catalogueStars = createGalaxyStarQuery(
     () => starViewport,
@@ -738,7 +729,7 @@
   const commanderVisits = createQuery(() => ({
     queryKey: queryKeys.commanderTravel(
       travelAccountId ?? '',
-      viewportRequest ?? {
+      journeyViewport ?? {
         minX: 0,
         maxX: 0,
         minY: 0,
@@ -749,16 +740,16 @@
       },
     ),
     queryFn: ({ signal }) => {
-      if (!viewportRequest || !starViewport)
+      if (!journeyViewport || !streamCamera)
         throw new Error('No commander-history viewport requested');
       return getCommanderTravelHeatmap(
-        viewportRequest,
-        starViewport.cameraDistanceLy,
+        journeyViewport,
+        streamCamera.distanceLy,
         signal,
       );
     },
     enabled:
-      showTravelHeatmap && viewportRequest !== null && travelAccountId !== null,
+      showTravelHeatmap && journeyViewport !== null && travelAccountId !== null,
     staleTime: 20_000,
     retry: (failureCount, error) =>
       !(error instanceof ApiError && error.status === 401) && failureCount < 1,
@@ -813,7 +804,7 @@
         journalSummary.data?.imported_files === 0
       )
         return 'no-journals';
-      if (!starViewport) return 'zoom';
+      if (!journeyViewport) return 'zoom';
       if (!commanderVisits.data) return 'loading';
       return commanderVisits.data.count === 0 ? 'empty' : 'ready';
     },

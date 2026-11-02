@@ -108,6 +108,32 @@ export function galaxyStarFootprint(
   minY: number,
   maxY: number,
 ): GalaxyStarFootprint {
+  return projectGalaxyFootprint(
+    camera,
+    viewport,
+    minY,
+    maxY,
+    GALAXY_STAR_API_CUBE_BOUND_LY / 2,
+  );
+}
+
+/** Visible band with 15% overscan and galaxy bounds, without a catalogue window. */
+export function galaxyVisibleFootprint(
+  camera: CameraState,
+  viewport: GalaxyCameraViewport,
+  minY: number,
+  maxY: number,
+): GalaxyStarFootprint {
+  return projectGalaxyFootprint(camera, viewport, minY, maxY, Infinity);
+}
+
+function projectGalaxyFootprint(
+  camera: CameraState,
+  viewport: GalaxyCameraViewport,
+  minY: number,
+  maxY: number,
+  halfSpanLy: number,
+): GalaxyStarFootprint {
   const state = normalizeGalaxyCamera(camera);
   if (
     !Number.isFinite(viewport.width) ||
@@ -124,12 +150,11 @@ export function galaxyStarFootprint(
     );
   }
   const focus = state.focusLy;
-  const halfCube = GALAXY_STAR_API_CUBE_BOUND_LY / 2;
   const bounds = {
-    minX: Math.max(-halfCube, GALAXY_CATALOGUE_BOUNDS.minX - focus.x),
-    maxX: Math.min(halfCube, GALAXY_CATALOGUE_BOUNDS.maxX - focus.x),
-    minZ: Math.max(-halfCube, GALAXY_CATALOGUE_BOUNDS.minZ - focus.z),
-    maxZ: Math.min(halfCube, GALAXY_CATALOGUE_BOUNDS.maxZ - focus.z),
+    minX: Math.max(-halfSpanLy, GALAXY_CATALOGUE_BOUNDS.minX - focus.x),
+    maxX: Math.min(halfSpanLy, GALAXY_CATALOGUE_BOUNDS.maxX - focus.x),
+    minZ: Math.max(-halfSpanLy, GALAXY_CATALOGUE_BOUNDS.minZ - focus.z),
+    maxZ: Math.min(halfSpanLy, GALAXY_CATALOGUE_BOUNDS.maxZ - focus.z),
   };
   const empty = (): GalaxyStarFootprint => {
     const x = Math.max(

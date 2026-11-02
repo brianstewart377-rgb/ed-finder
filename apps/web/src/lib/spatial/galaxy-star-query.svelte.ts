@@ -10,6 +10,7 @@ import {
   GalaxyStarCellCache,
   MAX_GALAXY_STAR_ACTIVE_CELLS,
   planGalaxyStarCells,
+  refineGalaxyStarCells,
   type GalaxyStarCell,
 } from './galaxy-star-cells';
 import { GalaxyStarRequests } from './galaxy-star-requests';
@@ -19,7 +20,7 @@ import {
 } from './galaxy-star-stream';
 import { LOCAL_STAR_CLOSE_LIMIT } from './galaxy-detail-policy';
 
-/** Cell queries own cached packets; camera bounds are never part of their keys. */
+/** Cell queries own cached packets, with bounded sub-volumes for dense cells. */
 export function createGalaxyStarQuery(
   getViewport: () => GalaxyStarViewport | null,
   getFocus: () => Vec3Ly,
@@ -28,7 +29,7 @@ export function createGalaxyStarQuery(
   const cache = new GalaxyStarCellCache();
   const requests = new GalaxyStarRequests();
   let previousCells: readonly GalaxyStarCell[] = [];
-  const cells = $derived.by(() => {
+  const baseCells = $derived.by(() => {
     const viewport = getViewport();
     previousCells = viewport
       ? planGalaxyStarCells(viewport, previousCells)
@@ -37,6 +38,45 @@ export function createGalaxyStarQuery(
   });
   const cellKey = (cell: GalaxyStarCell) =>
     [...queryKeys.all, 'map', 'catalogue-stars', cell.key] as const;
+  let packetRevision = $state(0);
+  let previousRefinements: readonly GalaxyStarCell[] = [];
+  // Re-plan after a packet arrives, including first entry directly into a
+  // close view. Read the actual cache instead of retaining duplicate packets
+  // or an unbounded set of truncation flags outside its eviction policy.
+  const unsubscribe = client.getQueryCache().subscribe((event) => {
+    if (
+      event.type === 'updated' &&
+      (event.action.type === 'success' || event.action.type === 'error') &&
+      event.query.queryKey[queryKeys.all.length] === 'map' &&
+      event.query.queryKey[queryKeys.all.length + 1] === 'catalogue-stars' &&
+      // createQueries replaces its observer when the query set changes. Wait
+      // for this batch to settle so refinement cannot abort pending siblings.
+      previousRefinements.every(
+        (cell) => client.getQueryState(cellKey(cell))?.fetchStatus === 'idle',
+      )
+    )
+      packetRevision += 1;
+  });
+  const cells = $derived.by(() => {
+    void packetRevision;
+    const viewport = getViewport();
+    const next = viewport
+      ? refineGalaxyStarCells(
+          viewport,
+          baseCells,
+          (cell) =>
+            client.getQueryData<CatalogueViewportResponse>(cellKey(cell)),
+          previousRefinements,
+        )
+      : [];
+    // Stable options also keep failed siblings from retrying on each packet.
+    if (
+      next.length !== previousRefinements.length ||
+      next.some((cell, index) => cell.key !== previousRefinements[index].key)
+    )
+      previousRefinements = next;
+    return previousRefinements;
+  });
   const queries = createQueries(() => ({
     queries: cells.map((cell) => ({
       queryKey: cellKey(cell),
@@ -69,13 +109,17 @@ export function createGalaxyStarQuery(
     })),
   }));
   $effect(() => {
-    const evicted = cache.retain(cells, getFocus());
+    // Pin parents as well as replacements: losing a parent's truncation
+    // evidence would fall back to its broad request. At most 32 of 64 cache
+    // entries are pinned, while only the <=16 replacement queries are active.
+    const evicted = cache.retain([...baseCells, ...cells], getFocus());
     untrack(() => {
       for (const cell of evicted)
         client.removeQueries({ queryKey: cellKey(cell), exact: true });
     });
   });
   $effect(() => () => {
+    unsubscribe();
     requests.dispose();
     // The cache is scoped to this page. Neither inactive cells nor unresolved
     // requests survive unmount and accumulate in the application QueryClient.

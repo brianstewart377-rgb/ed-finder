@@ -23,6 +23,17 @@ Downloads have bounded concurrency and respect the existing map request rate.
 Each cached cell retains a deterministic share of its band's budget (up to
 5,000 rows), so the cache cannot accumulate 64 full 40,000-row responses.
 
+Truncated cells now request the visible sub-volume on zoom-in, with X/Y/Z
+bounds rounded out to 62.5 LY and distinct cache keys. Complete cells and
+complete covering refinements stay cached without another request. Each
+refinement replaces one active cell, retaining the existing row, concurrency,
+rate and cache limits; its parent stays cached as truncation evidence.
+
+My journeys now has independent bounds: the whole galaxy at overview and the
+camera footprint with 15% overscan when zoomed, without the catalogue's
+15,000 LY clipping. Journey requests keep the camera debounce and their own
+20,000-point cap, so distant imported travel remains eligible at overview.
+
 Selected systems, the search reference, Finder results and known pin/watchlist
 positions reserve catalogue slots before deterministic background sampling and
 receive picking preference. Missing positions, population and stellar facts
@@ -32,8 +43,13 @@ contribution, including reserved systems.
 
 Vitest coverage replaces old fixed-box and single-request-count expectations
 with frustum, cell reuse/eviction, reserved-slot, request-lifecycle and workspace
-contracts. This visible map change requires Product E2E/visual validation before
-production promotion. **Not deployed.**
+contracts. Follow-up regressions cover retrieving a star omitted by a truncated
+250 LY cell after zooming, complete-cell reuse, independent journey/catalogue
+bounds and journey request debounce. Local validation passed: `pnpm check`
+(no errors or warnings), `pnpm lint`, `pnpm format:check`, `pnpm test
+--maxWorkers=2` (1,861 tests across 89 files), and `pnpm build`. This visible map
+change requires Product E2E/visual validation before production promotion.
+**Not deployed.**
 
 ## 2026-11-02 — Galaxy system hover cards and nearby labels (M10)
 

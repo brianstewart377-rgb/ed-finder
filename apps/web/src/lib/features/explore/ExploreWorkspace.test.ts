@@ -36,6 +36,7 @@ import {
   LOCAL_STAR_EXIT_LY,
 } from '$lib/spatial/galaxy-detail-policy';
 import { createManagedSpatialRuntime } from '$lib/spatial/lifecycle';
+import { COMMANDER_HISTORY_GALAXY_BOUNDS } from '$lib/spatial/commander-history-viewport';
 import ExploreWorkspaceTestHost from './ExploreWorkspaceTestHost.svelte';
 
 const { mockedPage, mockedGoto, featureGate } = vi.hoisted(() => ({
@@ -3499,6 +3500,7 @@ describe('ExploreWorkspace travel heatmap (V3 journal store)', () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -3624,6 +3626,117 @@ describe('ExploreWorkspace travel heatmap (V3 journal store)', () => {
       }),
     );
     expect(distance).toBeGreaterThan(0);
+  });
+
+  it('requests the whole journey galaxy at overview independently of catalogue cells', async () => {
+    await signIn();
+    const distantVisit = {
+      kind: 'density' as const,
+      x: 25_000,
+      y: 4_000,
+      z: 60_000,
+      visitCount: 3,
+      firstVisitedAt: '2026-01-01T00:00:00Z',
+      lastVisitedAt: '2026-01-02T00:00:00Z',
+      cellSizeLy: 5_000,
+    };
+    vi.mocked(api.getCommanderTravelHeatmap).mockImplementation(
+      async (request) => {
+        const visits =
+          distantVisit.x >= request.minX &&
+          distantVisit.x <= request.maxX &&
+          distantVisit.y >= request.minY &&
+          distantVisit.y <= request.maxY &&
+          distantVisit.z >= request.minZ &&
+          distantVisit.z <= request.maxZ
+            ? [distantVisit]
+            : [];
+        return {
+          mode: 'density',
+          visits,
+          count: visits.length,
+          truncated: false,
+        };
+      },
+    );
+    render(ExploreWorkspaceTestHost);
+    await waitForCatalogueCells();
+    const status = await showTravel();
+
+    await waitFor(() =>
+      expect(status).toHaveAttribute('data-commander-history-count', '1'),
+    );
+    expect(api.getCommanderTravelHeatmap).toHaveBeenCalledWith(
+      { ...COMMANDER_HISTORY_GALAXY_BOUNDS, limit: 20_000 },
+      118_000,
+      expect.anything(),
+    );
+    const catalogueRequests = vi.mocked(api.getCatalogueViewportSystems).mock
+      .calls;
+    expect(catalogueRequests.length).toBeGreaterThan(0);
+    for (const [request] of catalogueRequests) {
+      // Whole edge cells can extend beyond the 15,000-LY footprint window,
+      // but catalogue requests remain local and never absorb distant travel.
+      expect(request.maxX - request.minX).toBeLessThanOrEqual(15_000);
+      expect(request.maxZ - request.minZ).toBeLessThanOrEqual(15_000);
+      expect(request.maxX).toBeLessThan(distantVisit.x);
+      expect(request.maxZ).toBeLessThan(distantVisit.z);
+    }
+    await waitFor(() =>
+      expect(
+        currentScene().contributions.find(
+          (contribution) => contribution.id === 'commander-history',
+        )?.layers[0].payload,
+      ).toEqual(
+        expect.objectContaining({
+          points: [
+            expect.objectContaining({
+              positionLy: { x: 25_000, y: 4_000, z: 60_000 },
+            }),
+          ],
+        }),
+      ),
+    );
+  });
+
+  it('debounces journey camera changes before requesting the final zoomed footprint', async () => {
+    await signIn();
+    render(ExploreWorkspaceTestHost);
+    await showTravel();
+    await waitFor(() =>
+      expect(api.getCommanderTravelHeatmap).toHaveBeenCalledTimes(1),
+    );
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const camera = {
+      ...currentScene().camera,
+      focusLy: { x: 21_000, y: 3_500, z: 60_000 },
+      distanceLy: 500,
+      projection: 'orthographic' as const,
+      pitchRad: Math.PI / 2,
+      revision: 1,
+    };
+    emitRuntime({ type: 'CAMERA_CHANGED', camera });
+    await vi.advanceTimersByTimeAsync(100);
+    emitRuntime({
+      type: 'CAMERA_CHANGED',
+      camera: { ...camera, distanceLy: 100, revision: 2 },
+    });
+    await vi.advanceTimersByTimeAsync(179);
+    expect(api.getCommanderTravelHeatmap).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() =>
+      expect(api.getCommanderTravelHeatmap).toHaveBeenCalledTimes(2),
+    );
+    const [request, distance] = vi.mocked(api.getCommanderTravelHeatmap).mock
+      .calls[1];
+    expect(distance).toBe(100);
+    expect(request.minX).toBeGreaterThan(20_900);
+    expect(request.maxX).toBeLessThan(21_100);
+    expect(request.minZ).toBeGreaterThan(59_900);
+    expect(request.maxZ).toBeLessThan(60_100);
+    expect(request.minY).toBe(3_466);
+    expect(request.maxY).toBe(3_534);
+    expect(request.limit).toBe(20_000);
   });
 
   it('distinguishes an account without imported journals from an empty map viewport', async () => {

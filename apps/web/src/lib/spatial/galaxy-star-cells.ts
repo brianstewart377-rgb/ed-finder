@@ -9,6 +9,8 @@ import type { GalaxyStarViewport } from './galaxy-star-stream';
 
 export const GALAXY_STAR_CELL_CACHE_LIMIT = 64;
 export const MAX_GALAXY_STAR_ACTIVE_CELLS = 16;
+/** A quarter of the smallest base cell; refinement rounds all three axes. */
+export const GALAXY_STAR_REFINEMENT_QUANTUM_LY = 62.5;
 const CELL_HALO_FRACTION = 0.15;
 const Y_QUANTUM_LY = 250;
 const MAX_CELL_SIZE_LY = 10_000;
@@ -19,6 +21,8 @@ export type GalaxyStarCell = Readonly<{
   request: CatalogueViewportRequest;
   centre: Vec3Ly;
   cellSizeLy: number;
+  /** Refinements replace this base cell in the active query set. */
+  parentKey?: string;
 }>;
 
 function baseCellSize(viewport: GalaxyStarViewport): number {
@@ -144,6 +148,92 @@ export function planGalaxyStarCells(
     }
   }
   return cells;
+}
+
+/**
+ * A truncated id64-ordered packet cannot supply every smaller view. Replace
+ * only such cells with their visible sub-volume, rounded out to 62.5 LY on
+ * X/Y/Z. One replacement per base cell keeps the active count and row budgets
+ * unchanged. Complete packets keep their identities until coverage is left;
+ * truncated refinements can narrow again on zoom-in, down to this quantum.
+ */
+export function refineGalaxyStarCells(
+  viewport: GalaxyStarViewport,
+  cells: readonly GalaxyStarCell[],
+  packetFor: (cell: GalaxyStarCell) => { truncated: boolean } | undefined,
+  previous: readonly GalaxyStarCell[] = [],
+): readonly GalaxyStarCell[] {
+  return cells.map((cell) => {
+    const parent = cell.request;
+    if (
+      viewport.wide ||
+      !packetFor(cell)?.truncated ||
+      (viewport.maxX - viewport.minX >= parent.maxX - parent.minX &&
+        viewport.maxZ - viewport.minZ >= parent.maxZ - parent.minZ)
+    )
+      return cell;
+
+    const visible = {
+      minX: Math.max(parent.minX, viewport.minX),
+      maxX: Math.min(parent.maxX, viewport.maxX),
+      minY: Math.max(parent.minY, viewport.minY),
+      maxY: Math.min(parent.maxY, viewport.maxY),
+      minZ: Math.max(parent.minZ, viewport.minZ),
+      maxZ: Math.min(parent.maxZ, viewport.maxZ),
+    };
+    if (
+      visible.minX >= visible.maxX ||
+      visible.minY >= visible.maxY ||
+      visible.minZ >= visible.maxZ
+    )
+      return cell;
+
+    const prior = previous.find((entry) => entry.parentKey === cell.key);
+    if (
+      prior &&
+      packetFor(prior)?.truncated === false &&
+      prior.request.minX <= visible.minX &&
+      prior.request.maxX >= visible.maxX &&
+      prior.request.minY <= visible.minY &&
+      prior.request.maxY >= visible.maxY &&
+      prior.request.minZ <= visible.minZ &&
+      prior.request.maxZ >= visible.maxZ
+    )
+      return prior;
+
+    const quantum = GALAXY_STAR_REFINEMENT_QUANTUM_LY;
+    const lower = (value: number) => Math.floor(value / quantum) * quantum;
+    const upper = (value: number) => Math.ceil(value / quantum) * quantum;
+    const request = {
+      minX: Math.max(parent.minX, lower(visible.minX)),
+      maxX: Math.min(parent.maxX, upper(visible.maxX)),
+      minY: Math.max(parent.minY, lower(visible.minY)),
+      maxY: Math.min(parent.maxY, upper(visible.maxY)),
+      minZ: Math.max(parent.minZ, lower(visible.minZ)),
+      maxZ: Math.min(parent.maxZ, upper(visible.maxZ)),
+      limit: parent.limit,
+    };
+    if (
+      request.minX === parent.minX &&
+      request.maxX === parent.maxX &&
+      request.minY === parent.minY &&
+      request.maxY === parent.maxY &&
+      request.minZ === parent.minZ &&
+      request.maxZ === parent.maxZ
+    )
+      return cell;
+    return {
+      ...cell,
+      parentKey: cell.key,
+      key: `${cell.key}:view:${request.minX}:${request.maxX}:${request.minY}:${request.maxY}:${request.minZ}:${request.maxZ}`,
+      request,
+      centre: {
+        x: (request.minX + request.maxX) / 2,
+        y: (request.minY + request.maxY) / 2,
+        z: (request.minZ + request.maxZ) / 2,
+      },
+    };
+  });
 }
 
 type CellEntry = { cell: GalaxyStarCell; lastUsed: number };

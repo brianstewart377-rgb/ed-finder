@@ -12,6 +12,7 @@ import {
   MAX_GALAXY_STAR_ACTIVE_CELLS,
 } from './galaxy-star-cells';
 import { galaxyStarViewport } from './galaxy-star-stream';
+import { withinGalaxyStarFootprint } from './galaxy-star-footprint';
 
 vi.mock('$lib/api/client', async (loadOriginal) => ({
   ...(await loadOriginal<typeof import('$lib/api/client')>()),
@@ -138,6 +139,116 @@ describe('catalogue cell query integration', () => {
     expect(response.systems.length).toBe(
       vi.mocked(api.getCatalogueViewportSystems).mock.calls.length - 1,
     );
+  });
+
+  it('retrieves a star omitted by a truncated 250 LY cell when zooming onto it', async () => {
+    // Model the API: bounds are applied before id64 ordering and the row cap.
+    const omitted = {
+      id64: parseId64('99999'),
+      name: 'Previously omitted',
+      x: 200,
+      y: 0,
+      z: 180,
+      populated: false,
+    };
+    const catalogue = [
+      ...Array.from({ length: 1_800 }, (_, index) => ({
+        id64: parseId64(String(index + 1)),
+        name: `Low id64 ${index}`,
+        x: 40,
+        y: 0,
+        z: 80,
+        populated: false,
+      })),
+      omitted,
+    ];
+    vi.mocked(api.getCatalogueViewportSystems).mockImplementation(
+      async (request) => {
+        const matches = catalogue.filter(
+          (star) =>
+            star.x >= request.minX &&
+            star.x <= request.maxX &&
+            star.y >= request.minY &&
+            star.y <= request.maxY &&
+            star.z >= request.minZ &&
+            star.z <= request.maxZ,
+        );
+        return {
+          systems: matches.slice(0, request.limit),
+          truncated: matches.length > request.limit,
+        };
+      },
+    );
+    const view = render(
+      GalaxyStarQueryTestHost,
+      props(client, camera(125, 125, 140)),
+    );
+    await settled();
+    expect(packet()!.truncated).toBe(true);
+    expect(packet()!.systems.some((star) => star.id64 === omitted.id64)).toBe(
+      false,
+    );
+    const initialCalls = vi.mocked(api.getCatalogueViewportSystems).mock.calls
+      .length;
+    expect(
+      vi
+        .mocked(api.getCatalogueViewportSystems)
+        .mock.calls.some(
+          ([request]) =>
+            request.minX === 0 &&
+            request.maxX === 250 &&
+            request.minZ === 0 &&
+            request.maxZ === 250,
+        ),
+    ).toBe(true);
+
+    const zoomed = props(client, camera(200, 180, 20));
+    await view.rerender(zoomed);
+    await settled();
+    expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(
+      initialCalls + 1,
+    );
+    expect(packet()!.systems).toContainEqual(omitted);
+    expect(
+      withinGalaxyStarFootprint(
+        zoomed.viewport!.footprint,
+        omitted.x,
+        omitted.z,
+      ),
+    ).toBe(true);
+    const refinement = vi
+      .mocked(api.getCatalogueViewportSystems)
+      .mock.calls.at(-1)![0];
+    expect(refinement.maxX - refinement.minX).toBeLessThan(250);
+    expect(refinement.maxY - refinement.minY).toBeLessThan(250);
+    expect(refinement.maxZ - refinement.minZ).toBeLessThan(250);
+    expect(refinement.limit).toBe(1_800);
+
+    // A complete replacement also remains stable under further zooming.
+    await view.rerender(props(client, camera(200, 180, 10)));
+    await settled();
+    expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(
+      initialCalls + 1,
+    );
+    expect(
+      client
+        .getQueryCache()
+        .findAll({ queryKey: queryPrefix })
+        .filter((query) => query.isActive()).length,
+    ).toBeLessThanOrEqual(MAX_GALAXY_STAR_ACTIVE_CELLS);
+  });
+
+  it('does not re-request an untruncated 250 LY cell when zooming in', async () => {
+    const view = render(
+      GalaxyStarQueryTestHost,
+      props(client, camera(125, 125, 140)),
+    );
+    await settled();
+    const initialCalls = vi.mocked(api.getCatalogueViewportSystems).mock.calls
+      .length;
+    await view.rerender(props(client, camera(200, 180, 20)));
+    await settled();
+    expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(initialCalls);
   });
 
   it('bounds dense cached packets without lowering the API detail-band limit', async () => {
