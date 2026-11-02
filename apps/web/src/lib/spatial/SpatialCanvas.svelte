@@ -44,6 +44,7 @@
     type GalaxyLabelCandidate,
     type ProjectedGalaxyLabel,
   } from './galaxy-labels';
+  import { fitSystemCameraToViewport } from './system-scene';
   import GalaxySystemHoverCard from './GalaxySystemHoverCard.svelte';
   import SystemBodyLegend from './SystemBodyLegend.svelte';
 
@@ -418,8 +419,12 @@
       if (!homeCamera && nextScene.kind === 'galaxy')
         homeCamera = nextScene.camera;
       if (nextScene.kind === 'system') {
-        homeSystemCamera = nextScene.camera;
+        // Fit the contract's overview to this canvas before anyone moves it.
+        const fitted = fitSystemCameraToViewport(nextScene.camera, viewport());
+        homeSystemCamera = fitted;
         currentSystemCamera = nextScene.camera;
+        if (fitted.semanticDistance !== nextScene.camera.semanticDistance)
+          setSystemCamera({ ...fitted, revision: fitted.revision + 1 });
       }
       lastLoadedRevision = nextScene.revision;
       recoverCurrentCamera = false;
@@ -579,14 +584,13 @@
     });
   }
 
-  // A system overview may fit beyond the default ceiling (large hierarchies);
-  // zooming out must always be able to return to that overview distance.
-  const systemZoomCeiling = $derived(
-    Math.max(
-      120,
-      scene?.kind === 'system' ? scene.camera.semanticDistance * 1.5 : 0,
-    ),
-  );
+  // A system overview may fit beyond the default ceiling (large hierarchies,
+  // narrow canvases); zooming out must always reach that overview distance.
+  function systemZoomCeiling(): number {
+    const overview =
+      homeSystemCamera ?? (scene?.kind === 'system' ? scene.camera : null);
+    return Math.max(120, (overview?.semanticDistance ?? 0) * 1.5);
+  }
   function zoomSystem(delta: number): void {
     if (!currentSystemCamera) return;
     setSystemCamera({
@@ -594,7 +598,7 @@
       semanticDistance: Math.max(
         6,
         Math.min(
-          systemZoomCeiling,
+          systemZoomCeiling(),
           currentSystemCamera.semanticDistance * Math.exp(delta * 0.0014),
         ),
       ),

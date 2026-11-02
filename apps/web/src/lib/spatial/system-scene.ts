@@ -5,6 +5,7 @@ import type {
   BodyFamily,
   BodyVisualDescriptor,
   SpatialTarget,
+  SystemCameraState,
   SystemSceneContract,
   Truth,
 } from './contracts';
@@ -340,6 +341,32 @@ export function buildSystemScene(
     bodies,
     infrastructure: [],
     contributions: [],
+  };
+}
+
+/**
+ * The overview fit assumes a desktop canvas aspect; the 1.7 factor frames the
+ * layout's XZ extent horizontally at this width-to-height ratio.
+ */
+export const SYSTEM_OVERVIEW_REFERENCE_ASPECT = 1200 / 684;
+
+/**
+ * Widen the overview distance for narrower canvases so the same layout extent
+ * still fits horizontally. Wider canvases keep the contract's distance: the
+ * vertical fit already governs there. Pure; the canvas applies it on load and
+ * on Reset view, never to a camera the commander has moved.
+ */
+export function fitSystemCameraToViewport(
+  camera: SystemCameraState,
+  viewport: Readonly<{ width: number; height: number }>,
+): SystemCameraState {
+  const aspect = viewport.width / viewport.height;
+  if (!Number.isFinite(aspect) || aspect <= 0) return camera;
+  const factor = Math.max(1, SYSTEM_OVERVIEW_REFERENCE_ASPECT / aspect);
+  if (factor === 1) return camera;
+  return {
+    ...camera,
+    semanticDistance: Math.ceil(camera.semanticDistance * factor),
   };
 }
 

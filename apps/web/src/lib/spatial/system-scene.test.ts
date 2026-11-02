@@ -12,7 +12,9 @@ import {
 import {
   bodyFamilyFromClass,
   buildSystemScene,
+  fitSystemCameraToViewport,
   stellarPresentationSubtype,
+  SYSTEM_OVERVIEW_REFERENCE_ASPECT,
   systemBodyLayout,
   systemOrbitGuides,
 } from './system-scene';
@@ -629,6 +631,48 @@ describe('hierarchy-aware system layout', () => {
     expect(systemOrbitGuides(layout)).toEqual([]);
     expect(layout[0]!.positionUnknownReason).toBe(
       'hierarchy exceeds schematic range',
+    );
+  });
+});
+
+describe('system overview viewport fit', () => {
+  const camera = {
+    systemId64: '42',
+    focus: { kind: 'system', systemId64: '42' },
+    semanticDistance: 153,
+    bearingRad: -0.85,
+    pitchRad: 0.58,
+    revision: 1,
+  } as const;
+
+  it('keeps the contract distance at the reference aspect or wider', () => {
+    expect(
+      fitSystemCameraToViewport(camera, { width: 1200, height: 684 }),
+    ).toBe(camera);
+    expect(
+      fitSystemCameraToViewport(camera, { width: 2400, height: 684 }),
+    ).toBe(camera);
+  });
+
+  it('widens the overview for narrower canvases by the aspect ratio', () => {
+    const square = fitSystemCameraToViewport(camera, {
+      width: 600,
+      height: 600,
+    });
+    expect(square.semanticDistance).toBe(
+      Math.ceil(153 * SYSTEM_OVERVIEW_REFERENCE_ASPECT),
+    );
+    const phone = fitSystemCameraToViewport(camera, {
+      width: 375,
+      height: 470,
+    });
+    expect(phone.semanticDistance).toBeGreaterThan(square.semanticDistance);
+    expect(phone).toMatchObject({ bearingRad: -0.85, pitchRad: 0.58 });
+  });
+
+  it('ignores a degenerate viewport', () => {
+    expect(fitSystemCameraToViewport(camera, { width: 0, height: 0 })).toBe(
+      camera,
     );
   });
 });

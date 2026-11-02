@@ -25,7 +25,10 @@ import * as galaxyLabels from './galaxy-labels';
 import { projectGalaxyLabel } from './galaxy-labels';
 import { systemDetailFromV3 } from '$lib/api/client';
 import { v3Body, v3System } from '$lib/api/v3-system-fixtures';
-import { buildSystemScene } from './system-scene';
+import {
+  buildSystemScene,
+  SYSTEM_OVERVIEW_REFERENCE_ASPECT,
+} from './system-scene';
 import type {
   CameraState,
   GalaxySceneContract,
@@ -740,6 +743,44 @@ describe('SpatialCanvas', () => {
       },
     });
     expect(validate).toHaveBeenCalledOnce();
+  });
+
+  it('widens a system overview for a narrow canvas and resets to that fit', async () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(600);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+    const scene: SpatialSceneContract = {
+      kind: 'system',
+      revision: 4,
+      systemId64: '42',
+      fidelity: 'S1',
+      camera: {
+        systemId64: '42',
+        focus: { kind: 'system', systemId64: '42' },
+        semanticDistance: 153,
+        bearingRad: -0.85,
+        pitchRad: 0.58,
+        revision: 4,
+      },
+      bodies: [],
+      infrastructure: [],
+      contributions: [],
+    };
+    render(SpatialCanvas, { props: { scene } });
+    await waitFor(() => expect(adapter.runtimes).toHaveLength(1));
+    const runtime = adapter.runtimes[0]!;
+    const expected = Math.ceil(153 * SYSTEM_OVERVIEW_REFERENCE_ASPECT);
+    await waitFor(() => {
+      const fitted = runtime.dispatch.mock.calls.findLast(
+        ([command]) => command.type === 'SET_CAMERA',
+      )?.[0];
+      expect(fitted?.camera.semanticDistance).toBe(expected);
+    });
+    screen.getByRole('button', { name: 'Zoom in' }).click();
+    screen.getByRole('button', { name: 'Reset view' }).click();
+    const reset = runtime.dispatch.mock.calls.findLast(
+      ([command]) => command.type === 'SET_CAMERA',
+    )?.[0];
+    expect(reset.camera.semanticDistance).toBe(expected);
   });
 
   it('lets a large system overview zoom back out past the default ceiling', async () => {
