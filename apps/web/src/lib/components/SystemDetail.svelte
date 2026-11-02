@@ -362,9 +362,9 @@
         />
         <aside class="system-map-legend" aria-label="System map legend">
           <p>
-            Faint circles guide each parent's orbit region. Crosses mark
-            barycentres. Amber diamonds: position unknown. Links appear for
-            selected or hovered bodies.
+            Faint circles guide known child orbits around each parent; unknown
+            distances have no circle. Crosses mark barycentres. Amber diamonds:
+            position unknown. Links appear for selected or hovered bodies.
           </p>
           {#if unplacedBodies.length > 0}
             <h3>Unplaced bodies — position unknown</h3>

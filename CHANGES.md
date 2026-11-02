@@ -18,12 +18,18 @@ stars, barycentres, planets and nested moons have their own schematic regions.
 Sibling bands reserve complete descendant and display-ring footprints so moons
 do not overlap their planet or cross a sibling planet's band. Known semi-major
 axes determine order, with arrival distance and then name as fallbacks and body
-keys breaking ties; spacing is logarithmic. Existing body display sizes and
+keys breaking ties. Placed children span a full circle with a stable per-parent
+phase, and compact bands add only modest logarithmic spacing. Unknown-distance
+children occupy a separate shelf beyond the known bands. The overview scales
+planet/star glyphs to preserve their earlier angular sizes through semantic
+range 60; compact moons retain a visible size floor and a six-CSS-pixel picking
+radius. Two-body systems retain range 38 and their earlier glyph sizes.
 Frontier BodyID picking identities are preserved. The frontend mapper now
 retains the parent key and semi-major axis already present on the wire; no API
 change is included.
 
-One faint guide marks each parent region. Barycentres use crosses, and links
+Each placed child has a faint guide at its own schematic orbit radius around
+its parent; unknown distances claim no guide. Barycentres use crosses, and links
 appear only for selected or hovered bodies. Missing parents stay in an explicit
 unattached group; missing distances, cyclic links and pathological layout ranges
 are visibly unplaced instead of being stacked at the star. The truth note and
@@ -32,9 +38,11 @@ without a usable Frontier BodyID remain listed outside the map; resolved station
 body labels and the station list retain their existing catalogue associations.
 
 The former flat-spiral scene assertions now test parent membership and local
-regions. Vitest coverage includes Sol-like and binary hierarchies, nested moon
-and ring bounds, fallback ordering, shuffled-input determinism, malformed links,
-NullEngine guides/picking/selection/hover, and the component truth note. This
+regions. Vitest coverage includes a 41-body Sol-like overview bounded to range
+60, full-circle sibling distribution, readable planet sizes, binary hierarchies,
+nested moon and ring bounds, fallback ordering, shuffled-input determinism,
+malformed links, NullEngine guides/picking/selection/hover, and the component
+truth note. M12 class colours, giant bands and unknown-class dimming remain. This
 visible change needs Product E2E/visual validation before production promotion
 and is not deployed.
 

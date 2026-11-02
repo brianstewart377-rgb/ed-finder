@@ -209,7 +209,8 @@ export function buildSystemScene(
       .filter((body) => body.id !== null && Number.isSafeInteger(body.id))
       .map((body) => [body.bodyKey, body]),
   );
-  const bodies = system.bodies
+  const compactMoons = new Set<number>();
+  const descriptors = system.bodies
     .filter(
       (body): body is typeof body & { id: number } =>
         typeof body.id === 'number' && Number.isSafeInteger(body.id),
@@ -220,6 +221,11 @@ export function buildSystemScene(
       const parent = body.directParentBodyKey
         ? selectableBodiesByKey.get(body.directParentBodyKey)
         : undefined;
+      // Only a retained, canonical planet parent establishes a moon. A name,
+      // missing parent or body ordering never supplies that relationship.
+      const isMoon =
+        parent?.bodyType === 'planet' && body.bodyType === 'planet';
+      if (isMoon) compactMoons.add(body.id);
       return {
         ref: { systemId64: system.id64, bodyId: body.id },
         name: body.name,
@@ -262,7 +268,7 @@ export function buildSystemScene(
               ),
             }
           : {}),
-        displayRadius: bodyDisplayRadius(body),
+        displayRadius: isMoon ? 0.075 : bodyDisplayRadius(body),
         orbital: {
           placement: 'DETERMINISTIC_SCHEMATIC',
           ...(positive(body.semiMajorAxisKm)
@@ -274,22 +280,50 @@ export function buildSystemScene(
     });
   const focus: SpatialTarget =
     selectedBodyId !== undefined &&
-    bodies.some((body) => body.ref.bodyId === selectedBodyId)
+    descriptors.some((body) => body.ref.bodyId === selectedBodyId)
       ? {
           kind: 'body',
           ref: { systemId64: system.id64, bodyId: selectedBodyId },
         }
       : { kind: 'system', systemId64: system.id64 };
 
-  const layout = systemBodyLayout(bodies);
-  const extent = layout.reduce(
-    (max, item) =>
-      Math.max(
-        max,
-        Math.hypot(item.position.x, item.position.z) + item.regionRadius,
+  // Overview size policy (schematic, never physical): preserve the previous
+  // star/planet angular sizes through the ordinary 38–60 overview range.
+  // Moons use a separate 0.075-unit floor: about 3 pixels in diameter at range
+  // 60 on a 900px-high viewport with Babylon's default 0.8-radian field of view.
+  // Picking supplies a 6 CSS-pixel radius independently of visible geometry.
+  // Beyond this overview range, zooming is necessary to inspect dense systems;
+  // unbounded size inflation would make disjoint bands impossible to frame.
+  // The default pitched orbital plane fits a desktop map at 1.7 times its
+  // extent; the old 2.6 spherical fit left most of that viewport empty.
+  const fit = (items: readonly BodyVisualDescriptor[]) =>
+    Math.ceil(
+      systemBodyLayout(items).reduce(
+        (extent, item) =>
+          Math.max(
+            extent,
+            (Math.hypot(item.position.x, item.position.z) + item.regionRadius) *
+              1.7,
+          ),
+        38,
       ),
-    0,
-  );
+    );
+  let distance = fit(descriptors);
+  let bodies = descriptors;
+  // A fixed ceiling prevents pathological forests from causing an expanding
+  // layout/camera feedback loop. Ordinary systems converge within this budget.
+  for (let iteration = 0; iteration < 24; iteration++) {
+    const scale = Math.min(60, distance) / 38;
+    bodies = descriptors.map((body) => ({
+      ...body,
+      displayRadius: compactMoons.has(body.ref.bodyId)
+        ? body.displayRadius
+        : body.displayRadius * scale,
+    }));
+    const fitted = fit(bodies);
+    if (fitted <= distance) break;
+    distance = fitted;
+  }
   return {
     kind: 'system',
     revision,
@@ -298,7 +332,7 @@ export function buildSystemScene(
     camera: {
       systemId64: system.id64,
       focus,
-      semanticDistance: Math.max(38, extent * 2.6),
+      semanticDistance: distance,
       bearingRad: -0.85,
       pitchRad: 0.58,
       revision,
@@ -478,10 +512,23 @@ export function systemBodyLayout(
       compareBodies(a.body, b.body),
   );
 
-  // The glyph footprint includes the existing display-scaled ring mesh.
-  const footprint = (body: BodyVisualDescriptor) =>
-    Math.max(0.55, body.displayRadius) *
-    (body.rings?.state === 'PRESENT' ? 1.75 : 1);
+  // Match the sphere/marker and torus outer edge, including the torus's
+  // minimum thickness. A marker's minimum must not enlarge every moon region.
+  const footprint = (body: BodyVisualDescriptor) => {
+    const node = nodes.get(body.ref.bodyId)!;
+    const glyph = node.reason
+      ? Math.max(0.55, body.displayRadius)
+      : body.class?.value === 'Barycentre'
+        ? 0.45
+        : body.displayRadius;
+    return Math.max(
+      glyph,
+      body.rings?.state === 'PRESENT'
+        ? body.displayRadius * 1.6 +
+            Math.max(0.06, body.displayRadius * 0.18) / 2
+        : 0,
+    );
+  };
   const order = [...roots];
   for (let i = 0; i < order.length; i++) {
     for (const child of order[i]!.children) order.push(child);
@@ -497,8 +544,11 @@ export function systemBodyLayout(
     let edge = footprint(node.body);
     for (const child of node.children) {
       const distance = logDistance(child.body) ?? previous;
-      const logGap = span > 0 ? (4 * (distance - previous)) / span : 0;
-      child.orbit = edge + 1 + child.radius + logGap;
+      const logGap = span > 0 ? (0.06 * (distance - previous)) / span : 0;
+      // Bands reserve only their visible subtree footprint plus a small
+      // clearance. Log distance supplies ordering cues, not empty disc area.
+      const gap = Math.min(footprint(node.body), child.radius) * 0.01;
+      child.orbit = edge + gap + child.radius + logGap;
       edge = child.orbit + child.radius;
       previous = distance;
       node.size += child.size;
@@ -571,7 +621,7 @@ export function systemBodyLayout(
           placement: 'unplaced',
           positionUnknownReason: 'hierarchy exceeds schematic range',
           orbitRadius: 0,
-          regionRadius: footprint(item.body),
+          regionRadius: Math.max(0.55, footprint(item.body)),
           position: {
             x: position.x + ((j % columns) - (columns - 1) / 2) * overflowStep,
             y: 0,
@@ -592,15 +642,23 @@ export function systemBodyLayout(
       position,
     });
     const children = node.children;
+    const placedChildren = children.filter((child) => !child.reason);
+    // Stable per-parent phase; only placed children divide the full circle.
+    // Adding an unknown-distance child never re-phases known orbits.
+    let hash = 2166136261;
+    for (const char of key(node.body))
+      hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
+    const phase = (hash / 0x1_0000_0000) * Math.PI * 2;
+    let placedIndex = 0;
     for (let childIndex = 0; childIndex < children.length; childIndex++) {
       const child = children[childIndex]!;
       const orbitRadius = child.orbit;
-      // Unknown-distance children occupy an explicitly marked shelf on the
-      // opposite side of the parent; no orbit radius/guide is claimed for them.
+      // Unknown-distance children sit beyond the placed bands on a single
+      // fixed westward shelf. This leaves the entire circle available for
+      // known children without presenting the shelf as a second hemisphere.
       const angle = child.reason
         ? Math.PI
-        : -Math.PI / 3 +
-          ((childIndex / Math.max(1, children.length - 1)) * Math.PI * 2) / 3;
+        : phase + (placedIndex++ / placedChildren.length) * Math.PI * 2;
       pending.push({
         node: child,
         position: {
@@ -620,33 +678,31 @@ export function systemBodyLayout(
 
 export type SystemOrbitGuide = Readonly<{
   parentBodyId: number;
+  bodyId: number;
   position: Position;
   radius: number;
 }>;
 
-/** One schematic region guide per known parent, even for unplaced children. */
+/** One schematic ring at each placed child's actual layout radius. */
 export function systemOrbitGuides(
   layouts: readonly SystemBodyLayout[],
 ): readonly SystemOrbitGuide[] {
   const byId = new Map(
     layouts.map((layout) => [layout.body.ref.bodyId, layout]),
   );
-  const radii = new Map<number, number>();
-  for (const layout of layouts) {
-    if (layout.parentBodyId !== null) {
-      radii.set(
-        layout.parentBodyId,
-        Math.max(radii.get(layout.parentBodyId) ?? 0, layout.orbitRadius),
-      );
-    }
-  }
-  return [...radii]
-    .sort(([a], [b]) => a - b)
-    .map(([parentBodyId, radius]) => ({
-      parentBodyId,
-      position: byId.get(parentBodyId)!.position,
-      // With only unknown-distance children, outline the allocated parent
-      // region. No child's orbital distance is asserted by this guide.
-      radius: radius || byId.get(parentBodyId)!.regionRadius,
-    }));
+  return layouts
+    .filter(
+      (layout) =>
+        layout.placement === 'placed' &&
+        layout.parentBodyId !== null &&
+        byId.has(layout.parentBodyId) &&
+        layout.orbitRadius > 0,
+    )
+    .map((layout) => ({
+      parentBodyId: layout.parentBodyId!,
+      bodyId: layout.body.ref.bodyId,
+      position: byId.get(layout.parentBodyId!)!.position,
+      radius: layout.orbitRadius,
+    }))
+    .sort((a, b) => a.parentBodyId - b.parentBodyId || a.bodyId - b.bodyId);
 }

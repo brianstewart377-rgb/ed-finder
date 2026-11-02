@@ -2178,13 +2178,62 @@ function pickSystemTarget(
     ? engine.getRenderHeight() / canvas.clientHeight
     : 1;
   const bodiesByMesh = new Map<unknown, BabylonSystemBodyMesh>(
-    product.bodies.map((body) => [body.mesh, body]),
+    product.bodies
+      .filter(
+        ({ mesh }) =>
+          mesh.isEnabled() &&
+          mesh.isVisible &&
+          mesh.visibility > 0 &&
+          mesh.isPickable,
+      )
+      .map((body) => [body.mesh, body]),
   );
   const hit = product.scene.pick(screenX * scaleX, screenY * scaleY, (mesh) =>
     bodiesByMesh.has(mesh),
   );
   const body = bodiesByMesh.get(hit?.pickedMesh);
-  return body ? { kind: 'body', ref: body.layout.body.ref } : undefined;
+  if (body) return { kind: 'body', ref: body.layout.body.ref };
+
+  // Compact moon glyphs retain a six-CSS-pixel selection radius at any DPR.
+  // Native surface hits take priority; the fallback changes no visible size.
+  const { camera } = product;
+  const transform = camera.getTransformationMatrix();
+  const viewport = camera.viewport.toGlobal(
+    engine.getRenderWidth(),
+    engine.getRenderHeight(),
+  );
+  const forward = camera.getForwardRay().direction;
+  const identity = Matrix.Identity();
+  const projected = Vector3.Zero();
+  const fromCamera = Vector3.Zero();
+  let closest: BabylonSystemBodyMesh | undefined;
+  let closestDistanceSq = 6 * 6;
+  for (const candidate of bodiesByMesh.values()) {
+    const position = candidate.mesh.getAbsolutePosition();
+    position.subtractToRef(camera.globalPosition, fromCamera);
+    if (Vector3.Dot(fromCamera, forward) <= 0) continue;
+    Vector3.ProjectToRef(position, identity, transform, viewport, projected);
+    if (
+      projected.z < 0 ||
+      projected.z > 1 ||
+      projected.x < viewport.x ||
+      projected.x > viewport.x + viewport.width ||
+      projected.y < viewport.y ||
+      projected.y > viewport.y + viewport.height
+    )
+      continue;
+    const dx = projected.x / scaleX - screenX;
+    const dy = projected.y / scaleY - screenY;
+    const distanceSq = dx * dx + dy * dy;
+    if (
+      distanceSq < closestDistanceSq ||
+      (!closest && distanceSq <= closestDistanceSq)
+    ) {
+      closest = candidate;
+      closestDistanceSq = distanceSq;
+    }
+  }
+  return closest ? { kind: 'body', ref: closest.layout.body.ref } : undefined;
 }
 
 export const subscribeToBabylonResourceEvents = (

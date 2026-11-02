@@ -8,6 +8,7 @@ import {
   systemBodyLayout,
   type SystemBodyLayout,
 } from './system-scene';
+import { solLikeSystemDetail } from './system-scene-fixtures';
 
 const bodyKey = (id: number): string => String(10_000 + id);
 
@@ -67,6 +68,120 @@ function glyphRadius(layout: SystemBodyLayout): number {
 }
 
 describe('hierarchical system layout region bounds', () => {
+  it('frames a 41-body Sol-like hierarchy within a semantic range of 60', () => {
+    const detail = solLikeSystemDetail();
+    const scene = buildSystemScene(detail, 1);
+    const layouts = systemBodyLayout(scene.bodies);
+    expect(detail.bodies).toHaveLength(41);
+    expect(scene.bodies).toHaveLength(41);
+    expect(layouts.every((layout) => layout.placement === 'placed')).toBe(true);
+    expect(scene.camera.semanticDistance).toBeGreaterThanOrEqual(38);
+    expect(scene.camera.semanticDistance).toBeLessThanOrEqual(60);
+  });
+
+  it('preserves legacy planet legibility and a visible minimum for smaller moons', () => {
+    const scene = buildSystemScene(solLikeSystemDetail(), 1);
+    const byId = new Map(scene.bodies.map((body) => [body.ref.bodyId, body]));
+    for (let planetId = 1; planetId <= 8; planetId++) {
+      const planet = byId.get(planetId)!;
+      expect(
+        planet.displayRadius / scene.camera.semanticDistance,
+        `${planet.name} is smaller on screen than the legacy overview`,
+      ).toBeGreaterThanOrEqual(0.68 / 38 - 1e-9);
+    }
+    const star = byId.get(0)!;
+    expect(
+      star.displayRadius / scene.camera.semanticDistance,
+    ).toBeGreaterThanOrEqual(2.2 / 38 - 1e-9);
+    const moons = scene.bodies.filter((body) => body.ref.bodyId >= 100);
+    expect(moons).toHaveLength(32);
+    for (const moon of moons) {
+      const parent = byId.get(moon.parent!.bodyId)!;
+      // At range 60 this policy is approximately a three-pixel diameter on
+      // the 900px reference viewport; picking has a separate larger target.
+      expect(
+        moon.displayRadius / scene.camera.semanticDistance,
+      ).toBeGreaterThanOrEqual(0.075 / 60 - 1e-9);
+      expect(moon.displayRadius).toBeLessThan(parent.displayRadius);
+    }
+  });
+
+  it('spreads each group of at least three placed siblings beyond every half-plane', () => {
+    const scene = buildSystemScene(solLikeSystemDetail(), 1);
+    const layouts = systemBodyLayout(scene.bodies);
+    const byId = new Map(
+      layouts.map((layout) => [layout.body.ref.bodyId, layout]),
+    );
+    const childrenByParent = new Map<number, SystemBodyLayout[]>();
+    for (const layout of layouts) {
+      if (layout.parentBodyId === null || layout.placement !== 'placed')
+        continue;
+      const children = childrenByParent.get(layout.parentBodyId) ?? [];
+      children.push(layout);
+      childrenByParent.set(layout.parentBodyId, children);
+    }
+    let checkedGroups = 0;
+    for (const [parentId, children] of childrenByParent) {
+      if (children.length < 3) continue;
+      checkedGroups++;
+      const parent = byId.get(parentId)!;
+      const angles = children
+        .map((child) =>
+          Math.atan2(
+            child.position.z - parent.position.z,
+            child.position.x - parent.position.x,
+          ),
+        )
+        .sort((a, b) => a - b);
+      const angularGaps = angles.map((angle, index) =>
+        index + 1 < angles.length
+          ? angles[index + 1]! - angle
+          : angles[0]! + Math.PI * 2 - angle,
+      );
+      // A gap of pi or more means every child fits in the remaining half-plane.
+      expect(
+        Math.max(...angularGaps),
+        `${parent.body.name}'s children occupy only one side`,
+      ).toBeLessThan(Math.PI);
+    }
+    expect(checkedGroups).toBe(5);
+  });
+
+  it('keeps Sol-like moon regions within their parent bands and outside parent glyphs', () => {
+    const scene = buildSystemScene(solLikeSystemDetail(), 1);
+    const layouts = systemBodyLayout(scene.bodies);
+    const byId = new Map(
+      layouts.map((layout) => [layout.body.ref.bodyId, layout]),
+    );
+    for (const layout of layouts) {
+      expect(layout.regionRadius, layout.body.name).toBeGreaterThanOrEqual(
+        glyphRadius(layout),
+      );
+      if (layout.parentBodyId === null) continue;
+      const parent = byId.get(layout.parentBodyId)!;
+      const distance = separation(layout, parent);
+      expect(
+        distance + layout.regionRadius,
+        `${layout.body.name} exceeds ${parent.body.name}'s region`,
+      ).toBeLessThanOrEqual(parent.regionRadius + 1e-9);
+      expect(
+        distance - layout.regionRadius,
+        `${layout.body.name}'s region intersects ${parent.body.name}'s glyph`,
+      ).toBeGreaterThan(glyphRadius(parent));
+      const siblings = layouts.filter(
+        (sibling) =>
+          sibling.parentBodyId === layout.parentBodyId &&
+          sibling.body.ref.bodyId !== layout.body.ref.bodyId,
+      );
+      for (const sibling of siblings) {
+        expect(
+          Math.abs(distance - separation(sibling, parent)),
+          `${layout.body.name} and ${sibling.body.name} share a radial band`,
+        ).toBeGreaterThan(layout.regionRadius + sibling.regionRadius);
+      }
+    }
+  });
+
   it('separates rendered bodies and rings in a dense planetary system with nested moons', () => {
     const layouts = systemBodyLayout(denseSystem().bodies);
     for (let left = 0; left < layouts.length; left++) {

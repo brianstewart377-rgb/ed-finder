@@ -173,6 +173,12 @@ describe('system scene', () => {
     expect(systemBodyLayout(scene.bodies)).toEqual(layout);
   });
 
+  it('retains the previous range and glyph sizes for a two-body system', () => {
+    const scene = buildSystemScene(fixture, 4);
+    expect(scene.camera.semanticDistance).toBe(38);
+    expect(scene.bodies.map((body) => body.displayRadius)).toEqual([2.2, 0.68]);
+  });
+
   it('focuses a known selected body without inventing missing body ids', () => {
     const scene = buildSystemScene(fixture, 8, 3);
     expect(scene.bodies).toHaveLength(2);
@@ -366,7 +372,13 @@ describe('hierarchy-aware system layout', () => {
     expect(byId.get(3)!.orbitRadius).toBeLessThan(byId.get(2)!.orbitRadius);
     expect(
       systemOrbitGuides(layout).map((guide) => guide.parentBodyId),
-    ).toEqual([0, 1, 2, 4, 7]);
+    ).toEqual([0, 0, 1, 2, 4, 4, 7, 7]);
+    for (const guide of systemOrbitGuides(layout)) {
+      const child = byId.get(guide.bodyId)!;
+      expect(guide.radius).toBe(child.orbitRadius);
+      expect(guide.position).toEqual(byId.get(guide.parentBodyId)!.position);
+      expect(child.placement).toBe('placed');
+    }
     expect(layout.every((item) => item.position.y === 0)).toBe(true);
   });
 
@@ -393,6 +405,46 @@ describe('hierarchy-aware system layout', () => {
     expect(missing.position).not.toEqual(star.position);
     expect(unknownDistance.position).not.toEqual(star.position);
     expect(missing.body.directParentBodyKey).toBe('1999');
+    const earth = layout.find((item) => item.body.ref.bodyId === 1)!;
+    const moons = layout.filter(
+      (item) => item.parentBodyId === 1 && item.placement === 'placed',
+    );
+    expect(
+      unknownDistance.position.x + unknownDistance.regionRadius,
+    ).toBeLessThan(
+      earth.position.x -
+        Math.max(...moons.map((item) => item.orbitRadius + item.regionRadius)),
+    );
+    expect(unknownDistance.position.z).toBeCloseTo(earth.position.z);
+    expect(systemOrbitGuides(layout).some((guide) => guide.bodyId === 11)).toBe(
+      false,
+    );
+  });
+
+  it('does not re-phase known siblings when an unknown-distance child is added', () => {
+    const scene = buildSystemScene(hierarchyFixture(), 1);
+    const withUnknown = systemBodyLayout(scene.bodies);
+    const withoutUnknown = systemBodyLayout(
+      scene.bodies.filter((body) => body.ref.bodyId !== 11),
+    );
+    const localAngle = (
+      layout: ReturnType<typeof systemBodyLayout>,
+      id: number,
+    ) => {
+      const child = layout.find((item) => item.body.ref.bodyId === id)!;
+      const parent = layout.find(
+        (item) => item.body.ref.bodyId === child.parentBodyId,
+      )!;
+      return Math.atan2(
+        child.position.z - parent.position.z,
+        child.position.x - parent.position.x,
+      );
+    };
+    for (const id of [1, 2, 3, 4, 5, 6, 8, 9]) {
+      expect(localAngle(withUnknown, id)).toBeCloseTo(
+        localAngle(withoutUnknown, id),
+      );
+    }
   });
 
   it('sorts by semi-major axis, falls back to arrival distance in kilometres, then name and canonical key', () => {
@@ -568,11 +620,13 @@ describe('hierarchy-aware system layout', () => {
         (item) =>
           item.placement === 'unplaced' &&
           item.orbitRadius === 0 &&
+          item.regionRadius >= Math.max(0.55, item.body.displayRadius) &&
           Number.isFinite(item.position.x) &&
           Number.isFinite(item.position.z),
       ),
     ).toBe(true);
     expect(layout[1]!.parentBodyId).toBe(0);
+    expect(systemOrbitGuides(layout)).toEqual([]);
     expect(layout[0]!.positionUnknownReason).toBe(
       'hierarchy exceeds schematic range',
     );
