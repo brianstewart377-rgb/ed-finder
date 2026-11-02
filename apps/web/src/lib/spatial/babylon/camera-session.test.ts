@@ -214,7 +214,7 @@ describe('Babylon Galaxy camera session', () => {
     const { engine, session, scene, camera, emit, events, tick } =
       loadSession(initial);
     const finderMesh = scene.getMeshByName(
-      'finder-system-instances',
+      'finder-result-instances',
     ) as Mesh | null;
     const marker = scene.getMeshByName('selected-system-marker');
     const disposeScene = vi.spyOn(scene, 'dispose');
@@ -252,7 +252,7 @@ describe('Babylon Galaxy camera session', () => {
 
     expect(engine.scenes).toEqual([scene]);
     expect(scene.activeCamera).toBe(camera);
-    expect(scene.getMeshByName('finder-system-instances')).toBe(finderMesh);
+    expect(scene.getMeshByName('finder-result-instances')).toBe(finderMesh);
     expect(scene.getMeshByName('selected-system-marker')).toBe(marker);
     expect(marker?.position.asArray()).toEqual([
       second.positionLy.x,
@@ -320,7 +320,7 @@ describe('Babylon Galaxy camera session', () => {
 
   it('patches a newer catalogue-density generation without rebuilding the scene or moving the camera', () => {
     const { session, scene, camera, emit, events, tick } = loadSession();
-    const finderMesh = scene.getMeshByName('finder-system-instances');
+    const finderMesh = scene.getMeshByName('finder-result-instances');
     const firstPayload = buildFixtureCatalogueDensity(
       [{ positionLy: { x: 20, y: -4, z: 30 } }],
       {
@@ -352,7 +352,7 @@ describe('Babylon Galaxy camera session', () => {
     ) as Mesh | null;
     expect(firstDensityMesh?.thinInstanceCount).toBe(1);
     expect(scene.activeCamera).toBe(camera);
-    expect(scene.getMeshByName('finder-system-instances')).toBe(finderMesh);
+    expect(scene.getMeshByName('finder-result-instances')).toBe(finderMesh);
     expectCameraPose(camera, initialCamera);
 
     const secondPayload = buildFixtureCatalogueDensity(
@@ -391,7 +391,7 @@ describe('Babylon Galaxy camera session', () => {
     expect(secondDensityMesh).not.toBe(firstDensityMesh);
     expect(secondDensityMesh?.thinInstanceCount).toBe(2);
     expect(scene.activeCamera).toBe(camera);
-    expect(scene.getMeshByName('finder-system-instances')).toBe(finderMesh);
+    expect(scene.getMeshByName('finder-result-instances')).toBe(finderMesh);
     expectCameraPose(camera, initialCamera);
 
     expect(
@@ -555,8 +555,8 @@ describe('Babylon Galaxy camera session', () => {
         },
       ],
     });
-    expect(product.starMesh.thinInstanceCount).toBe(0);
-    expect(product.starMesh.isEnabled()).toBe(false);
+    expect(product.finderStars.mesh.thinInstanceCount).toBe(0);
+    expect(product.finderStars.mesh.isEnabled()).toBe(false);
     expect(product.points).toEqual([]);
     expect(product.selectedMarker).toBeNull();
   });

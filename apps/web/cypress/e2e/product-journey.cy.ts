@@ -322,15 +322,33 @@ const assertRetainedSelection = () => {
     .and('contain.text', selected.name);
 };
 
+const openMapLayers = () => {
+  cy.get('[data-map-layers-toggle]').then(($trigger) => {
+    if ($trigger.attr('aria-expanded') !== 'true') cy.wrap($trigger).click();
+  });
+  cy.get('[data-map-layers-dialog]')
+    .should('be.visible')
+    .and('have.attr', 'aria-modal', 'false');
+};
+
+const closeMapLayers = () => {
+  cy.get('[data-map-layers-toggle]')
+    .should('have.attr', 'aria-expanded', 'true')
+    .click()
+    .should('have.attr', 'aria-expanded', 'false');
+};
+
 const captureFinder = (state: 'any' | 'flexible' | 'flexible-explanation') => {
   cy.get('[data-region-resource-state="ready"]', { timeout: 20_000 }).should(
     'contain.text',
     '42/42 regions',
   );
+  openMapLayers();
   cy.get('[data-nebula-resource-state="ready"]', { timeout: 20_000 }).should(
     'contain.text',
     '5,842 catalogue records',
   );
+  closeMapLayers();
   cy.document().then((document) => {
     const style = document.createElement('style');
     style.textContent =
@@ -835,10 +853,12 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       'contain.text',
       '42/42 regions',
     );
+    openMapLayers();
     cy.get('[data-nebula-resource-state="ready"]', { timeout: 20_000 })
       .should('contain.text', '5,842 catalogue records')
       .and('contain.text', 'EDAstro / CMDR Orvidius')
       .and('contain.text', 'source CSV');
+    closeMapLayers();
     cy.get('[data-galaxy-region-option]').should('have.length', 42);
     cy.get('.spatial-canvas')
       .should('have.attr', 'data-rendered-layer-ids')
@@ -956,13 +976,26 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       .should('be.visible')
       .and('contain.text', 'Achenar')
       .and('contain.text', 'Primary star');
+    openMapLayers();
+    cy.get('[data-density-toggle]')
+      .should('have.attr', 'role', 'switch')
+      .and('have.attr', 'aria-checked', 'true');
     cy.get('[data-commander-history-toggle]')
-      .should('have.attr', 'aria-pressed', 'false')
+      .should('have.attr', 'role', 'switch')
+      .and('have.attr', 'aria-checked', 'false')
       .click()
-      .should('have.attr', 'aria-pressed', 'true');
+      .should('have.attr', 'aria-checked', 'true');
+    cy.get('[data-nebula-toggle]')
+      .should('have.attr', 'role', 'switch')
+      .and('have.attr', 'aria-checked', 'true');
 
     cy.injectAxe();
     cy.checkA11y();
+    cy.screenshot(`product/explore-layers-${Cypress.browser.name}-1280x800`, {
+      capture: 'viewport',
+      overwrite: true,
+    });
+    closeMapLayers();
     cy.document().then((document) => {
       const style = document.createElement('style');
       style.textContent =
@@ -993,7 +1026,7 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       .and('contain.text', '10477373803000');
     cy.contains('h2', 'Explore Achenar').should('be.visible');
     cy.contains(
-      'Body classes, radii, arrival distances, and known ring state come from the catalogue.',
+      'Planet classes come from the published Ratings V4 derived catalogue',
     ).should('be.visible');
     cy.get('[aria-label="System camera controls"]').should('be.visible');
     cy.get('[aria-label="System bodies"] button')

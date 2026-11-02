@@ -1,10 +1,35 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/svelte';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/svelte';
+import axe from 'axe-core';
+import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import SpatialCanvas from './SpatialCanvas.svelte';
-import { buildGalaxyReviewFixtureScene } from './galaxy-review-fixture';
+import {
+  buildGalaxyReviewFixtureScene,
+  galaxyReviewDensity,
+} from './galaxy-review-fixture';
+import * as density from './galaxy-density';
+import {
+  elevateGalaxyCameraByPixels,
+  orbitGalaxyCamera,
+  panGalaxyCamera,
+} from './galaxy-camera';
+import * as galaxyLabels from './galaxy-labels';
+import { projectGalaxyLabel } from './galaxy-labels';
+import { systemDetailFromV3 } from '$lib/api/client';
+import { v3Body, v3System } from '$lib/api/v3-system-fixtures';
+import { buildSystemScene } from './system-scene';
 import type {
   CameraState,
+  GalaxySceneContract,
+  GalaxySystemPoint,
   RuntimeEventListener,
   SpatialSceneContract,
 } from './contracts';
@@ -43,6 +68,101 @@ class ResizeObserverMock {
   observe = observe;
   disconnect = disconnect;
   unobserve = vi.fn();
+}
+
+const catalogueStar: GalaxySystemPoint = {
+  systemId64: '9007199254740993',
+  name: 'Catalogue Vega',
+  positionLy: { x: 0, y: 0, z: 0 },
+  primaryStar: { type: 'G2' },
+};
+const overlappingStar: GalaxySystemPoint = {
+  systemId64: '9007199254740994',
+  name: 'Nearby companion',
+  positionLy: { x: 2, y: 0, z: 0 },
+  primaryStar: { type: 'M4' },
+};
+const finderStar: GalaxySystemPoint = {
+  systemId64: '41',
+  name: 'Finder Reach',
+  positionLy: { x: -180, y: 0, z: 0 },
+};
+
+function nearbyScene(): GalaxySceneContract {
+  return {
+    kind: 'galaxy',
+    revision: 1,
+    camera: {
+      focusLy: { x: 0, y: 0, z: 0 },
+      distanceLy: 500,
+      bearingRad: 0,
+      pitchRad: 0.55,
+      projection: 'perspective',
+      revision: 1,
+    },
+    selection: [],
+    contributions: [
+      {
+        id: 'nearby-catalogue',
+        owner: 'CATALOGUE',
+        revision: 1,
+        layers: [
+          {
+            id: 'catalogue-systems',
+            version: 1,
+            representation: 'AUTHORITATIVE',
+            payload: { systems: [catalogueStar, overlappingStar] },
+            targetCount: 2,
+            truncated: false,
+          },
+        ],
+      },
+      {
+        id: 'nearby-finder',
+        owner: 'FINDER',
+        revision: 1,
+        layers: [
+          {
+            id: 'finder-systems',
+            version: 1,
+            representation: 'AUTHORITATIVE',
+            payload: { systems: [finderStar] },
+            targetCount: 1,
+            truncated: false,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function pointer(
+  target: EventTarget,
+  type: string,
+  pointerId: number,
+  x: number,
+  y: number,
+  options: PointerEventInit = {},
+): void {
+  target.dispatchEvent(
+    new PointerEvent(type, {
+      pointerId,
+      pointerType: 'touch',
+      button: 0,
+      clientX: x,
+      clientY: y,
+      bubbles: true,
+      ...options,
+    }),
+  );
+}
+
+function lastGalaxyCamera(): CameraState {
+  const command = adapter.runtimes[0]!.dispatch.mock.calls.findLast(
+    ([command]) => command.type === 'SET_CAMERA',
+  )?.[0];
+  expect(command).toBeDefined();
+  return command.camera;
 }
 
 describe('SpatialCanvas', () => {
@@ -85,6 +205,7 @@ describe('SpatialCanvas', () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -409,6 +530,218 @@ describe('SpatialCanvas', () => {
     expect(top.transition).toEqual({ durationMs: 650, reducedMotion: true });
   });
 
+  it('steps elevation with Up/Down, shows rounded coordinates and resets to the anchored Y', async () => {
+    const fixture = buildGalaxyReviewFixtureScene();
+    const scene = {
+      ...fixture,
+      camera: {
+        ...fixture.camera,
+        focusLy: { x: 12.6, y: 37.4, z: -55.7 },
+        distanceLy: 1_000,
+      },
+    };
+    render(SpatialCanvas, { props: { scene } });
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveAttribute(
+        'data-renderer-state',
+        'ready',
+      ),
+    );
+    expect(screen.getByLabelText('Focus coordinates')).toHaveTextContent(
+      'X 13 / Y 37 / Z -56 LY',
+    );
+    expect(
+      screen.getByText(/Alt\/Option-drag to move up\/down/),
+    ).toHaveTextContent('Scroll or pinch to zoom · Two-finger drag to pan');
+    const up = screen.getByRole('button', { name: 'Move up' });
+    const down = screen.getByRole('button', { name: 'Move down' });
+    expect(up).toHaveTextContent('Up');
+    expect(down).toHaveTextContent('Down');
+    up.click();
+    expect(lastGalaxyCamera()).toMatchObject({
+      focusLy: { x: 12.6, y: 137.4, z: -55.7 },
+      distanceLy: 1_000,
+      pitchRad: scene.camera.pitchRad,
+      bearingRad: scene.camera.bearingRad,
+    });
+    await waitFor(() =>
+      expect(screen.getByLabelText('Focus coordinates')).toHaveTextContent(
+        'X 13 / Y 137 / Z -56 LY',
+      ),
+    );
+    down.click();
+    expect(lastGalaxyCamera().focusLy.y).toBeCloseTo(37.4);
+    screen.getByRole('button', { name: 'Zoom out' }).click();
+    const range = lastGalaxyCamera().distanceLy;
+    up.click();
+    expect(lastGalaxyCamera().focusLy.y).toBeCloseTo(37.4 + range * 0.1);
+
+    screen.getByRole('button', { name: 'Top down' }).click();
+    expect(lastGalaxyCamera().pitchRad).toBe(Math.PI / 2);
+    expect(lastGalaxyCamera().focusLy.y).toBeCloseTo(37.4 + range * 0.1);
+    screen.getByRole('button', { name: 'Tilted' }).click();
+    expect(lastGalaxyCamera().pitchRad).toBe(0.55);
+    expect(lastGalaxyCamera().focusLy.y).toBeCloseTo(37.4 + range * 0.1);
+    screen.getByRole('button', { name: 'Reset view' }).click();
+    expect(lastGalaxyCamera()).toEqual({
+      ...scene.camera,
+      revision: lastGalaxyCamera().revision,
+    });
+    await waitFor(() =>
+      expect(screen.getByLabelText('Focus coordinates')).toHaveTextContent(
+        'X 13 / Y 37 / Z -56 LY',
+      ),
+    );
+  });
+
+  it('clamps elevation controls to the catalogue bounds', async () => {
+    const fixture = buildGalaxyReviewFixtureScene();
+    const scene = {
+      ...fixture,
+      camera: {
+        ...fixture.camera,
+        focusLy: { x: 12, y: 890, z: -55 },
+        distanceLy: 20_000,
+      },
+    };
+    render(SpatialCanvas, { props: { scene } });
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveAttribute(
+        'data-renderer-state',
+        'ready',
+      ),
+    );
+    screen.getByRole('button', { name: 'Move up' }).click();
+    expect(lastGalaxyCamera().focusLy).toEqual({ x: 12, y: 900, z: -55 });
+    screen.getByRole('button', { name: 'Move down' }).click();
+    expect(lastGalaxyCamera().focusLy).toEqual({ x: 12, y: -900, z: -55 });
+  });
+
+  it('retains complete catalogue bounds across partial refreshes without treating partial samples as bounds', async () => {
+    const fixture = buildGalaxyReviewFixtureScene();
+    const partialPayload = {
+      ...galaxyReviewDensity,
+      complete: false,
+      cells: [galaxyReviewDensity.cells[0]!],
+      coveredSystemCount: galaxyReviewDensity.cells[0]!.systemCount,
+      boundsLy: {
+        min: { ...galaxyReviewDensity.boundsLy.min, y: -100 },
+        max: { ...galaxyReviewDensity.boundsLy.max, y: 100 },
+      },
+    };
+    const scene = {
+      ...fixture,
+      camera: {
+        ...fixture.camera,
+        distanceLy: 20_000,
+      },
+      contributions: [
+        density.createCatalogueDensityContribution(partialPayload, 1),
+      ],
+    };
+    const view = render(SpatialCanvas, { props: { scene } });
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveAttribute(
+        'data-renderer-state',
+        'ready',
+      ),
+    );
+    const up = screen.getByRole('button', { name: 'Move up' });
+    const down = screen.getByRole('button', { name: 'Move down' });
+    up.click();
+    expect(lastGalaxyCamera().focusLy.y).toBe(2_000);
+
+    const complete = density.createCatalogueDensityContribution(
+      galaxyReviewDensity,
+      2,
+    );
+    await view.rerender({
+      contributionPatch: complete,
+      contributionPatchRevision: 1,
+    });
+    up.click();
+    expect(lastGalaxyCamera().focusLy.y).toBe(900);
+
+    await view.rerender({
+      contributionPatch: density.createCatalogueDensityContribution(
+        partialPayload,
+        3,
+      ),
+      contributionPatchRevision: 2,
+    });
+    down.click();
+    expect(lastGalaxyCamera().focusLy.y).toBe(-900);
+
+    await view.rerender({
+      contributionPatch: density.createCatalogueDensityContribution(
+        { ...partialPayload, generationId: 'fixture:new-generation' },
+        4,
+      ),
+      contributionPatchRevision: 3,
+    });
+    up.click();
+    expect(lastGalaxyCamera().focusLy.y).toBe(1_100);
+  });
+
+  it('uses complete bounds from the first density patch into an empty F4 contribution', async () => {
+    feature.finder = true;
+    const fixture = buildGalaxyReviewFixtureScene();
+    const complete = density.createCatalogueDensityContribution(
+      galaxyReviewDensity,
+      1,
+    );
+    const scene = {
+      ...fixture,
+      camera: { ...fixture.camera, distanceLy: 20_000 },
+      contributions: [{ ...complete, revision: 0, layers: [] }],
+    };
+    const view = render(SpatialCanvas, { props: { scene } });
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveAttribute(
+        'data-renderer-state',
+        'ready',
+      ),
+    );
+    const up = screen.getByRole('button', { name: 'Move up' });
+    up.click();
+    expect(lastGalaxyCamera().focusLy.y).toBe(2_000);
+    await view.rerender({
+      contributionPatch: complete,
+      contributionPatchRevision: 1,
+    });
+    up.click();
+    expect(lastGalaxyCamera().focusLy.y).toBe(900);
+    expect(adapter.runtimes[0]!.dispatch).toHaveBeenCalledWith({
+      type: 'PATCH_CONTRIBUTION',
+      contribution: complete,
+    });
+  });
+
+  it('does not revalidate catalogue cells when only the scene camera changes', async () => {
+    const validate = vi.spyOn(density, 'catalogueDensitySceneLayer');
+    const scene = buildGalaxyReviewFixtureScene();
+    const view = render(SpatialCanvas, { props: { scene } });
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveAttribute(
+        'data-renderer-state',
+        'ready',
+      ),
+    );
+    expect(validate).toHaveBeenCalledOnce();
+    await view.rerender({
+      scene: {
+        ...scene,
+        revision: 2,
+        camera: {
+          ...scene.camera,
+          focusLy: { x: 100, y: 30, z: 60 },
+          revision: 2,
+        },
+      },
+    });
+    expect(validate).toHaveBeenCalledOnce();
+  });
+
   it('provides orbit, zoom and click controls for a system scene', async () => {
     const scene: SpatialSceneContract = {
       kind: 'system',
@@ -479,22 +812,417 @@ describe('SpatialCanvas', () => {
     });
   });
 
-  it('projects accepted system labels into a collision-managed visual overlay', async () => {
+  it('shows only the planet families present in the current system, including unknown classes', async () => {
+    const detail = systemDetailFromV3(
+      v3System(),
+      [
+        v3Body(),
+        ...[
+          'Earth-like world',
+          'Earth-like world',
+          'Class I gas giant',
+          'Icy body',
+          null,
+          'Unrecognised catalogue class',
+        ].map((bodyClass, index) =>
+          v3Body({
+            body_id: String(index + 1),
+            frontier_body_id: String(index + 1),
+            body_type: 'planet',
+            body_class: bodyClass,
+            body_class_source: bodyClass == null ? null : 'ratings-v4-derived',
+          }),
+        ),
+      ],
+      [],
+      [],
+    );
+    const view = render(SpatialCanvas, { scene: buildSystemScene(detail, 1) });
+    const legend = screen.getByRole('list', {
+      name: 'Planet class colour legend',
+    });
+    expect(
+      within(legend)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent?.trim()),
+    ).toEqual(['Earth-like', 'Gas giant · I', 'Icy', 'Unknown class']);
+    expect(
+      legend.querySelector('[data-body-family="unknown"] .swatch'),
+    ).toHaveClass('unknown');
+    expect(within(legend).queryByText('Water world')).not.toBeInTheDocument();
+
+    await view.rerender({
+      scene: buildSystemScene(
+        {
+          ...detail,
+          bodies: detail.bodies.filter((body) => body.bodyClass === 'Icy body'),
+        },
+        2,
+      ),
+    });
+    expect(
+      within(legend)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent?.trim()),
+    ).toEqual(['Icy']);
+    await view.rerender({
+      scene: buildSystemScene({ ...detail, bodies: [detail.bodies[0]!] }, 3),
+    });
+    expect(
+      screen.queryByRole('list', { name: 'Planet class colour legend' }),
+    ).toBeNull();
+  });
+
+  it.each(['Earth-like world', 'Unrecognised catalogue class', null])(
+    'shows raw planet class %s on hover without carrying facts across systems',
+    async (bodyClass) => {
+      const scene = buildSystemScene(
+        systemDetailFromV3(
+          v3System({ id64: '42' }),
+          [
+            v3Body({
+              name: 'Hovered planet',
+              body_type: 'planet',
+              body_class: bodyClass,
+              body_class_source:
+                bodyClass == null ? null : 'ratings-v4-derived',
+            }),
+          ],
+          [],
+          [],
+        ),
+        1,
+      );
+      const view = render(SpatialCanvas, { scene });
+      await waitFor(() => expect(adapter.runtimes).toHaveLength(1));
+      const runtime = adapter.runtimes[0]!;
+      runtime.emit({
+        type: 'TARGET_HOVERED',
+        target: { kind: 'body', ref: { systemId64: '42', bodyId: 0 } },
+      });
+      const name = await screen.findByText('Hovered planet');
+      const hover = name.closest('[data-hovered-body-id]') as HTMLElement;
+      expect(within(hover).getByText(bodyClass ?? 'Planet')).toBeVisible();
+      const source = within(hover).queryByText(
+        'Source: Ratings V4 derived catalogue',
+      );
+      if (bodyClass == null) expect(source).toBeNull();
+      else expect(source).toBeVisible();
+      runtime.emit({ type: 'TARGET_HOVERED' });
+      await waitFor(() =>
+        expect(screen.queryByText('Hovered planet')).toBeNull(),
+      );
+
+      runtime.emit({
+        type: 'TARGET_HOVERED',
+        target: { kind: 'body', ref: { systemId64: '99', bodyId: 0 } },
+      });
+      expect(screen.queryByText('Hovered planet')).toBeNull();
+      runtime.emit({
+        type: 'TARGET_HOVERED',
+        target: { kind: 'body', ref: { systemId64: '42', bodyId: 0 } },
+      });
+      await screen.findByText('Hovered planet');
+      await view.rerender({
+        scene: { ...scene, revision: 2, systemId64: '99', bodies: [] },
+      });
+      expect(screen.queryByText('Hovered planet')).toBeNull();
+      await view.rerender({ scene: { ...scene, revision: 3 } });
+      expect(screen.queryByText('Hovered planet')).toBeNull();
+    },
+  );
+
+  it('projects named Finder buttons with selected emphasis and preserved identities', async () => {
     const scene = buildGalaxyReviewFixtureScene();
     const view = render(SpatialCanvas, { props: { scene } });
     await waitFor(() =>
       expect(
         view.container.querySelector('[data-visible-label-count]'),
-      ).toHaveAttribute('data-visible-label-count', '1'),
+      ).toHaveAttribute('data-visible-label-count', '3'),
     );
     const systemLabels = view.container.querySelectorAll(
       '[data-map-label-kind="system"]',
     );
-    expect(systemLabels).toHaveLength(1);
+    expect(systemLabels).toHaveLength(3);
     expect(
       view.container.querySelector('[data-map-label-selected="true"]'),
     ).toHaveTextContent('Fixture Core');
-    expect(systemLabels[0]?.closest('[aria-hidden="true"]')).toBeTruthy();
+    for (const label of systemLabels) {
+      expect(label.tagName).toBe('BUTTON');
+      expect(label).toHaveAttribute('data-system-id64');
+      expect(label.closest('[aria-hidden="true"]')).toBeNull();
+    }
+  });
+
+  it('keeps Nearby systems collapsed and exposes overlapping candidates for keyboard selection and focus', async () => {
+    const onRuntimeEvent = vi.fn();
+    const view = render(SpatialCanvas, {
+      scene: nearbyScene(),
+      onRuntimeEvent,
+    });
+    const summary = await screen.findByText('Nearby systems (3)');
+    const disclosure = summary.closest('details')!;
+    expect(disclosure).not.toHaveAttribute('open');
+    summary.focus();
+    expect(summary).toHaveFocus();
+    // Native summary/button keyboard activation dispatches a detail: 0 click.
+    await fireEvent.click(summary, { detail: 0 });
+    expect(disclosure).toHaveAttribute('open');
+    const list = await screen.findByRole('list', { name: 'Nearby systems' });
+    expect(
+      within(list)
+        .getAllByRole('button')
+        .map((button) => button.dataset.systemId64),
+    ).toEqual([
+      catalogueStar.systemId64,
+      finderStar.systemId64,
+      overlappingStar.systemId64,
+    ]);
+    expect(
+      view.container.querySelector(
+        `[data-map-label-key="system:${overlappingStar.systemId64}"]`,
+      ),
+    ).toBeNull();
+
+    const button = within(list).getByRole('button', {
+      name: overlappingStar.name,
+    });
+    button.focus();
+    await tick();
+    expect(button).toHaveFocus();
+    const tooltip = screen.getByRole('tooltip', {
+      name: `System ${overlappingStar.name}`,
+    });
+    expect(button.getAttribute('aria-describedby')?.split(/\s+/u)).toContain(
+      tooltip.id,
+    );
+    expect(tooltip).toHaveAttribute(
+      'data-system-id64',
+      overlappingStar.systemId64,
+    );
+    expect(onRuntimeEvent).toHaveBeenCalledWith({
+      type: 'TARGET_HOVERED',
+      target: {
+        kind: 'system',
+        systemId64: overlappingStar.systemId64,
+        name: overlappingStar.name,
+      },
+    });
+    expect(onRuntimeEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'TARGET_PICKED' }),
+    );
+    await fireEvent.keyDown(button, { key: 'Enter' });
+    await fireEvent.click(button, { detail: 0 });
+    const target = { kind: 'system', systemId64: overlappingStar.systemId64 };
+    expect(onRuntimeEvent).toHaveBeenCalledWith({
+      type: 'TARGET_PICKED',
+      target,
+    });
+    expect(adapter.runtimes[0]?.dispatch).toHaveBeenCalledWith({
+      type: 'FLY_TO',
+      target,
+      reducedMotion: true,
+    });
+    expect(view.container.querySelector('.spatial-canvas')).toHaveAttribute(
+      'tabindex',
+      '0',
+    );
+  });
+
+  it('keeps list focus and order through hover ranking and returns from the card on Escape', async () => {
+    render(SpatialCanvas, { scene: nearbyScene() });
+    await fireEvent.click(await screen.findByText('Nearby systems (3)'));
+    const list = await screen.findByRole('list', { name: 'Nearby systems' });
+    const originalOrder = within(list).getAllByRole('button');
+    const opener = within(list).getByRole('button', {
+      name: overlappingStar.name,
+    });
+    expect(originalOrder.at(-1)).toBe(opener);
+    vi.useFakeTimers();
+    opener.focus();
+    await tick();
+    await vi.advanceTimersByTimeAsync(250);
+    await tick();
+    expect(opener).toHaveFocus();
+    expect(within(list).getAllByRole('button')).toEqual(originalOrder);
+
+    await fireEvent.keyDown(opener, { key: 'ArrowRight' });
+    await tick();
+    const tooltip = screen.getByRole('tooltip', {
+      name: `System ${overlappingStar.name}`,
+    });
+    const select = within(tooltip).getByRole('button', { name: 'Select' });
+    expect(select).toHaveFocus();
+    // Native Tab navigation remains available inside and outside the card.
+    expect(await fireEvent.keyDown(select, { key: 'Tab' })).toBe(true);
+    await fireEvent.keyDown(select, { key: 'Escape' });
+    await tick();
+    expect(opener).toHaveFocus();
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    await vi.advanceTimersByTimeAsync(250);
+    await tick();
+    expect(opener).toHaveFocus();
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    expect(within(list).getAllByRole('button')).toEqual(originalOrder);
+  });
+
+  it('preserves the newer region hover when the preceding system card is dismissed', async () => {
+    const onRuntimeEvent = vi.fn();
+    const view = render(SpatialCanvas, {
+      scene: nearbyScene(),
+      onRuntimeEvent,
+    });
+    await screen.findByText('Nearby systems (3)');
+    const runtime = adapter.runtimes[0]!;
+    runtime.emit({
+      type: 'TARGET_HOVERED',
+      target: {
+        kind: 'system',
+        systemId64: catalogueStar.systemId64,
+        name: catalogueStar.name,
+      },
+      screenX: 100,
+      screenY: 80,
+    });
+    await screen.findByRole('tooltip', {
+      name: `System ${catalogueStar.name}`,
+    });
+    vi.useFakeTimers();
+    const regionHover = {
+      type: 'TARGET_HOVERED',
+      target: { kind: 'region', id: '18' },
+    } as const;
+    onRuntimeEvent.mockClear();
+    runtime.emit(regionHover);
+    await tick();
+    await vi.advanceTimersByTimeAsync(220);
+    await tick();
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    expect(onRuntimeEvent).toHaveBeenLastCalledWith(regionHover);
+    expect(view.container.querySelector('.spatial-canvas')).toHaveAttribute(
+      'data-last-hovered-region-id',
+      '18',
+    );
+  });
+
+  it('preserves catalogue identity on label hover and click without triggering a canvas pick', async () => {
+    const onSystemSelect = vi.fn();
+    const onRuntimeEvent = vi.fn();
+    const view = render(SpatialCanvas, {
+      scene: nearbyScene(),
+      onSystemSelect,
+      onRuntimeEvent,
+    });
+    const label = await screen.findByRole('button', {
+      name: `Select ${catalogueStar.name}`,
+    });
+    const runtime = adapter.runtimes[0]!;
+    runtime.dispatch.mockClear();
+    await fireEvent.pointerEnter(label, {
+      clientX: 100,
+      clientY: 80,
+      pointerType: 'mouse',
+    });
+    const tooltip = screen.getByRole('tooltip', {
+      name: `System ${catalogueStar.name}`,
+    });
+    expect(label).toHaveAttribute('data-system-id64', catalogueStar.systemId64);
+    expect(label.getAttribute('aria-describedby')?.split(/\s+/u)).toContain(
+      tooltip.id,
+    );
+    expect(onRuntimeEvent).toHaveBeenCalledWith({
+      type: 'TARGET_HOVERED',
+      target: {
+        kind: 'system',
+        systemId64: catalogueStar.systemId64,
+        name: catalogueStar.name,
+      },
+    });
+    expect(within(tooltip).getByText('G2', { exact: true })).toBeVisible();
+    expect(within(tooltip).queryByText('G class star')).toBeNull();
+    await fireEvent.pointerDown(label, { button: 0, pointerId: 1 });
+    await fireEvent.pointerUp(label, { button: 0, pointerId: 1 });
+    await fireEvent.click(label);
+    expect(onSystemSelect).toHaveBeenCalledExactlyOnceWith(catalogueStar);
+    expect(
+      runtime.dispatch.mock.calls.some(([command]) => command.type === 'PICK'),
+    ).toBe(false);
+    expect(view.container.querySelector('.spatial-canvas')).toHaveAttribute(
+      'data-last-hovered-system-id',
+      catalogueStar.systemId64,
+    );
+  });
+
+  it('shows renderer hover cards near the pointer and passes axe with the expanded list', async () => {
+    const view = render(SpatialCanvas, {
+      scene: nearbyScene(),
+      anchorPoint: finderStar,
+    });
+    const summary = await screen.findByText('Nearby systems (3)');
+    await fireEvent.click(summary);
+    expect(
+      await screen.findByRole('list', { name: 'Nearby systems' }),
+    ).toBeVisible();
+    adapter.runtimes[0]!.emit({
+      type: 'TARGET_HOVERED',
+      target: {
+        kind: 'system',
+        systemId64: catalogueStar.systemId64,
+        name: catalogueStar.name,
+      },
+      screenX: 100,
+      screenY: 80,
+    });
+    const tooltip = await screen.findByRole('tooltip', {
+      name: `System ${catalogueStar.name}`,
+    });
+    expect(tooltip.parentElement).toHaveStyle({ left: '114px', top: '94px' });
+    expect(within(tooltip).getByText('G2', { exact: true })).toBeVisible();
+    expect(
+      within(tooltip).getByText('Distance from Finder Reach'),
+    ).toBeVisible();
+    expect(within(tooltip).getByText('180.0 LY')).toBeVisible();
+    expect(
+      within(tooltip).getByRole('link', { name: 'Inspect' }),
+    ).toHaveAttribute('href', `/inspect?system=${catalogueStar.systemId64}`);
+    const result = await axe.run(view.container, {
+      rules: { 'color-contrast': { enabled: false } },
+    });
+    expect(result.violations).toEqual([]);
+  });
+
+  it('ranks candidates and resolves overlap only after camera changes settle', async () => {
+    const candidates = vi.spyOn(galaxyLabels, 'galaxyLabelCandidates');
+    const layout = vi.spyOn(galaxyLabels, 'layoutGalaxyLabels');
+    const scene = nearbyScene();
+    render(SpatialCanvas, { scene });
+    await screen.findByText('Nearby systems (3)');
+    candidates.mockClear();
+    layout.mockClear();
+    vi.useFakeTimers();
+    const runtime = adapter.runtimes[0]!;
+    for (let revision = 2; revision <= 4; revision += 1) {
+      runtime.emit({
+        type: 'CAMERA_CHANGED',
+        camera: { ...scene.camera, bearingRad: revision / 10, revision },
+      });
+      await tick();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(candidates).not.toHaveBeenCalled();
+      expect(layout).not.toHaveBeenCalled();
+    }
+    await vi.advanceTimersByTimeAsync(79);
+    expect(candidates).not.toHaveBeenCalled();
+    expect(layout).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await tick();
+    expect(candidates).toHaveBeenCalledOnce();
+    expect(layout).toHaveBeenCalledOnce();
+    expect(candidates.mock.calls[0]?.[0].camera.revision).toBe(4);
+    expect(layout.mock.calls[0]?.[0]).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(candidates).toHaveBeenCalledOnce();
+    expect(layout).toHaveBeenCalledOnce();
   });
 
   it('distinguishes a click from a pan and cancels interrupted gestures without picking', async () => {
@@ -543,6 +1271,277 @@ describe('SpatialCanvas', () => {
       screenX: 200,
       screenY: 100,
     });
+  });
+
+  it.each([
+    { name: 'one-finger pan', options: {}, mode: 'pan' },
+    {
+      name: 'default mouse pan',
+      options: { pointerType: 'mouse' },
+      mode: 'pan',
+    },
+    {
+      name: 'Shift-drag orbit',
+      options: { pointerType: 'mouse', shiftKey: true },
+      mode: 'orbit',
+    },
+    {
+      name: 'right-button orbit',
+      options: { pointerType: 'mouse', button: 2 },
+      mode: 'orbit',
+    },
+    {
+      name: 'Alt-drag elevation',
+      options: { pointerType: 'mouse', altKey: true },
+      mode: 'elevate',
+    },
+    {
+      name: 'Shift taking precedence over Alt',
+      options: { pointerType: 'mouse', altKey: true, shiftKey: true },
+      mode: 'orbit',
+    },
+  ])(
+    'supports $name without selecting after a drag',
+    async ({ options, mode }) => {
+      const scene = buildGalaxyReviewFixtureScene();
+      const view = render(SpatialCanvas, { props: { scene } });
+      await waitFor(() =>
+        expect(screen.getByRole('status')).toHaveAttribute(
+          'data-renderer-state',
+          'ready',
+        ),
+      );
+      const host = view.container.querySelector('.spatial-canvas')!;
+      const runtime = adapter.runtimes[0]!;
+      runtime.dispatch.mockClear();
+      pointer(host, 'pointerdown', 1, 320, 180, options);
+      pointer(window, 'pointermove', 1, 322, 180, options);
+      expect(
+        runtime.dispatch.mock.calls.filter(
+          ([command]) => command.type === 'SET_CAMERA',
+        ),
+      ).toHaveLength(0);
+      pointer(window, 'pointermove', 1, 360, 160, options);
+      const expected =
+        mode === 'orbit'
+          ? orbitGalaxyCamera(scene.camera, -40 * 0.006, -20 * 0.004)
+          : mode === 'elevate'
+            ? elevateGalaxyCameraByPixels(scene.camera, 20, {
+                width: 640,
+                height: 360,
+              })
+            : panGalaxyCamera(scene.camera, -40, 20, {
+                width: 640,
+                height: 360,
+              });
+      expect(lastGalaxyCamera()).toEqual(expected);
+      pointer(window, 'pointerup', 1, 360, 160, options);
+      expect(
+        runtime.dispatch.mock.calls.some(
+          ([command]) => command.type === 'PICK',
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it('pinches and pans around the two-finger midpoint, ignores a third touch and resumes one-finger pan', async () => {
+    const fixture = buildGalaxyReviewFixtureScene();
+    const scene = {
+      ...fixture,
+      camera: { ...fixture.camera, distanceLy: 1_000 },
+    };
+    const view = render(SpatialCanvas, { props: { scene } });
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveAttribute(
+        'data-renderer-state',
+        'ready',
+      ),
+    );
+    const host = view.container.querySelector('.spatial-canvas')!;
+    const canvas = view.container.querySelector('canvas')!;
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({
+      left: 100,
+      top: 50,
+      width: 640,
+      height: 360,
+    } as DOMRect);
+    const runtime = adapter.runtimes[0]!;
+    runtime.dispatch.mockClear();
+    pointer(host, 'pointerdown', 1, 340, 230);
+    pointer(host, 'pointerdown', 2, 500, 230);
+    pointer(host, 'pointerdown', 3, 600, 300);
+    pointer(window, 'pointermove', 3, 610, 310);
+    pointer(window, 'pointercancel', 3, 610, 310);
+    expect(
+      runtime.dispatch.mock.calls.filter(
+        ([command]) => command.type === 'SET_CAMERA',
+      ),
+    ).toHaveLength(0);
+    pointer(window, 'pointermove', 1, 300, 250);
+    pointer(window, 'pointermove', 2, 580, 250);
+    const pinched = lastGalaxyCamera();
+    expect(pinched.distanceLy).toBeCloseTo((1_000 * 160) / 280, 8);
+    const anchored = projectGalaxyLabel(scene.camera.focusLy, pinched, {
+      width: 640,
+      height: 360,
+    });
+    expect(anchored?.xPx).toBeCloseTo(340, 6);
+    expect(anchored?.yPx).toBeCloseTo(200, 6);
+    expect(pinched.focusLy.y).toBe(scene.camera.focusLy.y);
+
+    // Moving both fingers together pans while restoring the same final range.
+    pointer(window, 'pointermove', 1, 330, 270);
+    pointer(window, 'pointermove', 2, 610, 270);
+    const translated = lastGalaxyCamera();
+    expect(translated.distanceLy).toBeCloseTo(pinched.distanceLy, 8);
+    const translatedAnchor = projectGalaxyLabel(
+      scene.camera.focusLy,
+      translated,
+      { width: 640, height: 360 },
+    );
+    expect(translatedAnchor?.xPx).toBeCloseTo(370, 6);
+    expect(translatedAnchor?.yPx).toBeCloseTo(220, 6);
+
+    pointer(window, 'pointerup', 2, 610, 270);
+    pointer(window, 'pointermove', 1, 350, 270);
+    expect(lastGalaxyCamera()).toEqual(
+      panGalaxyCamera(translated, -20, 0, { width: 640, height: 360 }),
+    );
+    pointer(window, 'pointerup', 1, 350, 270);
+    expect(
+      runtime.dispatch.mock.calls.some(([command]) => command.type === 'PICK'),
+    ).toBe(false);
+  });
+
+  it('keeps window gesture handling when synthetic pointers cannot be captured', async () => {
+    const scene = buildGalaxyReviewFixtureScene();
+    const view = render(SpatialCanvas, { props: { scene } });
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveAttribute(
+        'data-renderer-state',
+        'ready',
+      ),
+    );
+    const host = view.container.querySelector('.spatial-canvas')!;
+    Object.defineProperty(host, 'setPointerCapture', {
+      value: () => {
+        throw new DOMException('Pointer is not active', 'NotFoundError');
+      },
+    });
+    pointer(host, 'pointerdown', 1, 320, 180);
+    pointer(window, 'pointermove', 1, 360, 180);
+    expect(lastGalaxyCamera().focusLy.x).toBeLessThan(scene.camera.focusLy.x);
+    pointer(window, 'pointercancel', 1, 360, 180);
+    const runtime = adapter.runtimes[0]!;
+    runtime.dispatch.mockClear();
+    pointer(window, 'pointermove', 1, 400, 180);
+    pointer(window, 'pointerup', 1, 400, 180);
+    expect(runtime.dispatch).not.toHaveBeenCalled();
+  });
+
+  it.each(['pointercancel', 'lostpointercapture'])(
+    'releases both fingers on %s and accepts a fresh gesture',
+    async (eventType) => {
+      const scene = buildGalaxyReviewFixtureScene();
+      const view = render(SpatialCanvas, { props: { scene } });
+      await waitFor(() =>
+        expect(screen.getByRole('status')).toHaveAttribute(
+          'data-renderer-state',
+          'ready',
+        ),
+      );
+      const host = view.container.querySelector('.spatial-canvas')!;
+      const runtime = adapter.runtimes[0]!;
+      const captured = new Set<number>();
+      const release = vi.fn((id: number) => captured.delete(id));
+      Object.defineProperties(host, {
+        setPointerCapture: { value: (id: number) => captured.add(id) },
+        hasPointerCapture: { value: (id: number) => captured.has(id) },
+        releasePointerCapture: { value: release },
+      });
+      const removeListener = vi.spyOn(window, 'removeEventListener');
+      pointer(host, 'pointerdown', 1, 220, 180);
+      pointer(host, 'pointerdown', 2, 420, 180);
+      pointer(host, eventType, 1, 220, 180);
+      expect(release.mock.calls).toEqual([[1], [2]]);
+      expect(removeListener).toHaveBeenCalledWith(
+        'pointermove',
+        expect.any(Function),
+      );
+      expect(removeListener).toHaveBeenCalledWith(
+        'pointerup',
+        expect.any(Function),
+      );
+      expect(removeListener).toHaveBeenCalledWith(
+        'pointercancel',
+        expect.any(Function),
+      );
+      runtime.dispatch.mockClear();
+      pointer(window, 'pointermove', 2, 440, 180);
+      pointer(window, 'pointerup', 1, 220, 180);
+      pointer(window, 'pointerup', 2, 440, 180);
+      expect(runtime.dispatch).not.toHaveBeenCalled();
+      pointer(host, 'pointerdown', 4, 320, 180);
+      pointer(window, 'pointermove', 4, 360, 180);
+      expect(lastGalaxyCamera().focusLy.x).toBeLessThan(scene.camera.focusLy.x);
+      runtime.dispatch.mockClear();
+      view.unmount();
+      expect(release).toHaveBeenLastCalledWith(4);
+      runtime.dispatch.mockClear();
+      pointer(window, 'pointermove', 4, 400, 180);
+      pointer(window, 'pointerup', 4, 400, 180);
+      expect(runtime.dispatch).not.toHaveBeenCalled();
+    },
+  );
+
+  it('wheel-zooms at canvas-relative cursor coordinates while the buttons zoom about the centre', async () => {
+    const fixture = buildGalaxyReviewFixtureScene();
+    const scene = {
+      ...fixture,
+      camera: { ...fixture.camera, distanceLy: 1_000 },
+    };
+    const view = render(SpatialCanvas, { props: { scene } });
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveAttribute(
+        'data-renderer-state',
+        'ready',
+      ),
+    );
+    const host = view.container.querySelector('.spatial-canvas')!;
+    const canvas = view.container.querySelector('canvas')!;
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({
+      left: 100,
+      top: 50,
+      width: 640,
+      height: 360,
+    } as DOMRect);
+    const point = { x: 200, y: scene.camera.focusLy.y, z: 180 };
+    const before = projectGalaxyLabel(point, scene.camera, {
+      width: 640,
+      height: 360,
+    })!;
+    const wheel = new WheelEvent('wheel', {
+      deltaY: -240,
+      clientX: before.xPx + 100,
+      clientY: before.yPx + 50,
+      bubbles: true,
+      cancelable: true,
+    });
+    host.dispatchEvent(wheel);
+    expect(wheel.defaultPrevented).toBe(true);
+    const zoomed = lastGalaxyCamera();
+    expect(zoomed.distanceLy).toBeLessThan(scene.camera.distanceLy);
+    const after = projectGalaxyLabel(point, zoomed, {
+      width: 640,
+      height: 360,
+    })!;
+    expect(after.xPx).toBeCloseTo(before.xPx, 6);
+    expect(after.yPx).toBeCloseTo(before.yPx, 6);
+    screen.getByRole('button', { name: 'Zoom in' }).click();
+    expect(lastGalaxyCamera().focusLy).toEqual(zoomed.focusLy);
+    expect(lastGalaxyCamera().distanceLy).toBeLessThan(zoomed.distanceLy);
+    screen.getByRole('button', { name: 'Zoom out' }).click();
+    expect(lastGalaxyCamera().focusLy).toEqual(zoomed.focusLy);
   });
 
   it('queues camera movements until an in-flight transition settles', async () => {
@@ -690,11 +1689,13 @@ describe('SpatialCanvas', () => {
         'data-system-target-count',
         '4',
       );
-      expect(
-        view.container.querySelector(
-          '[data-map-label-key="system:9007199254740994"]',
-        ),
-      ).toHaveTextContent('Fixture Core');
+      await waitFor(() =>
+        expect(
+          view.container.querySelector(
+            '[data-map-label-key="system:9007199254740994"]',
+          ),
+        ).toHaveTextContent('Fixture Core'),
+      );
     },
   );
 

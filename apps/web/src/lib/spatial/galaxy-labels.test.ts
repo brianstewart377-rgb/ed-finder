@@ -1,9 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import type { CameraState } from './contracts';
+import type {
+  CameraState,
+  GalaxySceneContract,
+  GalaxySystemPoint,
+  SpatialContribution,
+} from './contracts';
 import {
+  galaxyLabelCandidates,
+  galaxySystemPointIndex,
+  MAXIMUM_SYSTEM_LABEL_CANDIDATES,
+  nearbyCatalogueLabelLimit,
   layoutGalaxyLabels,
   projectGalaxyLabel,
+  SYSTEM_LABEL_GAP_PX,
   type GalaxyLabelCandidate,
 } from './galaxy-labels';
 
@@ -56,7 +66,7 @@ describe('Galaxy label projection and layout', () => {
     expect(rotated?.xPx).toBeGreaterThan(500);
   });
 
-  it('declutters ordinary collisions but displaces selected labels', () => {
+  it('declutters system collisions while displacing region labels', () => {
     const result = layoutGalaxyLabels(
       [
         label('ordinary-a', 0, 0),
@@ -76,6 +86,23 @@ describe('Galaxy label projection and layout', () => {
     expect(
       new Set(result.map((entry) => `${entry.xPx}:${entry.yPx}`)).size,
     ).toBe(2);
+  });
+
+  it('places a system chip beside its star so the star stays clickable', () => {
+    const [placed] = layoutGalaxyLabels(
+      [label('selected', 0, 0, { selected: true })],
+      camera,
+      viewport,
+    );
+    expect(placed).toBeDefined();
+    expect(placed!.anchorXPx).toBeCloseTo(viewport.width / 2, 5);
+    expect(placed!.anchorYPx).toBeCloseTo(viewport.height / 2, 5);
+    // The chip is centred to the right of the anchor by at least half its
+    // estimated width plus the gap, so no part of it covers the star.
+    expect(placed!.xPx - placed!.anchorXPx).toBeGreaterThan(
+      SYSTEM_LABEL_GAP_PX + 33,
+    );
+    expect(placed!.yPx).toBe(placed!.anchorYPx);
   });
 
   it('uses the system distance gate and explicit system budget only', () => {
@@ -204,5 +231,296 @@ describe('Galaxy label projection and layout', () => {
     expect(atlas).toHaveLength(42);
     expect(atlas.every((entry) => entry.placement === 'map')).toBe(true);
     expect(new Set(atlas.map((entry) => entry.text)).size).toBe(42);
+  });
+});
+
+function point(systemId64: string, x = 0, z = 0): GalaxySystemPoint {
+  return {
+    systemId64,
+    name: `Star ${systemId64}`,
+    positionLy: { x, y: 0, z },
+    primaryStar: { type: 'G2', subtype: 'G (White-Yellow) Star' },
+  };
+}
+
+function contribution(
+  owner: 'FINDER' | 'CATALOGUE',
+  systems: readonly GalaxySystemPoint[],
+  layerId = owner === 'FINDER' ? 'finder-systems' : 'catalogue-systems',
+): SpatialContribution {
+  return {
+    id: owner,
+    owner,
+    revision: 1,
+    layers: [
+      {
+        id: layerId,
+        version: 1,
+        representation: 'AUTHORITATIVE',
+        targetCount: systems.length,
+        truncated: false,
+        payload: { systems },
+      },
+    ],
+  };
+}
+
+function galaxy(
+  catalogue: readonly GalaxySystemPoint[],
+  finder: readonly GalaxySystemPoint[] = [],
+): GalaxySceneContract {
+  return {
+    kind: 'galaxy',
+    revision: 1,
+    camera: { ...camera, distanceLy: 500 },
+    selection: [],
+    contributions: [
+      contribution('CATALOGUE', catalogue),
+      contribution('FINDER', finder),
+    ],
+  };
+}
+
+describe('Galaxy system label candidates', () => {
+  it('includes both catalogue layer names and keeps the raw point and canonical id64', () => {
+    const catalogue = point('catalogue');
+    const scene = galaxy([catalogue]);
+    for (const layerId of ['catalogue-stars', 'catalogue-systems']) {
+      const result = galaxyLabelCandidates({
+        ...scene,
+        contributions: [contribution('CATALOGUE', [catalogue], layerId)],
+      });
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        key: 'system:catalogue',
+        text: 'Star catalogue',
+        source: 'catalogue',
+        target: { kind: 'system', systemId64: 'catalogue' },
+        point: { primaryStar: { type: 'G2' } },
+      });
+      expect(result[0].point).toBe(catalogue);
+    }
+  });
+
+  it('ranks selected > hovered > anchor > Finder > nearest catalogue', () => {
+    const scene = {
+      ...galaxy(
+        [
+          point('nearest'),
+          point('anchor', 5),
+          point('hovered', 10),
+          point('selected', 15),
+          point('further', 20),
+        ],
+        [point('finder', 25)],
+      ),
+      selection: [{ kind: 'system', systemId64: 'selected' }] as const,
+    };
+    const result = galaxyLabelCandidates(scene, undefined, {
+      hoveredSystemId64: 'hovered',
+      anchor: point('anchor', 5),
+      viewport,
+    });
+    expect(result.map((candidate) => candidate.key)).toEqual([
+      'system:selected',
+      'system:hovered',
+      'system:anchor',
+      'system:finder',
+      'system:nearest',
+      'system:further',
+    ]);
+  });
+
+  it('retains a supplied anchor and special catalogue targets above the local band', () => {
+    const scene = {
+      ...galaxy(
+        [point('selected'), point('hovered'), point('ordinary')],
+        [point('finder')],
+      ),
+      camera: { ...camera, distanceLy: 40_000 },
+      selection: [{ kind: 'system', systemId64: 'selected' }] as const,
+    };
+    const result = galaxyLabelCandidates(scene, undefined, {
+      hoveredSystemId64: 'hovered',
+      anchor: point('external-anchor'),
+    });
+    expect(result.map((candidate) => candidate.key)).toEqual([
+      'system:selected',
+      'system:hovered',
+      'system:external-anchor',
+      'system:finder',
+    ]);
+  });
+
+  it.each([
+    [100, 12],
+    [500, 12],
+    [501, 8],
+    [1_500, 8],
+    [1_501, 4],
+    [3_500, 4],
+    [3_501, 2],
+    [9_500, 2],
+    [9_501, 0],
+    [100_000, 0],
+  ])(
+    'bounds ordinary catalogue labels at %i LY to %i',
+    (distanceLy, expected) => {
+      const scene = galaxy(
+        Array.from({ length: 100 }, (_, index) =>
+          point(String(index), index / 10),
+        ),
+      );
+      const result = galaxyLabelCandidates({
+        ...scene,
+        camera: { ...camera, distanceLy },
+      });
+      expect(nearbyCatalogueLabelLimit(distanceLy)).toBe(expected);
+      expect(result).toHaveLength(expected);
+      expect(result.map((candidate) => candidate.target)).toEqual(
+        Array.from({ length: expected }, (_, index) => ({
+          kind: 'system',
+          systemId64: String(index),
+        })),
+      );
+    },
+  );
+
+  it('chooses the nearest screen positions, omitting offscreen and behind-camera stars', () => {
+    const nearCentre = point('near-centre', 2);
+    const scene = galaxy([
+      point('offscreen', 20_000),
+      { ...point('behind'), positionLy: { x: 0, y: 600, z: 0 } },
+      point('further-on-screen', 100),
+      nearCentre,
+    ]);
+    expect(
+      galaxyLabelCandidates(scene).map((candidate) => candidate.key),
+    ).toEqual(['system:near-centre', 'system:further-on-screen']);
+  });
+
+  it('deduplicates by id64, retaining Finder summary and catalogue star class', () => {
+    const catalogue = point('same');
+    const finder = {
+      ...point('same'),
+      primaryStar: undefined,
+      summary: { population: 123 },
+    };
+    const scene = galaxy([catalogue], [finder]);
+    const result = galaxyLabelCandidates(scene);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      source: 'finder',
+      point: { primaryStar: { type: 'G2' }, summary: { population: 123 } },
+    });
+    expect(galaxySystemPointIndex(scene).get('same')).toBe(result[0].point);
+  });
+
+  it('keeps the raw catalogue class when a duplicate Finder point has a broader type', () => {
+    const catalogue = { ...point('same'), primaryStar: { type: 'G2' } };
+    const finder = {
+      ...point('same'),
+      primaryStar: { type: 'G', subtype: '2 V' },
+      summary: { population: 123 },
+    };
+    const scene = galaxy([catalogue], [finder]);
+    const result = galaxyLabelCandidates(scene);
+    expect(result[0].point).toMatchObject({
+      primaryStar: { type: 'G2', subtype: '2 V' },
+      summary: { population: 123 },
+    });
+    expect(galaxySystemPointIndex(scene).get('same')).toBe(result[0].point);
+  });
+
+  it('bounds the set even with many Finder and selected systems', () => {
+    const systems = Array.from({ length: 500 }, (_, index) =>
+      point(String(index), index),
+    );
+    const scene = galaxy(systems, systems);
+    const candidates = galaxyLabelCandidates({
+      ...scene,
+      selection: systems.map((value) => ({
+        kind: 'system',
+        systemId64: value.systemId64,
+      })),
+    });
+    expect(candidates).toHaveLength(MAXIMUM_SYSTEM_LABEL_CANDIDATES);
+    expect(galaxyLabelCandidates(scene)).toHaveLength(24);
+  });
+
+  it('reuses the source index and nearest retrieval across hover and selection changes', () => {
+    const positionRead = vi.fn(() => ({ x: 150, y: 0, z: 0 }));
+    const distant = {
+      ...point('distant'),
+      get positionLy() {
+        return positionRead();
+      },
+    };
+    const scene = galaxy([
+      distant,
+      ...Array.from({ length: 15 }, (_, index) => point(String(index), index)),
+    ]);
+    galaxyLabelCandidates(scene);
+    const index = galaxySystemPointIndex(scene);
+    const previousReads = positionRead.mock.calls.length;
+    const selected = {
+      ...scene,
+      camera: { ...scene.camera, revision: 5 },
+      contributions: scene.contributions.map((value) => ({ ...value })),
+      selection: [{ kind: 'system', systemId64: '1' }] as const,
+    };
+    galaxyLabelCandidates(selected, undefined, { hoveredSystemId64: '0' });
+    expect(galaxySystemPointIndex(selected)).toBe(index);
+    expect(positionRead).toHaveBeenCalledTimes(previousReads);
+    galaxyLabelCandidates({
+      ...selected,
+      camera: { ...selected.camera, focusLy: { x: 5, y: 0, z: 0 } },
+    });
+    expect(positionRead.mock.calls.length).toBeGreaterThan(previousReads);
+  });
+
+  it('drops lower-ranked overlaps and preserves the winning system identity', () => {
+    const scene = {
+      ...galaxy(
+        [
+          point('nearest'),
+          point('anchor'),
+          point('hovered'),
+          point('selected'),
+        ],
+        [point('finder')],
+      ),
+      selection: [{ kind: 'system', systemId64: 'selected' }] as const,
+    };
+    const candidates = galaxyLabelCandidates(scene, undefined, {
+      hoveredSystemId64: 'hovered',
+      anchor: point('anchor'),
+      viewport,
+    });
+    const projected = layoutGalaxyLabels(candidates, scene.camera, viewport);
+    expect(projected).toHaveLength(1);
+    expect(projected[0]).toMatchObject({
+      key: 'system:selected',
+      text: 'Star selected',
+      target: { kind: 'system', systemId64: 'selected' },
+    });
+    for (let rank = 1; rank < candidates.length; rank += 1) {
+      const remaining = layoutGalaxyLabels(
+        candidates.slice(rank),
+        scene.camera,
+        viewport,
+      );
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0].target).toEqual(candidates[rank].target);
+    }
+  });
+
+  it('breaks equal-priority overlapping label ties by nearer screen position', () => {
+    const result = layoutGalaxyLabels(
+      [label('a-further', 10, 0), label('z-nearer', 0, 0)],
+      camera,
+      viewport,
+    );
+    expect(result.map((candidate) => candidate.key)).toEqual(['z-nearer']);
   });
 });

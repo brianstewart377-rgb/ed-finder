@@ -52,6 +52,7 @@ import {
   getProfileSyncApiProfileSyncSyncKeyGet,
   getV3CurrentGeneration,
   getV3JournalTravelHeatmap,
+  getV3JournalSummary,
   getV3System,
   getV3PlanCatalogue as getPlanCatalogueSdk,
   listV3PlanBodies as listPlanBodiesSdk,
@@ -183,6 +184,10 @@ export const getPlanSystem = async (systemId: string, signal?: AbortSignal) =>
 
 export const getVerifiedCommanders = async (signal?: AbortSignal) =>
   (await listVerifiedCommanders({ throwOnError: true, signal })).data;
+
+/** Account-wide import metadata distinguishes no journals from an empty viewport. */
+export const getCommanderJournalSummary = async (signal?: AbortSignal) =>
+  (await getV3JournalSummary({ throwOnError: true, signal })).data;
 
 export const getGalaxyImpact = async (signal?: AbortSignal) =>
   (await getJournalGalaxyImpact({ throwOnError: true, signal })).data;
@@ -559,6 +564,9 @@ export type SystemDetailBody = Readonly<{
   name: string;
   /** V3 public body-type code: `star`, `planet`, `barycentre`, `belt_cluster`. */
   bodyType: string | null;
+  /** Raw catalogued class from the published derived generation; display verbatim. */
+  bodyClass: string | null;
+  bodyClassSource: 'ratings-v4-derived' | null;
   isMainStar: boolean | null;
   spectralClass: string | null;
   luminosityClass: string | null;
@@ -1325,6 +1333,9 @@ export function systemDetailFromV3(
         bodyKey: body.body_id,
         name: body.name,
         bodyType: body.body_type,
+        bodyClass: body.body_class ?? null,
+        bodyClassSource:
+          body.body_class != null ? (body.body_class_source ?? null) : null,
         isMainStar: body.is_main_star,
         spectralClass: body.spectral_class,
         luminosityClass: body.luminosity_class,

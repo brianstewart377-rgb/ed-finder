@@ -475,6 +475,47 @@ describe('shared system detail', () => {
     expect(mockedGetRatings).toHaveBeenCalledTimes(callsBeforeReopening);
   });
 
+  it.each(['Earth-like world', 'Unrecognised catalogue class', null])(
+    'shows the raw planet class %s in the body list and selection pane',
+    async (bodyClass) => {
+      mockedGetSystem.mockResolvedValue(
+        systemDetailFromV3(
+          v3System(),
+          [
+            v3Body({
+              name: 'Catalogued planet',
+              body_type: 'planet',
+              body_class: bodyClass,
+              body_class_source:
+                bodyClass == null ? null : 'ratings-v4-derived',
+              spectral_class: null,
+              luminosity_class: null,
+            }),
+          ],
+          [],
+          [],
+        ),
+      );
+      render(SystemDetailTestHost, {
+        props: { id64: parseId64('10477373803') },
+      });
+
+      const bodies = await screen.findByRole('list', { name: 'System bodies' });
+      const label = bodyClass ?? 'Planet';
+      const button = within(bodies).getByRole('button', {
+        name: `Catalogued planet ${label}`,
+      });
+      await fireEvent.click(button);
+      const card = await screen.findByRole('article');
+      expect(
+        within(card).getByText(label, { selector: 'dd' }),
+      ).toBeInTheDocument();
+      const source = within(card).queryByText('Ratings V4 derived catalogue');
+      if (bodyClass == null) expect(source).toBeNull();
+      else expect(source).toBeInTheDocument();
+    },
+  );
+
   it('keeps Inspect usable when the facade omits unknown coordinates', async () => {
     const id64 = parseId64('9007199254740993');
     mockedGetSystem.mockResolvedValue({

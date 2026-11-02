@@ -10,6 +10,7 @@
     autocompleteSystems,
     getCatalogueViewportSystems,
     getCommanderTravelHeatmap,
+    getCommanderJournalSummary,
     getMapHeatmap,
     getArchetypeRankings,
     getSystem,
@@ -57,9 +58,12 @@
     serializeExploreSearchParams,
   } from './search-state';
   import { usePersistenceContext } from '$lib/persistence/context';
+  import { createMapLayerPreferences } from '$lib/persistence/map-layers';
+  import MapLayers from './MapLayers.svelte';
   import SpatialCanvas from '$lib/spatial/SpatialCanvas.svelte';
   import type {
     CameraState,
+    GalaxySystemPoint,
     RenderedLayerReceipt,
     RuntimeEvent,
     SpatialContribution,
@@ -116,6 +120,10 @@
   } from '$lib/spatial/galaxy-star-stream';
 
   const { selectedSystem, pins, compare } = usePersistenceContext();
+  const layerPreferences = createMapLayerPreferences();
+  // Read before creating the observers: a saved OFF preference must not issue
+  // a default-ON density request during mount. The store catches storage errors.
+  layerPreferences.hydrate();
   const session = fromStore(auth);
   // The travel heatmap is the signed-in account's own V3 journal travel; the
   // cache key carries the account so a sign-out/switch never reuses rows.
@@ -167,6 +175,18 @@
     return readExploreAnchor({ anchor: detail });
   });
   const bodyFilters = $derived(parsedSearch.bodyFilters);
+  const mapAnchorPoint = $derived<GalaxySystemPoint | null>(
+    anchor &&
+      typeof anchor.x === 'number' &&
+      typeof anchor.y === 'number' &&
+      typeof anchor.z === 'number'
+      ? {
+          systemId64: anchor.id64,
+          name: anchor.name,
+          positionLy: { x: anchor.x, y: anchor.y, z: anchor.z },
+        }
+      : null,
+  );
   let anchorSelectionRevision = $state(0);
   let focusedAnchorRevision = 0;
   let hydratedAnchorIdentity: string | undefined;
@@ -183,6 +203,7 @@
   let regionResourceRevision = $state(0);
   let selectedRegionId = $state<string | null>(null);
   let hoveredRegionId = $state<string | null>(null);
+  let hoveredSystemId = $state<string | null>(null);
   let cameraRequest = $state<CameraState | null>(null);
   let cameraRequestRevision = $state(0);
   let spatialCameraTransitionActive = $state(false);
@@ -212,7 +233,8 @@
   let appliedCatalogueViewport = $state.raw<GalaxyStarViewport | null>(null);
   let appliedCatalogueRevision = $state(0);
   let layerToggleRevision = $state(0);
-  let showTravelHeatmap = $state(false);
+  const showDensity = $derived($layerPreferences.value.density);
+  const showTravelHeatmap = $derived($layerPreferences.value.journeys);
   let showNebulae = $state(true);
   let nebulae = $state<GalaxyNebulaePayload | null>(null);
   let nebulaState = $state<'loading' | 'ready' | 'failed'>('loading');
@@ -752,11 +774,22 @@
     placeholderData: (previousData, previousQuery) =>
       previousQuery?.queryKey[3] === travelAccountId ? previousData : undefined,
   }));
+  const journalSummary = createQuery(() => ({
+    queryKey: [...queryKeys.auth(), travelAccountId, 'journal-summary'],
+    queryFn: ({ signal }) => getCommanderJournalSummary(signal),
+    enabled: showTravelHeatmap && travelAccountId !== null,
+    staleTime: 20_000,
+    retry: (failureCount, error) =>
+      !(error instanceof ApiError && error.status === 401) && failureCount < 1,
+  }));
   const travelHeatmapState = $derived.by(
     ():
       | 'checking'
       | 'auth-error'
+      | 'summary-error'
       | 'signed-out'
+      | 'off'
+      | 'no-journals'
       | 'zoom'
       | 'loading'
       | 'error'
@@ -767,12 +800,27 @@
       // signed in, so offer a retry rather than a sign-in prompt.
       if (travelAccountId === null)
         return session.current.error ? 'auth-error' : 'signed-out';
-      if (!starViewport) return 'zoom';
+      if (!showTravelHeatmap) return 'off';
+      if (
+        journalSummary.isError &&
+        journalSummary.error instanceof ApiError &&
+        journalSummary.error.status === 401
+      )
+        return 'signed-out';
       if (commanderVisits.isError)
         return commanderVisits.error instanceof ApiError &&
           commanderVisits.error.status === 401
           ? 'signed-out'
           : 'error';
+      if (!commanderVisits.data?.count && journalSummary.isError)
+        return 'summary-error';
+      if (
+        !commanderVisits.data?.count &&
+        !journalSummary.isError &&
+        journalSummary.data?.imported_files === 0
+      )
+        return 'no-journals';
+      if (!starViewport) return 'zoom';
       if (!commanderVisits.data) return 'loading';
       return commanderVisits.data.count === 0 ? 'empty' : 'ready';
     },
@@ -785,7 +833,7 @@
     heatmapVoxelSizeForDistance(streamCamera?.distanceLy ?? 118_000),
   );
   const densityEnabled = $derived(
-    (streamCamera?.distanceLy ?? 0) >= DENSITY_CROSSFADE_NEAR_LY,
+    showDensity && (streamCamera?.distanceLy ?? 0) >= DENSITY_CROSSFADE_NEAR_LY,
   );
   const heatmap = createQuery(() => ({
     queryKey: ['map-heatmap', heatmapVoxelSize],
@@ -830,6 +878,9 @@
   let densityRevision = $state(0);
   let densityRemovalRevision = $state(0);
   $effect(() => {
+    // Query caches may settle after a switch-off. They must never restore a
+    // disabled contribution or the retained cells used after refresh failures.
+    if (!showDensity) return;
     // A placeholder is the already-applied density, not a new empty revision.
     if (heatmap.isPlaceholderData) return;
     const result = densityResult;
@@ -858,19 +909,23 @@
       : null,
   );
   const densityState = $derived(
-    densityFailure
-      ? lastGoodDensity
-        ? 'stale'
-        : densityFailure.kind
-      : heatmap.isPending || heatmap.isPlaceholderData
-        ? 'loading'
-        : densityResult?.kind === 'none'
-          ? 'none'
-          : lastGoodDensity?.area === 'empty'
-            ? 'empty'
-            : lastGoodDensity?.area === 'truncated'
-              ? 'truncated'
-              : 'ready',
+    !showDensity
+      ? 'off'
+      : !densityEnabled
+        ? 'zoom'
+        : densityFailure
+          ? lastGoodDensity
+            ? 'stale'
+            : densityFailure.kind
+          : heatmap.isPending || heatmap.isPlaceholderData
+            ? 'loading'
+            : densityResult?.kind === 'none'
+              ? 'none'
+              : lastGoodDensity?.area === 'empty'
+                ? 'empty'
+                : lastGoodDensity?.area === 'truncated'
+                  ? 'truncated'
+                  : 'ready',
   );
   const densityCellCount = $derived(lastGoodDensity?.payload.cells.length ?? 0);
   const densityTruncated = $derived(lastGoodDensity?.area === 'truncated');
@@ -940,6 +995,7 @@
     // session keeps the last data alongside a 401).
     showTravelHeatmap &&
       travelAccountId !== null &&
+      travelHeatmapState !== 'signed-out' &&
       !commanderVisits.isError &&
       commanderVisits.data
       ? createCommanderHistoryContribution(
@@ -950,6 +1006,13 @@
         )
       : null,
   );
+  let commanderHistorySequence = 0;
+  const commanderHistoryRevision = $derived.by(() => {
+    // Removing cached private visits (for example after a session expires)
+    // does not advance the response timestamp, but must advance the scene.
+    void commanderHistoryContribution;
+    return ++commanderHistorySequence;
+  });
   const nebulaContribution = $derived(
     showNebulae && nebulae
       ? createGalaxyNebulaeContribution(nebulae, nebulaResourceRevision)
@@ -1105,8 +1168,10 @@
         spatialContributions: collectGalaxySpatialContributions({
           regions: regionContribution,
           nebulae: nebulaContribution,
-          density: untrack(
-            () => densityContribution ?? emptyDensityContribution,
+          density: untrack(() =>
+            showDensity
+              ? (densityContribution ?? emptyDensityContribution)
+              : null,
           ),
           catalogueStars: catalogueStarsContribution,
           commanderHistory: commanderHistoryContribution,
@@ -1124,6 +1189,7 @@
         layerToggleRevision +
         appliedCatalogueRevision +
         commanderVisits.dataUpdatedAt +
+        commanderHistoryRevision +
         nebulaResourceRevision +
         densityRevision,
       {
@@ -1133,7 +1199,7 @@
         spatialContributions: collectGalaxySpatialContributions({
           regions: regionContribution,
           nebulae: nebulaContribution,
-          density: densityContribution,
+          density: showDensity ? densityContribution : null,
           catalogueStars: catalogueStarsContribution,
           commanderHistory: commanderHistoryContribution,
         }),
@@ -1251,6 +1317,26 @@
     focusRevision += 1;
   }
 
+  function selectMapSystem(point: GalaxySystemPoint): void {
+    try {
+      selectResult({
+        id64: parseId64(point.systemId64),
+        name: point.name,
+        coords: point.positionLy,
+        main_star_type: point.primaryStar?.type,
+        main_star_subtype: point.primaryStar?.subtype,
+        population: point.summary?.population,
+        primaryEconomy: point.summary?.primaryEconomy,
+        secondaryEconomy: point.summary?.secondaryEconomy,
+        security: point.summary?.security,
+        allegiance: point.summary?.allegiance,
+        government: point.summary?.government,
+      });
+    } catch {
+      // Preserve the same fail-closed identity boundary as canvas picking.
+    }
+  }
+
   function handleResultKeydown(
     event: KeyboardEvent,
     system: ExploreSystem,
@@ -1302,6 +1388,8 @@
     } else if (event.type === 'TARGET_HOVERED') {
       hoveredRegionId =
         event.target?.kind === 'region' ? event.target.id : null;
+      hoveredSystemId =
+        event.target?.kind === 'system' ? event.target.systemId64 : null;
     } else if (event.type === 'TARGET_PICKED') {
       if (event.target?.kind === 'region') {
         selectRegion(event.target.id);
@@ -1318,7 +1406,30 @@
   }
 
   function toggleTravelHeatmap(): void {
-    showTravelHeatmap = !showTravelHeatmap;
+    layerPreferences.set({
+      ...$layerPreferences.value,
+      journeys: !showTravelHeatmap,
+    });
+    layerToggleRevision += 1;
+  }
+
+  function toggleDensity(): void {
+    const enabled = !showDensity;
+    layerPreferences.set({ ...$layerPreferences.value, density: enabled });
+    if (!enabled) {
+      // Cancel in-flight work/retries and mark all zoom caches stale without
+      // starting requests. Re-enabling fetches at the current zoom, even if it
+      // has a fresh cached response. Only switch positions are persisted.
+      void queryClient.cancelQueries({ queryKey: ['map-heatmap'] });
+      void queryClient.invalidateQueries({
+        queryKey: ['map-heatmap'],
+        refetchType: 'none',
+      });
+      lastGoodDensity = null;
+      densityContribution = null;
+      appliedDensityData = undefined;
+    }
+    densityRemovalRevision += 1;
     layerToggleRevision += 1;
   }
 
@@ -1859,6 +1970,7 @@
     <section
       class="map-panel"
       aria-labelledby="map-title"
+      data-hovered-system-id={hoveredSystemId ?? ''}
       bind:this={mapSection}
     >
       <div class="panel-heading">
@@ -1933,93 +2045,158 @@
           </div>
         </div>
       {/if}
-      <div class="map-layer-controls" aria-label="Map layers">
-        <button
-          type="button"
-          aria-pressed={showNebulae}
-          data-nebula-toggle
-          onclick={toggleNebulae}
+      <div class="map-layer-toolbar">
+        <MapLayers
+          densityEnabled={showDensity}
+          journeysEnabled={showTravelHeatmap}
+          nebulaeEnabled={showNebulae}
+          onDensityToggle={toggleDensity}
+          onJourneysToggle={toggleTravelHeatmap}
+          onNebulaeToggle={toggleNebulae}
+          densityCellSizeLy={lastGoodDensity?.payload.cellSizeLy ?? null}
+          densityGeneration={lastGoodDensity?.payload.generationId ?? null}
+          journeysMaxVisits={travelHeatmapState === 'ready'
+            ? Math.max(
+                1,
+                ...(commanderVisits.data?.visits.map(
+                  (visit) => visit.visitCount,
+                ) ?? []),
+              )
+            : undefined}
         >
-          {showNebulae ? 'Hide' : 'Show'} nebulae
-        </button>
-        <button
-          type="button"
-          aria-pressed={showTravelHeatmap}
-          data-commander-history-toggle
-          onclick={toggleTravelHeatmap}
-        >
-          {showTravelHeatmap ? 'Hide' : 'Show'} my travel heatmap
-        </button>
-        <span data-nebula-resource-state={nebulaState}>
-          {#if nebulaState === 'loading'}
-            Loading complete nebula inventory…
-          {:else if nebulaState === 'failed'}
-            Nebula layer unavailable · <button
-              type="button"
-              onclick={loadNebulae}>Retry</button
+          {#snippet densityStatus()}
+            <span
+              role="status"
+              aria-label="Catalogue density"
+              data-density-state={densityState}
+              data-density-reason={densityEnabled
+                ? densityFailure?.reason
+                : undefined}
+              data-density-cell-count={densityCellCount}
             >
-          {:else if nebulae}
-            {`${nebulae.nebulae.length.toLocaleString()} catalogue ${
-              nebulae.nebulae.length === 1 ? 'record' : 'records'
-            }`} · {nebulaDisplayStatus} ·
-            <a
-              href="https://edastro.com/mapcharts/files.html"
-              target="_blank"
-              rel="noreferrer">{nebulae.attribution}</a
+              {#if densityState === 'off'}
+                Density layer hidden
+              {:else if densityState === 'zoom'}
+                Zoom out to see known-system density
+              {:else if densityState === 'loading'}
+                Loading catalogue density…{lastGoodDensity
+                  ? ' · showing previous area'
+                  : ''}
+              {:else if densityState === 'stale'}
+                {densityCellCount.toLocaleString()} density cells{densityTruncated
+                  ? ' · bounded view'
+                  : ''} · stale · {densityFailure?.kind === 'invalid'
+                  ? 'density response invalid'
+                  : 'density refresh unavailable'}
+              {:else if densityState === 'unavailable'}
+                Density layer unavailable
+              {:else if densityState === 'invalid'}
+                Density response invalid
+              {:else if densityState === 'none'}
+                No published density pyramid
+              {:else if densityState === 'empty'}
+                No density cells in this area
+              {:else}
+                {densityCellCount.toLocaleString()} density cells{densityTruncated
+                  ? ' · bounded view'
+                  : ''}
+              {/if}
+              {#if densityEnabled && densityFailure}
+                · <button type="button" onclick={() => void heatmap.refetch()}
+                  >Retry</button
+                >
+              {/if}
+            </span>
+          {/snippet}
+          {#snippet journeysStatus()}
+            <span
+              role="status"
+              aria-label="My journeys"
+              data-commander-history-count={travelHeatmapState === 'ready'
+                ? (commanderVisits.data?.count ?? 0)
+                : 0}
+              data-commander-history-state={travelHeatmapState}
             >
-            ·
-            <a
-              href="https://edastro.com/mapcharts/files/nebulae-coordinates.csv"
-              target="_blank"
-              rel="noreferrer">source CSV</a
+              {#if travelHeatmapState === 'checking'}
+                Checking your sign-in…
+              {:else if travelHeatmapState === 'auth-error'}
+                Account check unavailable · <button
+                  type="button"
+                  onclick={() => void auth.bootstrap()}>Retry</button
+                >
+              {:else if travelHeatmapState === 'signed-out'}
+                <a href={resolve('/account')}
+                  >Sign in and import your journals</a
+                >
+              {:else if travelHeatmapState === 'summary-error'}
+                Journal import status unavailable · <button
+                  type="button"
+                  onclick={() => journalSummary.refetch()}>Retry</button
+                >
+              {:else if travelHeatmapState === 'off'}
+                My journeys hidden
+              {:else if travelHeatmapState === 'no-journals'}
+                No imported journals yet
+              {:else if travelHeatmapState === 'zoom'}
+                Travel history appears when individual-star range is active
+              {:else if travelHeatmapState === 'loading'}
+                Reading imported journal visits…
+              {:else if travelHeatmapState === 'error'}
+                Travel heatmap unavailable · <button
+                  type="button"
+                  onclick={() => commanderVisits.refetch()}>Retry</button
+                >
+              {:else if travelHeatmapState === 'empty'}
+                No imported journal travel in this view
+              {:else}
+                {(commanderVisits.data?.count ?? 0).toLocaleString()} visited
+                {commanderVisits.data?.mode === 'density'
+                  ? ' cells'
+                  : ' systems'}{commanderVisits.data?.truncated
+                  ? ' · bounded view'
+                  : ''}
+              {/if}
+            </span>
+          {/snippet}
+          {#snippet nebulaeStatus()}
+            <span
+              role="status"
+              aria-label="Nebulae"
+              data-nebula-resource-state={nebulaState}
             >
-            · {nebulae.rightsNotice}
-          {/if}
-        </span>
-        {#if densityEnabled}
-          <span
-            role="status"
-            aria-label="Catalogue density"
-            data-density-state={densityState}
-            data-density-reason={densityFailure?.reason}
-            data-density-cell-count={densityCellCount}
-          >
-            {#if densityState === 'loading'}
-              Loading catalogue density…{lastGoodDensity
-                ? ' · showing previous area'
-                : ''}
-            {:else if densityState === 'stale'}
-              {densityCellCount.toLocaleString()} density cells{densityTruncated
-                ? ' · bounded view'
-                : ''} · stale · {densityFailure?.kind === 'invalid'
-                ? 'density response invalid'
-                : 'density refresh unavailable'}
-            {:else if densityState === 'unavailable'}
-              Density layer unavailable
-            {:else if densityState === 'invalid'}
-              Density response invalid
-            {:else if densityState === 'none'}
-              No published density pyramid
-            {:else if densityState === 'empty'}
-              No density cells in this area
-            {:else}
-              {densityCellCount.toLocaleString()} density cells{densityTruncated
-                ? ' · bounded view'
-                : ''}
-            {/if}
-            {#if densityFailure}
-              · <button type="button" onclick={() => void heatmap.refetch()}
-                >Retry</button
-              >
-            {/if}
-          </span>
-        {/if}
+              {#if nebulaState === 'loading'}
+                Loading complete nebula inventory…
+              {:else if nebulaState === 'failed'}
+                Nebula layer unavailable · <button
+                  type="button"
+                  onclick={loadNebulae}>Retry</button
+                >
+              {:else if nebulae}
+                {`${nebulae.nebulae.length.toLocaleString()} catalogue ${
+                  nebulae.nebulae.length === 1 ? 'record' : 'records'
+                }`} · {nebulaDisplayStatus} ·
+                <a
+                  href="https://edastro.com/mapcharts/files.html"
+                  target="_blank"
+                  rel="noreferrer">{nebulae.attribution}</a
+                >
+                ·
+                <a
+                  href="https://edastro.com/mapcharts/files/nebulae-coordinates.csv"
+                  target="_blank"
+                  rel="noreferrer">source CSV</a
+                >
+                · {nebulae.rightsNotice}
+              {/if}
+            </span>
+          {/snippet}
+        </MapLayers>
         <span
           data-catalogue-star-count={appliedCataloguePacket?.systems.length ??
             0}
         >
           {#if !starViewport}
-            Known-system density · zoom in for individual stars
+            Zoom in for individual catalogue stars
           {:else if catalogueStars.isPending}
             Loading exact catalogue stars…
           {:else if catalogueStars.isError}
@@ -2031,48 +2208,25 @@
               : ''}
           {/if}
         </span>
-        {#if showTravelHeatmap}<span
-            data-commander-history-count={commanderVisits.data?.count ?? 0}
-            data-commander-history-state={travelHeatmapState}
-          >
-            {#if travelHeatmapState === 'checking'}
-              Checking your sign-in…
-            {:else if travelHeatmapState === 'auth-error'}
-              Account check unavailable · <button
-                type="button"
-                onclick={() => void auth.bootstrap()}>Retry</button
-              >
-            {:else if travelHeatmapState === 'signed-out'}
-              <a href={resolve('/account')}>Sign in and import your journals</a> to
-              see your travel heatmap
-            {:else if travelHeatmapState === 'zoom'}
-              Travel history appears when individual-star range is active
-            {:else if travelHeatmapState === 'loading'}
-              Reading imported journal visits…
-            {:else if travelHeatmapState === 'error'}
-              Travel heatmap unavailable · <button
-                type="button"
-                onclick={() => commanderVisits.refetch()}>Retry</button
-              >
-            {:else if travelHeatmapState === 'empty'}
-              No imported journal travel in this view
-            {:else}
-              {(commanderVisits.data?.count ?? 0).toLocaleString()} visited
-              {commanderVisits.data?.mode === 'density'
-                ? ' cells'
-                : ' systems'}{commanderVisits.data?.truncated
-                ? ' · bounded view'
-                : ''}
-            {/if}
-          </span>{/if}
       </div>
       <SpatialCanvas
         {scene}
+        anchorPoint={mapAnchorPoint}
+        onSystemSelect={selectMapSystem}
+        systemInspectHref={(point) =>
+          FINDER_F4_ENABLED
+            ? inspectHref(parseId64(point.systemId64), page.url)
+            : resolve(`/inspect?system=${point.systemId64}`)}
+        onSystemInspect={FINDER_F4_ENABLED
+          ? (event, point) => followInspect(event, parseId64(point.systemId64))
+          : undefined}
         {cameraRequest}
         {cameraRequestRevision}
         {focusTarget}
         {focusRevision}
-        contributionPatch={FINDER_F4_ENABLED ? densityContribution : null}
+        contributionPatch={FINDER_F4_ENABLED && showDensity
+          ? densityContribution
+          : null}
         contributionPatchRevision={FINDER_F4_ENABLED
           ? (densityContribution?.revision ?? 0)
           : 0}

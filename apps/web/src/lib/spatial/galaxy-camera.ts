@@ -7,8 +7,24 @@ export const GALAXY_CAMERA_MIN_PITCH_RAD = 0.12;
 export const GALAXY_CAMERA_MAX_PITCH_RAD = Math.PI / 2;
 export const GALAXY_CAMERA_ZOOM_SENSITIVITY = 0.001;
 export const GALAXY_CAMERA_TRANSITION_MS = 500;
+/** Safety envelope until catalogue bounds are available; not catalogue coverage. */
+export const GALAXY_CAMERA_NAVIGATION_BOUNDS_LY: Bounds3Ly = {
+  min: {
+    x: -GALAXY_CAMERA_MAX_DISTANCE_LY,
+    y: -GALAXY_CAMERA_MAX_DISTANCE_LY,
+    z: -GALAXY_CAMERA_MAX_DISTANCE_LY,
+  },
+  max: {
+    x: GALAXY_CAMERA_MAX_DISTANCE_LY,
+    y: GALAXY_CAMERA_MAX_DISTANCE_LY,
+    z: GALAXY_CAMERA_MAX_DISTANCE_LY,
+  },
+};
 
 export type GalaxyCameraViewport = Readonly<{ width: number; height: number }>;
+/** Canvas-local CSS pixels, independent of the renderer's device pixel ratio. */
+export type GalaxyCameraPoint = Readonly<{ x: number; y: number }>;
+export type GalaxyCameraPinch = readonly [GalaxyCameraPoint, GalaxyCameraPoint];
 export type GalaxyCameraPose = Readonly<{
   positionLy: Vec3Ly;
   targetLy: Vec3Ly;
@@ -49,6 +65,24 @@ function validateViewport(viewport: GalaxyCameraViewport): void {
       'Camera viewport must have finite positive dimensions',
     );
   }
+}
+
+/** Navigation bounds affect moved axes only, never factual focus/fit/pose data. */
+function translateFocus(
+  focus: Vec3Ly,
+  delta: Partial<Vec3Ly>,
+  bounds: Bounds3Ly = GALAXY_CAMERA_NAVIGATION_BOUNDS_LY,
+): Vec3Ly {
+  const min = coordinates(bounds.min);
+  const max = coordinates(bounds.max);
+  if (min.x > max.x || min.y > max.y || min.z > max.z) {
+    throw new RangeError('Galaxy camera navigation bounds must be ordered');
+  }
+  return {
+    x: delta.x === undefined ? focus.x : clamp(focus.x + delta.x, min.x, max.x),
+    y: delta.y === undefined ? focus.y : clamp(focus.y + delta.y, min.y, max.y),
+    z: delta.z === undefined ? focus.z : clamp(focus.z + delta.z, min.z, max.z),
+  };
 }
 
 /**
@@ -120,6 +154,7 @@ export function panGalaxyCamera(
   deltaXPx: number,
   deltaYPx: number,
   viewport: GalaxyCameraViewport,
+  bounds?: Bounds3Ly,
 ): CameraState {
   const state = normalizeGalaxyCamera(camera);
   validateViewport(viewport);
@@ -131,14 +166,166 @@ export function panGalaxyCamera(
     (-finite(deltaYPx, 'vertical pan') * lyPerPixel) / Math.sin(state.pitchRad);
   const sinBearing = Math.sin(state.bearingRad);
   const cosBearing = Math.cos(state.bearingRad);
+  const delta = {
+    x: cosBearing * rightLy - sinBearing * upLy,
+    z: sinBearing * rightLy + cosBearing * upLy,
+  };
   return normalizeGalaxyCamera({
     ...state,
-    focusLy: {
-      x: state.focusLy.x + cosBearing * rightLy - sinBearing * upLy,
-      y: state.focusLy.y,
-      z: state.focusLy.z + sinBearing * rightLy + cosBearing * upLy,
-    },
+    focusLy: bounds
+      ? translateFocus(state.focusLy, delta, bounds)
+      : {
+          x: state.focusLy.x + cosBearing * rightLy - sinBearing * upLy,
+          y: state.focusLy.y,
+          z: state.focusLy.z + sinBearing * rightLy + cosBearing * upLy,
+        },
     revision: state.revision + 1,
+  });
+}
+
+/** Positive travel raises the focus along galactic Y without changing the orbit. */
+export function elevateGalaxyCamera(
+  camera: CameraState,
+  deltaLy: number,
+  bounds?: Bounds3Ly,
+): CameraState {
+  const state = normalizeGalaxyCamera(camera);
+  return normalizeGalaxyCamera({
+    ...state,
+    focusLy: translateFocus(
+      state.focusLy,
+      { y: finite(deltaLy, 'elevation delta') },
+      bounds,
+    ),
+    revision: state.revision + 1,
+  });
+}
+
+/** Accessible toolbar travel uses a tenth of the current range per step. */
+export function elevateGalaxyCameraStep(
+  camera: CameraState,
+  direction: 1 | -1,
+  bounds?: Bounds3Ly,
+): CameraState {
+  const state = normalizeGalaxyCamera(camera);
+  if (direction !== 1 && direction !== -1) {
+    throw new RangeError('Elevation step direction must be 1 or -1');
+  }
+  return elevateGalaxyCamera(state, direction * state.distanceLy * 0.1, bounds);
+}
+
+/** Scale elevation drag by the current range; positive pixels move up. */
+export function elevateGalaxyCameraByPixels(
+  camera: CameraState,
+  deltaYPx: number,
+  viewport: GalaxyCameraViewport,
+  bounds?: Bounds3Ly,
+): CameraState {
+  const state = normalizeGalaxyCamera(camera);
+  validateViewport(viewport);
+  return elevateGalaxyCamera(
+    state,
+    (finite(deltaYPx, 'elevation drag') *
+      2 *
+      state.distanceLy *
+      Math.tan(GALAXY_CAMERA_FOV_RAD / 2)) /
+      viewport.height,
+    bounds,
+  );
+}
+
+/**
+ * Intersect a screen ray with the galactic x/z plane through the current focus
+ * Y. At shallow pitches some pixels see above the horizon: those have no
+ * forward intersection, so callers must fall back to unanchored navigation.
+ */
+export function galaxyCameraPlanePoint(
+  camera: CameraState,
+  point: GalaxyCameraPoint,
+  viewport: GalaxyCameraViewport,
+): Vec3Ly | null {
+  const state = normalizeGalaxyCamera(camera);
+  validateViewport(viewport);
+  const tangent = Math.tan(GALAXY_CAMERA_FOV_RAD / 2);
+  const screenX =
+    ((2 * finite(point.x, 'pointer x')) / viewport.width - 1) *
+    tangent *
+    (viewport.width / viewport.height);
+  const screenY =
+    (1 - (2 * finite(point.y, 'pointer y')) / viewport.height) * tangent;
+  const pose = galaxyCameraPose(state);
+  const sinBearing = Math.sin(state.bearingRad);
+  const cosBearing = Math.cos(state.bearingRad);
+  const sinPitch = Math.sin(state.pitchRad);
+  const cosPitch =
+    state.pitchRad === Math.PI / 2 ? 0 : Math.cos(state.pitchRad);
+  const right = { x: cosBearing, y: 0, z: sinBearing };
+  const forward = {
+    x: -sinBearing * cosPitch,
+    y: -sinPitch,
+    z: cosBearing * cosPitch,
+  };
+  const screenOffset = {
+    x: right.x * screenX + pose.up.x * screenY,
+    y: pose.up.y * screenY,
+    z: right.z * screenX + pose.up.z * screenY,
+  };
+  const perspective = state.projection === 'perspective';
+  const origin = perspective
+    ? pose.positionLy
+    : {
+        x: pose.positionLy.x + screenOffset.x * state.distanceLy,
+        y: pose.positionLy.y + screenOffset.y * state.distanceLy,
+        z: pose.positionLy.z + screenOffset.z * state.distanceLy,
+      };
+  const direction = perspective
+    ? {
+        x: forward.x + screenOffset.x,
+        y: forward.y + screenOffset.y,
+        z: forward.z + screenOffset.z,
+      }
+    : forward;
+  if (direction.y >= -1e-9) return null;
+  const travel = (state.focusLy.y - origin.y) / direction.y;
+  if (travel < 0 || !Number.isFinite(travel)) return null;
+  const x = origin.x + direction.x * travel;
+  const z = origin.z + direction.z * travel;
+  return Number.isFinite(x) && Number.isFinite(z)
+    ? { x, y: state.focusLy.y, z }
+    : null;
+}
+
+function anchorGalaxyCamera(
+  before: CameraState,
+  after: CameraState,
+  previousPoint: GalaxyCameraPoint,
+  currentPoint: GalaxyCameraPoint,
+  viewport: GalaxyCameraViewport,
+  bounds: Bounds3Ly = GALAXY_CAMERA_NAVIGATION_BOUNDS_LY,
+): CameraState {
+  const previous = galaxyCameraPlanePoint(before, previousPoint, viewport);
+  const current = galaxyCameraPlanePoint(after, currentPoint, viewport);
+  if (!previous || !current) {
+    // The pointer can cross the horizon while pinching. Continue with the
+    // established pan scale without using a backwards/near-parallel ray.
+    return {
+      ...panGalaxyCamera(
+        after,
+        previousPoint.x - currentPoint.x,
+        previousPoint.y - currentPoint.y,
+        viewport,
+        bounds,
+      ),
+      revision: after.revision,
+    };
+  }
+  return normalizeGalaxyCamera({
+    ...after,
+    focusLy: translateFocus(
+      after.focusLy,
+      { x: previous.x - current.x, z: previous.z - current.z },
+      bounds,
+    ),
   });
 }
 
@@ -159,6 +346,73 @@ export function zoomGalaxyCamera(
     distanceLy: Math.exp(logDistance),
     revision: state.revision + 1,
   });
+}
+
+/** Keep the same focus-plane point under the cursor while changing range. */
+export function zoomGalaxyCameraTowards(
+  camera: CameraState,
+  delta: number,
+  point: GalaxyCameraPoint,
+  viewport: GalaxyCameraViewport,
+  bounds?: Bounds3Ly,
+): CameraState {
+  const state = normalizeGalaxyCamera(camera);
+  return anchorGalaxyCamera(
+    state,
+    zoomGalaxyCamera(state, delta),
+    point,
+    point,
+    viewport,
+    bounds,
+  );
+}
+
+function pinchMidpoint(points: GalaxyCameraPinch): GalaxyCameraPoint {
+  return {
+    x:
+      finite(points[0].x, 'pointer x') / 2 +
+      finite(points[1].x, 'pointer x') / 2,
+    y:
+      finite(points[0].y, 'pointer y') / 2 +
+      finite(points[1].y, 'pointer y') / 2,
+  };
+}
+
+/**
+ * Finger separation controls range by its exact reciprocal ratio; midpoint
+ * movement grabs the same focus-plane point. Coincident fingers only pan.
+ */
+export function pinchGalaxyCamera(
+  camera: CameraState,
+  previous: GalaxyCameraPinch,
+  current: GalaxyCameraPinch,
+  viewport: GalaxyCameraViewport,
+  bounds?: Bounds3Ly,
+): CameraState {
+  const state = normalizeGalaxyCamera(camera);
+  const previousMidpoint = pinchMidpoint(previous);
+  const currentMidpoint = pinchMidpoint(current);
+  const previousDistance = Math.hypot(
+    previous[1].x - previous[0].x,
+    previous[1].y - previous[0].y,
+  );
+  const currentDistance = Math.hypot(
+    current[1].x - current[0].x,
+    current[1].y - current[0].y,
+  );
+  const delta =
+    previousDistance > 1e-6 && currentDistance > 1e-6
+      ? (Math.log(previousDistance) - Math.log(currentDistance)) /
+        GALAXY_CAMERA_ZOOM_SENSITIVITY
+      : 0;
+  return anchorGalaxyCamera(
+    state,
+    zoomGalaxyCamera(state, delta),
+    previousMidpoint,
+    currentMidpoint,
+    viewport,
+    bounds,
+  );
 }
 
 export function orbitGalaxyCamera(
