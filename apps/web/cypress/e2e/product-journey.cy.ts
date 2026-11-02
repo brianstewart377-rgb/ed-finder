@@ -372,27 +372,28 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     const dialog = '[role="dialog"][data-testid="body-filters-dialog"]';
     let anchoredRequest: Record<string, unknown>;
     cy.viewport(1280, 800);
-    // Each observer is registered once with its own alias; all responses come
-    // from the normal Product API and its published V3 fixture generation.
-    // Match only the complete name: typing cancels the shorter prefix
-    // requests, and a cancelled request has no response to assert on.
-    cy.intercept({
-      method: 'GET',
-      pathname: '/api/local/autocomplete',
-      query: { q: 'Achenar' },
-    }).as('bodyFilterAutocomplete');
-    cy.intercept('POST', '/api/local/search').as('bodyFilterSearch');
+    // All responses come from the normal Product API and its published V3
+    // fixture generation. The anchor is chosen through the shared keyboard
+    // helper, which waits for the complete autocomplete query and the search.
     cy.intercept('GET', `/api/v1/systems/${anchorId}`).as('bodyFilterAnchor');
-    cy.visit('/explore');
+    visitExplore();
     cy.contains('button', /^Body filters$/).should('be.disabled');
-    cy.get('@bodyFilterSearch.all').should('have.length', 0);
-    cy.get('#system-search').type('Achenar');
-    cy.wait('@bodyFilterAutocomplete')
-      .its('response.statusCode')
-      .should('eq', 200);
-    cy.contains('[role="option"]', 'Achenar').click();
-    cy.wait('@bodyFilterSearch', { requestTimeout }).then(
-      ({ request, response }) => {
+    cy.get('@search.all').should('have.length', 0);
+    keyboardChooseAnchor('Achenar');
+    cy.get('@search.all')
+      .should('have.length', 1)
+      .then((calls) => {
+        const { request, response } = (
+          calls as unknown as Array<{
+            request: {
+              body: Record<string, unknown> & {
+                sort_by?: string;
+                filters?: { distance?: unknown };
+              };
+            };
+            response?: { statusCode: number };
+          }>
+        )[0]!;
         expect(response?.statusCode).to.equal(200);
         expect(request.body.sort_by).to.equal('distance');
         expect(request.body.filters.distance).to.deep.equal({
@@ -401,8 +402,7 @@ describe('V3 Explore to Inspect product checkpoint', () => {
         });
         expect(request.body).not.to.have.property('body_filters');
         anchoredRequest = request.body;
-      },
-    );
+      });
     waitForExploreSettled();
     cy.get('#results-title').should('contain.text', 'Near Achenar');
     cy.contains('button', /^Body filters$/).click();
@@ -424,9 +424,11 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     );
     cy.injectAxe();
     cy.checkA11y(dialog);
+    // Finish on the desktop viewport so the pop-out is not still repositioning
+    // when Apply is clicked.
     for (const [width, height] of [
-      [1280, 800],
       [390, 844],
+      [1280, 800],
     ]) {
       cy.viewport(width, height);
       cy.get(`${dialog} [role="tabpanel"]:visible`).scrollTo('top');
@@ -449,23 +451,22 @@ describe('V3 Explore to Inspect product checkpoint', () => {
         },
       );
     }
-    cy.viewport(1280, 800);
-    cy.get('@bodyFilterSearch.all').should('have.length', 1);
-    cy.contains(`${dialog} button`, /^Apply$/).click();
-    cy.wait('@bodyFilterSearch', { requestTimeout }).then(
-      ({ request, response }) => {
-        expect(request.body).to.deep.equal({
-          ...anchoredRequest,
-          body_filters: { elw_count: { min: 1 } },
-        });
-        expect(response?.statusCode).to.equal(200);
-        expect(response?.body.results.length).to.be.greaterThan(0);
-      },
-    );
+    cy.get('@search.all').should('have.length', 1);
+    cy.contains(`${dialog} button`, /^Apply$/).click({
+      scrollBehavior: false,
+    });
+    cy.wait('@search', { requestTimeout }).then(({ request, response }) => {
+      expect(request.body).to.deep.equal({
+        ...anchoredRequest,
+        body_filters: { elw_count: { min: 1 } },
+      });
+      expect(response?.statusCode).to.equal(200);
+      expect(response?.body.results.length).to.be.greaterThan(0);
+    });
     cy.get(dialog).should('not.exist');
     cy.contains('button', /^Body filters$/).should('be.focused');
     waitForExploreSettled();
-    cy.get('@bodyFilterSearch.all').should('have.length', 2);
+    cy.get('@search.all').should('have.length', 2);
     cy.contains('Earth-like ≥ 1').should('be.visible');
     cy.location('search', { timeout: 15_000 }).should((search) => {
       const params = new URLSearchParams(search);
@@ -483,18 +484,16 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.wait('@bodyFilterAnchor', { requestTimeout })
       .its('response.statusCode')
       .should('eq', 200);
-    cy.wait('@bodyFilterSearch', { requestTimeout }).then(
-      ({ request, response }) => {
-        expect(request.body).to.deep.equal({
-          ...anchoredRequest,
-          body_filters: { elw_count: { min: 1 } },
-        });
-        expect(response?.statusCode).to.equal(200);
-        expect(response?.body.results.length).to.be.greaterThan(0);
-      },
-    );
+    cy.wait('@search', { requestTimeout }).then(({ request, response }) => {
+      expect(request.body).to.deep.equal({
+        ...anchoredRequest,
+        body_filters: { elw_count: { min: 1 } },
+      });
+      expect(response?.statusCode).to.equal(200);
+      expect(response?.body.results.length).to.be.greaterThan(0);
+    });
     waitForExploreSettled();
-    cy.get('@bodyFilterSearch.all').should('have.length', 3);
+    cy.get('@search.all').should('have.length', 3);
     cy.get('#system-search').should('have.value', 'Achenar');
     cy.get('#results-title').should('contain.text', 'Near Achenar');
     cy.get('[data-system-result]').should('have.length.greaterThan', 0);
