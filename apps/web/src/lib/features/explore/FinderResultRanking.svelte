@@ -142,7 +142,7 @@
     width: fit-content;
     padding: 0.15rem 0.4rem;
     border: 1px solid currentColor;
-    border-radius: 0.3rem;
+    border-radius: var(--radius-pill);
     font-size: 0.8rem;
   }
   .tier-badge {
@@ -165,7 +165,7 @@
   }
   .evidence-badge,
   .ranking-summary {
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 0.8rem;
   }
   .evidence-description {

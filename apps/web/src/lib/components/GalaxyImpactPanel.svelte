@@ -89,7 +89,10 @@
   .impact-finds div {
     padding: 1rem;
     border: 1px solid var(--line);
-    background: var(--panel-raised);
+    background: var(--panel);
+    background-image: var(--panel-gloss);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-panel);
   }
   dt {
     color: var(--muted);

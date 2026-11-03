@@ -207,23 +207,11 @@
   }
   .slot-source {
     display: block;
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 0.6rem;
     line-height: 1.2;
     text-align: center;
     white-space: nowrap;
-  }
-  button {
-    border: 1px solid var(--line);
-    border-radius: 0.35rem;
-    background: var(--panel-raised);
-    color: inherit;
-    cursor: pointer;
-    font: inherit;
-  }
-  button:disabled {
-    cursor: default;
-    opacity: 0.6;
   }
   .slot-box {
     display: inline-flex;
@@ -242,9 +230,9 @@
     font-variant-numeric: tabular-nums;
   }
   .over-capacity {
-    border-color: var(--color-signal);
-    box-shadow: inset 0 0 0 1px var(--color-signal);
-    background: color-mix(in srgb, var(--color-signal) 12%, var(--color-panel));
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, var(--panel));
   }
   .warning {
     font-size: 0.65rem;
@@ -266,10 +254,11 @@
     max-height: calc(100dvh - 1rem);
     overflow-y: auto;
     border: 1px solid var(--line);
-    border-radius: 0.6rem;
+    border-radius: var(--radius-lg);
     padding: 0.9rem;
-    background: var(--color-panel);
-    box-shadow: 0 0.6rem 2rem #0006;
+    background: var(--panel);
+    background-image: var(--panel-gloss);
+    box-shadow: var(--shadow-panel), var(--line-glow);
   }
   h4 {
     margin: 0;
@@ -278,7 +267,7 @@
   p {
     font-size: 0.8rem;
     line-height: 1.5;
-    color: var(--muted);
+    color: var(--text-muted);
   }
   .stepper,
   .editor-actions {

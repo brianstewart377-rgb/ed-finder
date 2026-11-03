@@ -340,13 +340,13 @@
     display: grid;
     gap: 0.125rem;
     border: 1px solid var(--line);
-    border-radius: 0.35rem;
+    border-radius: var(--radius-sm);
     margin-top: 0.25rem;
     padding: 0.25rem;
     scroll-margin-top: 0.5rem;
   }
   .build-step.selected {
-    border-color: var(--color-cyan);
+    border-color: var(--neon);
   }
   .step-title,
   .step-metrics,
@@ -379,13 +379,13 @@
     flex: 0 0 1.25rem;
     height: 1.25rem;
     border: 1px solid var(--line);
-    border-radius: 50%;
+    border-radius: var(--radius-pill);
     font-size: 0.7rem;
     font-variant-numeric: tabular-nums;
   }
   .primary-label {
     flex: 0 0 auto;
-    color: var(--color-signal);
+    color: var(--accent);
     font-size: 0.7rem;
   }
   .step-description {
@@ -444,7 +444,7 @@
     min-width: 1.5rem;
     min-height: 1.5rem;
     border: 1px solid var(--line);
-    border-radius: 0.25rem;
+    border-radius: var(--radius-pill);
     background: var(--panel-raised);
     padding: 0.125rem 0.25rem;
     font-size: 0.7rem;
@@ -465,7 +465,8 @@
     display: none;
   }
   .step-edit summary:hover {
-    border-color: var(--color-signal);
+    border-color: var(--line-strong);
+    box-shadow: var(--line-glow);
   }
   .step-edit-fields {
     border-top: 1px solid var(--line);

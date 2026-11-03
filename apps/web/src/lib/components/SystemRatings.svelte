@@ -285,15 +285,15 @@
 
 <style>
   .rating-why {
-    border-color: var(--line, hsl(216 10% 24%));
+    border-color: var(--line);
     border-radius: var(--radius, 0.4rem);
-    background: var(--panel-raised, hsl(216 10% 14%));
-    color: var(--neon, #7dd3fc);
+    background: var(--panel-raised);
+    color: var(--neon);
   }
   .rating-why[aria-expanded='true'] {
-    border-color: var(--accent, #ff7a14);
+    border-color: var(--accent);
   }
   .system-ratings-note {
-    color: var(--text-muted, #a6acb4);
+    color: var(--text-muted);
   }
 </style>

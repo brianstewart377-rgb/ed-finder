@@ -28,6 +28,24 @@ keyboard focus, separate balances, axe and reduced motion. P5b Review/export
 remains a separate PR; API, routes and export format are unchanged. This visual
 change needs Product E2E/visual validation before promotion; it is not deployed.
 
+## 2026-11-02 — Design kit phase 1: shared application visual tokens
+
+Adds a shared orange, midnight navy and neon-blue design kit in `apps/web`,
+with compatibility aliases, unchanged tier colours, self-hosted Saira Semi
+Condensed HUD headings (OFL licence), glossy rounded panels, pill actions,
+tabs, filter chips, fields and pop-outs. The home, workspace, Finder, Inspect,
+Plan and map toolbar styles adopt the tokens without changing behaviour.
+Pill skins explicitly target short actions, toolbars, filter controls, tabs and
+pop-out triggers; catalogue, autocomplete, Inspect body and Compare selection
+rows keep their feature-owned layout and paint. Result-row Inspect links are
+compact, vertically centred secondary pills with a neon outline. Watchlist
+actions also opt in explicitly. Vitest contracts guard token values, component
+colour adoption and rendered result/autocomplete controls against blanket
+button styling.
+
+This is a global visual change that needs visual validation (Product E2E
+screenshots) before production promotion. It is **not deployed**.
+
 ## 2026-11-02 — Explore search scope and bounded radius (A02)
 
 Explore now states the search scope below the results heading and exposes it

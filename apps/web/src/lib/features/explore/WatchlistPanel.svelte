@@ -236,8 +236,10 @@
         <a class="text-action" href={exportHref} download="ed-finder-pins.json"
           >Export pins as JSON</a
         >
-        <button type="button" onclick={() => (confirmClear = true)}
-          >Clear all pins</button
+        <button
+          class="kit-pill"
+          type="button"
+          onclick={() => (confirmClear = true)}>Clear all pins</button
         >
       {/if}
     </header>
@@ -254,9 +256,13 @@
         aria-label="Confirm clear pins"
       >
         <p>Clear all {$pins.value.length} pinned systems?</p>
-        <button type="button" onclick={clearPins}>Confirm clear pins</button>
-        <button type="button" onclick={() => (confirmClear = false)}
-          >Keep pins</button
+        <button class="kit-pill" type="button" onclick={clearPins}
+          >Confirm clear pins</button
+        >
+        <button
+          class="kit-pill"
+          type="button"
+          onclick={() => (confirmClear = false)}>Keep pins</button
         >
       </div>
     {/if}
@@ -369,6 +375,7 @@
                 <td
                   ><div class="row-actions">
                     <button
+                      class="kit-pill"
                       type="button"
                       aria-label={`Compare ${entry.name}`}
                       aria-pressed={comparisonIds.has(entry.id64)}
@@ -379,6 +386,7 @@
                       >Compare</button
                     >
                     <button
+                      class="kit-pill"
                       type="button"
                       aria-label={`Watch ${entry.name}`}
                       disabled={!watchlist.ready ||
@@ -390,6 +398,7 @@
                         : 'Watch'}</button
                     >
                     <button
+                      class="kit-pill"
                       type="button"
                       aria-label={`Unpin ${entry.name}`}
                       onclick={() => pinEntry(snapshotFromPin(entry))}
@@ -424,6 +433,7 @@
         </select>
       </label>
       <button
+        class="kit-pill"
         type="button"
         disabled={!watchlist.ready ||
           watchlist.query.isFetching ||
@@ -440,6 +450,7 @@
     {#if watchlist.error}
       <p role="alert">{watchlist.error}</p>
       <button
+        class="kit-pill"
         type="button"
         onclick={() => watchlist.retry()}
         disabled={watchlist.pending}>Retry watchlist change</button
@@ -447,8 +458,10 @@
     {/if}
     {#if watchlist.query.isError}
       <p role="alert">Your watchlist could not be loaded. Try again.</p>
-      <button type="button" onclick={() => watchlist.query.refetch()}
-        >Retry watchlist</button
+      <button
+        class="kit-pill"
+        type="button"
+        onclick={() => watchlist.query.refetch()}>Retry watchlist</button
       >
     {/if}
     {#if watchlist.query.isPending}
@@ -520,6 +533,7 @@
                 <td
                   ><div class="row-actions">
                     <button
+                      class="kit-pill"
                       type="button"
                       aria-label={`Compare ${entry.name}`}
                       aria-pressed={comparisonIds.has(entry.system_id64)}
@@ -530,6 +544,7 @@
                       >Compare</button
                     >
                     <button
+                      class="kit-pill"
                       type="button"
                       aria-label={`Pin ${entry.name}`}
                       aria-pressed={pinnedIds.has(entry.system_id64)}
@@ -540,6 +555,7 @@
                         : 'Pin'}</button
                     >
                     <button
+                      class="kit-pill"
                       type="button"
                       aria-label={`Remove ${entry.name} from watchlist`}
                       disabled={!watchlist.ready || watchlist.pending}
@@ -561,7 +577,10 @@
   .saved-systems {
     min-width: 0;
     border: 1px solid var(--line);
-    background: var(--panel-raised);
+    background: var(--panel);
+    background-image: var(--panel-gloss);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-panel);
   }
   .saved-heading,
   .saved-systems > section {
@@ -607,15 +626,19 @@
     font-size: 0.85rem;
   }
   select,
-  button,
+  .kit-pill,
   .text-action {
     border: 1px solid var(--line);
     background: var(--panel-raised);
     color: inherit;
     padding: 0.45rem 0.65rem;
-    border-radius: 0.3rem;
+    border-radius: var(--radius-pill);
     font: inherit;
     font-size: 0.8rem;
+  }
+  select {
+    background: var(--panel-sunken);
+    border-radius: var(--radius-sm);
   }
   button {
     cursor: pointer;
@@ -625,7 +648,7 @@
     font-weight: 700;
   }
   button:disabled {
-    opacity: 0.6;
+    opacity: 0.55;
     cursor: default;
   }
   .empty-title {

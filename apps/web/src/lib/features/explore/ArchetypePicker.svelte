@@ -91,8 +91,9 @@
     margin: 0;
     padding: 1rem;
     border: 1px solid var(--line);
-    border-radius: 0.75rem;
-    background: var(--color-panel);
+    border-radius: var(--radius-lg);
+    background: var(--panel-gloss), var(--panel);
+    box-shadow: var(--shadow-panel);
   }
   legend {
     padding-inline: 0.4rem;
@@ -110,14 +111,14 @@
     gap: 0.4rem 0.65rem;
     padding: 0.7rem;
     border: 1px solid var(--line);
-    border-radius: 0.5rem;
+    border-radius: var(--radius-sm);
   }
   .archetype-choice:has(input:checked) {
-    border-color: var(--color-cyan);
-    background: var(--panel-raised);
+    border-color: var(--neon);
+    background: var(--neon-soft);
   }
   input {
-    accent-color: var(--color-cyan);
+    accent-color: var(--accent);
   }
   label,
   input {
@@ -126,7 +127,7 @@
   .archetype-choice p {
     grid-column: 2;
     margin: 0;
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 0.8rem;
     line-height: 1.45;
   }
@@ -139,8 +140,8 @@
   select {
     padding: 0.5rem 0.75rem;
     border: 1px solid var(--line);
-    border-radius: 0.4rem;
-    background: var(--panel-raised);
+    border-radius: var(--radius-sm);
+    background: var(--panel-sunken);
     color: inherit;
     font: inherit;
   }

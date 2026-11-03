@@ -275,7 +275,7 @@
     inset: 0;
     display: flex;
     justify-content: flex-end;
-    background: #0009;
+    background: color-mix(in srgb, var(--bg-void) 60%, transparent);
   }
   .why-drawer {
     width: min(34rem, 100%);
@@ -283,10 +283,11 @@
     overflow-y: auto;
     overflow-wrap: anywhere;
     padding: 1.25rem;
-    border-left: 1px solid var(--line);
-    background: var(--color-panel);
-    box-shadow: -1rem 0 3rem #0005;
-    animation: drawer-in 140ms ease-out;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    background: var(--panel);
+    background-image: var(--panel-gloss);
+    box-shadow: var(--shadow-panel), var(--line-glow);
   }
   header {
     display: flex;
@@ -315,30 +316,22 @@
   button {
     flex-shrink: 0;
     min-height: 2.75rem;
-    border: 1px solid var(--line);
-    border-radius: 0.35rem;
     padding: 0.45rem 0.7rem;
-    background: var(--panel-raised);
-    color: inherit;
     font: inherit;
     font-size: 0.82rem;
     cursor: pointer;
-  }
-  button:disabled {
-    opacity: 0.6;
-    cursor: default;
   }
   .result {
     display: inline-block;
     margin: 1rem 0 0;
     padding: 0.35rem 0.6rem;
     border: 1px solid var(--line);
-    border-radius: 0.3rem;
+    border-radius: var(--radius-pill);
     font-weight: 650;
   }
   .blocked {
-    border-color: var(--color-signal);
-    background: color-mix(in srgb, var(--color-signal) 12%, var(--color-panel));
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, var(--panel));
   }
   .reasons {
     padding-left: 1.25rem;
@@ -366,7 +359,7 @@
   }
   .muted,
   .rule-status {
-    color: var(--muted);
+    color: var(--text-muted);
   }
   .stale {
     opacity: 0.55;
@@ -389,8 +382,10 @@
     margin-top: 1rem;
     padding: 0.85rem;
     border: 1px solid var(--line);
-    border-radius: 0.35rem;
-    background: var(--panel-raised);
+    border-radius: var(--radius-lg);
+    background: var(--panel);
+    background-image: var(--panel-gloss);
+    box-shadow: var(--shadow-panel);
   }
   .rule p:last-child {
     margin-bottom: 0;
@@ -398,23 +393,8 @@
   blockquote {
     margin: 0.75rem 0;
     padding-left: 0.75rem;
-    border-left: 2px solid var(--color-signal);
+    border-left: 2px solid var(--accent);
     font-size: 0.85rem;
     line-height: 1.55;
-  }
-  @keyframes drawer-in {
-    from {
-      transform: translateX(1rem);
-      opacity: 0;
-    }
-    to {
-      transform: translateX(0);
-      opacity: 1;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .why-drawer {
-      animation: none;
-    }
   }
 </style>

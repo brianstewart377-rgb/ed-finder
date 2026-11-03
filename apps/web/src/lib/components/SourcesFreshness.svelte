@@ -223,15 +223,15 @@
 <style>
   button {
     padding: 0.35rem 0.55rem;
-    border: 1px solid var(--line, hsl(216 10% 24%));
+    border: 1px solid var(--line);
     border-radius: var(--radius, 0.4rem);
-    background: var(--panel-raised, hsl(216 10% 14%));
+    background: var(--panel-raised);
     color: inherit;
     font: inherit;
     cursor: pointer;
   }
   button:focus-visible {
-    outline: 2px solid var(--accent, #ff7a14);
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
   .sources-trigger {
@@ -240,7 +240,7 @@
     vertical-align: middle;
   }
   .hint {
-    color: var(--text-muted, #a6acb4);
+    color: var(--text-muted);
   }
   .source-products {
     display: grid;
@@ -249,7 +249,7 @@
   }
   .source-products > div {
     padding-top: 0.7rem;
-    border-top: 1px solid var(--line, hsl(216 10% 24%));
+    border-top: 1px solid var(--line);
   }
   .source-products dt {
     margin: 0 0 0.3rem;

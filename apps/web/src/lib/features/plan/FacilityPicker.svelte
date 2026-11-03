@@ -632,7 +632,12 @@
     min-height: 0;
     padding: 0.75rem;
     overflow: hidden;
+<<<<<<< HEAD
     background: var(--panel, var(--color-panel));
+=======
+    background: var(--panel);
+    background-image: var(--panel-gloss);
+>>>>>>> origin/main
   }
   .picker-heading {
     display: flex;
@@ -660,6 +665,7 @@
     padding: 0.4rem 0.6rem;
     font-size: 0.8rem;
   }
+<<<<<<< HEAD
   [role='tab'][aria-selected='true'] {
     border-color: var(--accent, var(--color-signal));
     background: color-mix(
@@ -668,6 +674,8 @@
       var(--panel, var(--color-panel))
     );
   }
+=======
+>>>>>>> origin/main
   .picker-search {
     display: flex;
     align-items: center;
@@ -681,7 +689,11 @@
   }
   p {
     margin: 0.6rem 0;
+<<<<<<< HEAD
     color: var(--text-muted, var(--muted));
+=======
+    color: var(--text-muted);
+>>>>>>> origin/main
     font-size: 0.75rem;
   }
   .picker-list {
@@ -701,7 +713,11 @@
   }
   h4 {
     margin: 0.7rem 0 0.3rem;
+<<<<<<< HEAD
     color: var(--text-muted, var(--muted));
+=======
+    color: var(--text-muted);
+>>>>>>> origin/main
     font-size: 0.72rem;
     font-weight: 600;
   }
@@ -731,13 +747,21 @@
     padding-right: 0.3rem;
     font-size: 0.7rem;
     font-variant-numeric: tabular-nums;
+<<<<<<< HEAD
     color: var(--text-muted, var(--muted));
+=======
+    color: var(--text-muted);
+>>>>>>> origin/main
     text-align: right;
   }
   .picker-prerequisites {
     grid-column: 1 / -1;
     padding: 0 0.4rem 0.25rem;
+<<<<<<< HEAD
     color: var(--text-muted, var(--muted));
+=======
+    color: var(--text-muted);
+>>>>>>> origin/main
     font-size: 0.7rem;
   }
   @media (max-width: 400px) {
