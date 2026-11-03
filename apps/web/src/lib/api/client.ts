@@ -1174,6 +1174,7 @@ export async function getCatalogueViewportSystems(
 ): Promise<CatalogueViewportResponse> {
   const { data } = await mapSystemsApiMapSystemsGet({
     throwOnError: true,
+    priority: 'low',
     query: {
       min_x: request.minX,
       max_x: request.maxX,

@@ -15,6 +15,7 @@ import type {
 } from '../contracts';
 import { buildFixtureCatalogueDensity } from '../galaxy-density.fixture';
 import { createCatalogueDensityContribution } from '../galaxy-density';
+import { createCatalogueStarsContribution } from '../galaxy-star-stream';
 import {
   DENSITY_CROSSFADE_FAR_LY,
   DENSITY_CROSSFADE_NEAR_LY,
@@ -122,6 +123,152 @@ function densityBatchScene(
 }
 
 describe('Babylon spatial adapter boundary', () => {
+  it.each([
+    { reservedX: 1, expectedId: '2' },
+    { reservedX: 1_000, expectedId: '1' },
+  ])(
+    'prefers reserved catalogue picks only inside the existing screen tolerance ($reservedX LY)',
+    ({ reservedX, expectedId }) => {
+      const engine = new NullEngine({
+        renderWidth: 640,
+        renderHeight: 360,
+        textureSize: 512,
+        deterministicLockstep: true,
+        lockstepMaxSteps: 1,
+      });
+      const session = createBabylonSession(engine, 'WEBGL2');
+      const events = vi.fn();
+      const contract: GalaxySceneContract = {
+        kind: 'galaxy',
+        revision: 1,
+        camera: {
+          focusLy: { x: 0, y: 0, z: 0 },
+          distanceLy: 100,
+          bearingRad: 0,
+          pitchRad: 0.6,
+          projection: 'perspective',
+          revision: 1,
+        },
+        selection: [],
+        contributions: [
+          createCatalogueStarsContribution(
+            [
+              {
+                id64: parseId64('1'),
+                name: 'Background',
+                x: 0,
+                y: 0,
+                z: 0,
+                populated: false,
+              },
+            ],
+            1,
+            false,
+            [
+              {
+                systemId64: '2',
+                name: 'Reserved',
+                positionLy: { x: reservedX, y: 0, z: 0 },
+              },
+            ],
+          ),
+        ],
+      };
+      session.execute?.({ type: 'LOAD_SCENE', scene: contract }, events);
+      const scene = engine.scenes.at(-1)!;
+      scene.render();
+      // The exact ray encounters background detail. A nearby known target
+      // still wins; a reserved target outside the tolerance cannot steal it.
+      vi.spyOn(scene, 'pick').mockReturnValue({
+        hit: true,
+        pickedMesh: scene.getMeshByName('finder-system-instances'),
+        thinInstanceIndex: 1,
+      } as ReturnType<typeof scene.pick>);
+      session.execute?.({ type: 'PICK', screenX: 320, screenY: 180 }, events);
+      expect(events).toHaveBeenCalledWith({
+        type: 'TARGET_PICKED',
+        target: { kind: 'system', systemId64: expectedId },
+      });
+      session.dispose();
+      engine.dispose();
+    },
+  );
+
+  it('retains reserved picking priority when Finder supplies the richer duplicate point', () => {
+    const finder = {
+      id64: parseId64('42'),
+      name: 'Finder target',
+      coords: { x: 10, y: 0, z: 20 },
+      population: 12_345,
+    } as ExploreSystem;
+    const initial = buildExploreGalaxyScene([finder], null, 1);
+    const engine = new NullEngine();
+    const product = createBabylonGalaxyScene(engine, {
+      ...initial,
+      contributions: [
+        ...initial.contributions,
+        createCatalogueStarsContribution([], 1, false, [
+          {
+            systemId64: '42',
+            name: 'Pinned target',
+            positionLy: { x: 10, y: 0, z: 20 },
+          },
+        ]),
+      ],
+    });
+    expect(product.points).toHaveLength(1);
+    expect(product.points[0]).toMatchObject({
+      name: 'Finder target',
+      reserved: true,
+      summary: { population: 12_345 },
+    });
+    product.scene.dispose();
+    engine.dispose();
+  });
+
+  it('keeps reserved catalogue targets in the always-visible batch behind density', () => {
+    const initial = buildExploreGalaxyScene([], null, 1);
+    const engine = new NullEngine();
+    const product = createBabylonGalaxyScene(engine, {
+      ...initial,
+      camera: { ...initial.camera, distanceLy: DENSITY_CROSSFADE_FAR_LY + 1 },
+      contributions: [
+        ...initial.contributions,
+        createCatalogueStarsContribution(
+          [
+            {
+              id64: parseId64('7'),
+              name: 'Background',
+              x: 0,
+              y: 0,
+              z: 0,
+              populated: false,
+            },
+          ],
+          1,
+          false,
+          [
+            {
+              systemId64: '42',
+              name: 'Pinned target',
+              positionLy: { x: 10, y: 0, z: 20 },
+            },
+          ],
+        ),
+      ],
+    });
+    // The pinned (reserved) point is not a Finder result or a selection, yet it
+    // must stay pickable and visible when the catalogue batch fades out.
+    expect(product.finderStars.points.map((point) => point.systemId64)).toEqual(
+      ['42'],
+    );
+    expect(
+      product.catalogueStars.points.map((point) => point.systemId64),
+    ).toEqual(['7']);
+    product.scene.dispose();
+    engine.dispose();
+  });
+
   it.each(['CATALOGUE', 'FINDER'] as const)(
     'reports the id64 and name when hovering a pickable %s system',
     (owner) => {

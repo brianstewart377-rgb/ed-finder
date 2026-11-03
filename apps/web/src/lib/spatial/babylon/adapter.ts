@@ -357,12 +357,19 @@ function uniqueGalaxySystemPoints(
   for (const layer of layers) {
     for (const point of layer.points) {
       // Finder results carry the richer summary, independent of layer order.
+      // A reserved flag from any layer is kept on the merged point.
       const finder = layer.layerId === 'finder-systems';
-      if (
-        !points.has(point.systemId64) ||
-        (finder && !finderIds.has(point.systemId64))
-      )
-        points.set(point.systemId64, point);
+      const existing = points.get(point.systemId64);
+      if (!existing || (finder && !finderIds.has(point.systemId64))) {
+        points.set(
+          point.systemId64,
+          existing?.reserved && !point.reserved
+            ? { ...point, reserved: true }
+            : point,
+        );
+      } else if (point.reserved && !existing.reserved) {
+        points.set(point.systemId64, { ...existing, reserved: true });
+      }
       if (finder) finderIds.add(point.systemId64);
     }
   }
@@ -375,7 +382,9 @@ function partitionGalaxyStars(
   selection: GalaxySceneContract['selection'],
 ): { catalogue: GalaxySystemPoint[]; finder: GalaxySystemPoint[] } {
   // Finder contributions also carry retained selections/reference markers.
-  // A selected catalogue target joins the same always-visible batch.
+  // A selected catalogue target joins the same always-visible batch, as does
+  // any reserved application target (pins, watchlist, search reference) so it
+  // survives the wide/local hand-off and stays pickable behind density.
   const finderIds = new Set(
     layers.flatMap((layer) =>
       layer.layerId === 'finder-systems'
@@ -389,7 +398,10 @@ function partitionGalaxyStars(
   const catalogue: GalaxySystemPoint[] = [];
   const finder: GalaxySystemPoint[] = [];
   for (const point of points) {
-    (finderIds.has(point.systemId64) ? finder : catalogue).push(point);
+    (finderIds.has(point.systemId64) || point.reserved === true
+      ? finder
+      : catalogue
+    ).push(point);
   }
   return { catalogue, finder };
 }
@@ -1322,14 +1334,13 @@ function createGalaxyVisualFinish(
   return glow;
 }
 
-function nearestStarTargetByScreen(
+function nearestStarPointByScreen(
   engine: AbstractEngine,
   product: BabylonGalaxyProduct,
   deviceX: number,
   deviceY: number,
   tolerancePx: number,
-  includeSystemName = false,
-): SpatialTarget | undefined {
+): GalaxySystemPoint | undefined {
   const scene = product.scene;
   const transform = scene.getTransformMatrix();
   const viewport = new Viewport(
@@ -1342,7 +1353,11 @@ function nearestStarTargetByScreen(
   const projected = Vector3.Zero();
   let best: GalaxySystemPoint | undefined;
   let bestDistanceSq = tolerancePx * tolerancePx;
+  let bestReserved = false;
+  const toleranceSq = tolerancePx * tolerancePx;
   // Visit the always-visible batch first and retain it on an equal distance.
+  // Reserved application targets (selected, reference, results) win an
+  // overlapping catalogue star within the same tolerance.
   for (const batch of [product.finderStars, product.catalogueStars]) {
     if (!interactiveStarBatch(batch)) continue;
     for (const point of batch.points) {
@@ -1357,22 +1372,21 @@ function nearestStarTargetByScreen(
       const dx = projected.x - deviceX;
       const dy = projected.y - deviceY;
       const distanceSq = dx * dx + dy * dy;
+      if (distanceSq > toleranceSq) continue;
+      const reserved = point.reserved === true;
       if (
-        distanceSq < bestDistanceSq ||
-        (!best && distanceSq <= bestDistanceSq)
+        (reserved && !bestReserved) ||
+        (reserved === bestReserved &&
+          (distanceSq < bestDistanceSq ||
+            (!best && distanceSq <= bestDistanceSq)))
       ) {
         bestDistanceSq = distanceSq;
         best = point;
+        bestReserved = reserved;
       }
     }
   }
-  return best
-    ? {
-        kind: 'system',
-        systemId64: best.systemId64,
-        ...(includeSystemName ? { name: best.name } : {}),
-      }
-    : undefined;
+  return best;
 }
 
 function pickGalaxyTarget(
@@ -1393,7 +1407,12 @@ function pickGalaxyTarget(
     ? engine.getRenderHeight() / canvas.clientHeight
     : 1;
   let nearestHit:
-    | { distance: number; systemId64: string; name: string | undefined }
+    | {
+        distance: number;
+        systemId64: string;
+        name: string | undefined;
+        reserved: boolean;
+      }
     | undefined;
   // Separate ray picks make batch tie-breaking independent of scene mesh order.
   // A predicate bypasses Babylon's isPickable gate, so gate each batch here.
@@ -1421,31 +1440,40 @@ function pickGalaxyTarget(
         ? product.selectedSystemId64
         : point?.systemId64;
     if (systemId64 && (!nearestHit || hit.distance < nearestHit.distance)) {
-      nearestHit = { distance: hit.distance, systemId64, name: point?.name };
+      nearestHit = {
+        distance: hit.distance,
+        systemId64,
+        name: point?.name,
+        reserved: hit.pickedMesh === selectedMarker || point?.reserved === true,
+      };
     }
   }
-  if (nearestHit)
-    return {
-      kind: 'system',
-      systemId64: nearestHit.systemId64,
-      ...(options.includeSystemName && nearestHit.name
-        ? { name: nearestHit.name }
-        : {}),
-    };
   // Stars render only a few pixels wide, so an exact ray can narrowly miss.
   // Fall back to the nearest projected star within a small screen tolerance
   // before considering a region plane, keeping individual stars clickable.
+  // Known application targets win an overlapping catalogue click within that
+  // same tolerance; exact selected markers and reserved hits keep precedence.
   const nearestStar = options.allowNearestStar
-    ? nearestStarTargetByScreen(
+    ? nearestStarPointByScreen(
         engine,
         product,
         screenX * scaleX,
         screenY * scaleY,
         12 * Math.max(scaleX, scaleY),
-        options.includeSystemName === true,
       )
     : undefined;
-  if (nearestStar) return nearestStar;
+  const chosen =
+    nearestStar?.reserved && !nearestHit?.reserved
+      ? { systemId64: nearestStar.systemId64, name: nearestStar.name }
+      : (nearestHit ?? nearestStar);
+  if (chosen)
+    return {
+      kind: 'system',
+      systemId64: chosen.systemId64,
+      ...(options.includeSystemName && chosen.name
+        ? { name: chosen.name }
+        : {}),
+    };
   const hit = product.scene.pick(screenX * scaleX, screenY * scaleY, (mesh) =>
     product.regionFillMeshes.some((fill) => fill.mesh === mesh),
   );

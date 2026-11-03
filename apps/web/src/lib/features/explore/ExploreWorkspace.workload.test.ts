@@ -367,6 +367,17 @@ describe('Explore load and interaction work budget', () => {
       await settle();
       regionResponse.resolve(regions);
       await settle();
+      // The initial close camera can finish its local cells before the overview
+      // starts density. Once density is pending, catalogue must yield to it.
+      const catalogueBeforeDensity = vi.mocked(api.getCatalogueViewportSystems)
+        .mock.calls.length;
+      expect(
+        queryClient.isFetching({ queryKey: ['map-heatmap'] }),
+      ).toBeGreaterThan(0);
+      await settle();
+      expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(
+        catalogueBeforeDensity,
+      );
       densityResponse.resolve(density);
       await settle();
       nebulaResponse.resolve(nebulae);
@@ -428,6 +439,21 @@ describe('Explore load and interaction work budget', () => {
         await tick();
       }
       expect(work()).toEqual(interacted);
+      const catalogueQueries = queryClient
+        .getQueryCache()
+        .getAll()
+        .filter((query) => query.queryKey[2] === 'catalogue-stars');
+      expect(catalogueQueries.length).toBeLessThanOrEqual(64);
+      expect(
+        catalogueQueries.filter((query) => query.getObserversCount() > 0)
+          .length,
+      ).toBeLessThanOrEqual(16);
+      for (const [request] of vi.mocked(api.getCatalogueViewportSystems).mock
+        .calls) {
+        expect(request.maxX - request.minX).toBeLessThanOrEqual(15_000);
+        expect(request.maxY - request.minY).toBeLessThanOrEqual(15_000);
+        expect(request.maxZ - request.minZ).toBeLessThanOrEqual(15_000);
+      }
       expect(
         regionsSource.fetchAuthoritativeGalaxyRegions,
       ).toHaveBeenCalledTimes(1);
@@ -441,37 +467,34 @@ describe('Explore load and interaction work budget', () => {
         auth: 0,
       };
       expect(loaded).toEqual({
-        builds: enabled ? 6 : 21,
-        rendererScenes: enabled ? 5 : 6,
-        loads: enabled ? 5 : 6,
+        builds: enabled ? 3 : 17,
+        rendererScenes: enabled ? 3 : 4,
+        loads: enabled ? 3 : 6,
         patches: enabled ? 1 : 0,
-        // URL anchor reconstruction adds a disabled observer in legacy mode;
-        // the Layers pop-out adds the disabled account-summary observer in
-        // both modes. No journal request runs until the visitor enables My
-        // journeys while signed in.
+        // One wide sample replaces overview cell fanout; the Layers pop-out
+        // adds the disabled account-summary observer in both modes.
         activeQueries: 8,
         transitions: 1,
-        api: { ...idleApi, finder: 0, catalogue: 3, density: 2 },
+        api: { ...idleApi, finder: 0, catalogue: 5, density: 2 },
       });
-      // The explicit anchor adds autocomplete, a fly-to and its local viewport
-      // work before the original result-selection and overview interactions.
-      // Retained viewport masks and accepted-density revisions now avoid
-      // placeholder-driven scene rebuilds in the non-F4 path.
+      // Measured after bounding request concurrency, yielding to foreground
+      // queries and coalescing adjacent local cells. Reserved anchors remain
+      // immediate; empty/equal samples retain their contribution identities.
+      // Pending/equal responses below must still avoid scene reconstruction.
       expect(interacted).toEqual({
-        builds: enabled ? 14 : 39,
-        rendererScenes: enabled ? 12 : 11,
-        loads: enabled ? 13 : 12,
+        builds: enabled ? 7 : 35,
+        rendererScenes: enabled ? 6 : 7,
+        loads: enabled ? 7 : 12,
         patches: enabled ? 1 : 0,
-        // The committed anchor and selected result now have separate query
-        // identities; history coordinates still require no detail request.
-        // The account-summary observer adds one in both modes.
+        // The committed anchor and selected result have separate query
+        // identities; the account-summary observer adds one in both modes.
         activeQueries: enabled ? 9 : 8,
-        transitions: enabled ? 6 : 5,
+        transitions: 4,
         api: {
           ...idleApi,
           autocomplete: 1,
           finder: 2,
-          catalogue: enabled ? 5 : 4,
+          catalogue: enabled ? 14 : 10,
           density: enabled ? 4 : 5,
         },
       });
@@ -555,19 +578,19 @@ describe('Explore load and interaction work budget', () => {
       await settle();
       expect(visualWork()).toEqual(returned);
       expect(work()).toEqual({
-        builds: 17,
-        rendererScenes: 15,
-        loads: 16,
+        builds: 10,
+        rendererScenes: 9,
+        loads: 10,
         patches: 1,
         // Includes the disabled account-summary observer from the Layers pop-out.
         activeQueries: 9,
-        transitions: 6,
+        transitions: 4,
         api: {
           ...idleApi,
           autocomplete: 1,
           finder: 6,
           rankings: 1,
-          catalogue: 5,
+          catalogue: 14,
           density: 4,
         },
       });
