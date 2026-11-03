@@ -30,6 +30,7 @@
     zoomGalaxyCamera,
     zoomGalaxyCameraTowards,
     type GalaxyCameraPoint,
+    type GalaxyCameraViewport,
   } from './galaxy-camera';
   import {
     CATALOGUE_DENSITY_LAYER_ID,
@@ -44,6 +45,7 @@
     type GalaxyLabelCandidate,
     type ProjectedGalaxyLabel,
   } from './galaxy-labels';
+  import { fitSystemCameraToViewport } from './system-scene';
   import GalaxySystemHoverCard from './GalaxySystemHoverCard.svelte';
   import SystemBodyLegend from './SystemBodyLegend.svelte';
 
@@ -71,7 +73,7 @@
     contributionPatch?: SpatialContribution | null;
     contributionPatchRevision?: number;
     onRuntimeEvent?: (event: RuntimeEvent) => void;
-    onViewportChange?: (viewport: { width: number; height: number }) => void;
+    onViewportChange?: (viewport: GalaxyCameraViewport) => void;
     anchorPoint?: GalaxySystemPoint | null;
     onSystemSelect?: (system: GalaxySystemPoint) => void;
     systemInspectHref?: (system: GalaxySystemPoint) => string;
@@ -375,7 +377,11 @@
 
   function applyScene(nextScene: SpatialSceneContract): void {
     if (!runtime || status.state !== 'ready') return;
-    if (FINDER_F4_ENABLED && recoverCurrentCamera) {
+    // The contract's own overview camera, before any recovery substitution.
+    const contractCamera =
+      nextScene.kind === 'system' ? nextScene.camera : null;
+    const restoring = FINDER_F4_ENABLED && recoverCurrentCamera;
+    if (restoring) {
       // F4 camera receipts do not rebuild the parent's scene snapshot. A
       // context recovery must resume the view currently owned by the canvas.
       const camera = untrack(() =>
@@ -419,9 +425,18 @@
     ) {
       if (!homeCamera && nextScene.kind === 'galaxy')
         homeCamera = nextScene.camera;
-      if (nextScene.kind === 'system') {
-        homeSystemCamera = nextScene.camera;
+      if (nextScene.kind === 'system' && contractCamera) {
+        // Fit the contract's overview to this canvas; Reset view returns to
+        // it. A context recovery resumes the camera the canvas already owns
+        // and must not fit (and compound) that already-fitted distance.
+        const fitted = fitSystemCameraToViewport(contractCamera, viewport());
+        homeSystemCamera = fitted;
         currentSystemCamera = nextScene.camera;
+        if (
+          !restoring &&
+          fitted.semanticDistance !== nextScene.camera.semanticDistance
+        )
+          setSystemCamera({ ...fitted, revision: fitted.revision + 1 });
       }
       lastLoadedRevision = nextScene.revision;
       recoverCurrentCamera = false;
@@ -581,6 +596,13 @@
     });
   }
 
+  // A system overview may fit beyond the default ceiling (large hierarchies,
+  // narrow canvases); zooming out must always reach that overview distance.
+  function systemZoomCeiling(): number {
+    const overview =
+      homeSystemCamera ?? (scene?.kind === 'system' ? scene.camera : null);
+    return Math.max(120, (overview?.semanticDistance ?? 0) * 1.5);
+  }
   function zoomSystem(delta: number): void {
     if (!currentSystemCamera) return;
     setSystemCamera({
@@ -588,7 +610,7 @@
       semanticDistance: Math.max(
         6,
         Math.min(
-          120,
+          systemZoomCeiling(),
           currentSystemCamera.semanticDistance * Math.exp(delta * 0.0014),
         ),
       ),
@@ -1195,7 +1217,7 @@
           dpr: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
         };
         activeRuntime.dispatch({ type: 'RESIZE', ...viewport });
-        onViewportChange?.(viewport);
+        onViewportChange?.({ width: viewport.width, height: viewport.height });
         resizeRevision += 1;
         host
           .querySelector('canvas')

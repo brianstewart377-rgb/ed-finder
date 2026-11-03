@@ -481,6 +481,7 @@ describe('Babylon spatial adapter boundary', () => {
         },
         {
           ref: { systemId64: '42', bodyId: 2 },
+          parent: { systemId64: '42', bodyId: 0 },
           name: 'Test Giant',
           class: { value: 'Planet', representation: 'AUTHORITATIVE' },
           bodyFamily: { family: 'gas-giant-life', variant: 'water' },
@@ -508,7 +509,7 @@ describe('Babylon spatial adapter boundary', () => {
     expect(product.orbitMesh?.metadata).toMatchObject({
       spatialLayer: {
         representation: 'SCHEMATIC',
-        meaning: 'ordered-distance-layout-not-observed-orbital-elements',
+        meaning: 'known-parent-groups-not-observed-orbital-elements',
       },
     });
     expect(product.scene.metadata).toMatchObject({
@@ -537,6 +538,8 @@ describe('Babylon spatial adapter boundary', () => {
               body_id: String(index),
               frontier_body_id: String(index),
               body_type: 'planet',
+              // A known arrival distance keeps each body a placed sphere.
+              distance_from_arrival_ls: 100 * (index + 1),
               // Even a suggestive name must not invent a class.
               name: 'Earth-like world',
               body_class: bodyClass,

@@ -30,9 +30,7 @@
   stars, and System Map planet classes with a legend; camera controls, the Layers
   pop-out, hover cards, viewport streaming, scope/radius, hierarchy and Inspect
   freshness are in review.
-- **UI redesign:** the requested design kit, home, Finder, Inspect, Plan and
-  Review & export work has no detailed redesign plan in this tree; the
-  [product journey](#product-journey-and-spatial-north-star) remains its starting point.
+- **UI redesign:** [six-phase plan and PR slices](superpowers/specs/2026-11-02-v3-ui-redesign-plan.md); phase 1 is done-pending-merge in #998, followed by map workspace, Finder, Inspect, Plan/Review & export and home polish.
 - **V2 route retirement:** the [mounted-route inventory](development/v3-v2-route-retirement.md)
   lists the candidates; removal waits on the [owner decision](development/v3-v2-route-retirement.md#owner-decision-and-proposed-response-contract)
   for routes that still have code callers ([residue plan](development/v2-decommission-roadmap.md#track-b--v2-manifest--sql-tree-long-horizon--finish-v3)).
@@ -41,8 +39,10 @@
 - **Live EDDN listener and Spansh nightly refresh remain follow-ups:** the
   [2026-10-21 worker is code only](../CHANGES.md#2026-10-21--v3-eddn-station-sighting-worker-and-v3_observe-proposal-code-only), and refresh has
   [measurement tooling](development/spansh-delta-measurement.md); a broader owner enablement decision is not recorded here.
-- **Planner next:** requested S5c economy bars fall under the [S5 economies-and-links scope](superpowers/specs/2026-10-30-v3-colony-planner-design.md#7-slices);
-  the S5c split is not yet documented in that design.
+- **Planner next:** S5c economy bars are implemented and the
+  [S5a/S5b/S5c split is documented](superpowers/specs/2026-10-30-v3-colony-planner-design.md#7-slices).
+  This visual change needs Product E2E/visual acceptance before promotion; it
+  is not deployed.
 - **Open owner decisions:** [Any-mode tier semantics](superpowers/specs/2026-10-10-v3-finder-f4-archetype-ui-design.md#owner-questions)
   (custom weights were answered URL-only on 2026-11-01), the V2 route retirement above,
   plus Spansh's [change-admission policy (D3)](development/spansh-delta-measurement.md#the-overlap-from-the-second-night)

@@ -385,6 +385,54 @@ const captureFinder = (state: 'any' | 'flexible' | 'flexible-explanation') => {
 };
 
 describe('V3 Explore to Inspect product checkpoint', () => {
+  it('requests complete density for the camera bounds as the view narrows', () => {
+    cy.viewport(1280, 800);
+    // Observe the normal API request. The product seed need not publish a
+    // density pyramid to prove that camera navigation sends bounded coverage.
+    cy.intercept('GET', '/api/map/heatmap*').as('density');
+    visitExplore();
+    cy.get('[data-region-resource-state="ready"]', { timeout: 20_000 }).should(
+      'be.visible',
+    );
+    cy.get(readySelector, { timeout: 20_000 }).should('be.visible');
+
+    let initialSpan = 0;
+    cy.wait('@density', { requestTimeout }).then(({ request }) => {
+      const params = new URL(request.url).searchParams;
+      expect(params.get('coverage')).to.equal('complete');
+      expect(params.get('min_systems')).to.equal('1');
+      expect(params.get('max_cells')).to.equal('40000');
+      for (const axis of ['x', 'y', 'z']) {
+        const minimum = params.get(`min_${axis}`);
+        const maximum = params.get(`max_${axis}`);
+        expect(minimum, `minimum ${axis} bound`).not.to.equal(null);
+        expect(maximum, `maximum ${axis} bound`).not.to.equal(null);
+        expect(Number.isFinite(Number(minimum))).to.equal(true);
+        expect(Number.isFinite(Number(maximum))).to.equal(true);
+        expect(Number(maximum)).to.be.greaterThan(Number(minimum));
+      }
+      initialSpan = Number(params.get('max_x')) - Number(params.get('min_x'));
+    });
+
+    // Eight ordinary zoom stops retain density's visible band while entering
+    // a regional view. The settled request must cover that view, not the galaxy.
+    for (let step = 0; step < 8; step += 1) {
+      cy.get('[aria-label="Zoom in"]').click();
+    }
+    cy.get<Array<{ request: { url: string } }>>('@density.all', {
+      timeout: 20_000,
+    }).should((requests) => {
+      const latest = requests.at(-1);
+      expect(latest).not.to.equal(undefined);
+      const params = new URL(latest!.request.url).searchParams;
+      expect(params.get('coverage')).to.equal('complete');
+      const span = Number(params.get('max_x')) - Number(params.get('min_x'));
+      expect(span).to.be.lessThan(initialSpan);
+      expect(span).to.be.lessThan(100_000);
+      expect(span).to.be.greaterThan(0);
+    });
+  });
+
   it('applies body counts near a system and restores the shared search on reload', () => {
     const anchorId = '10477373803000';
     const dialog = '[role="dialog"][data-testid="body-filters-dialog"]';

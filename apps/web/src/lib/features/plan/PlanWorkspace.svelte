@@ -46,6 +46,11 @@
   import BuildOrder from './BuildOrder.svelte';
   import SummaryPane from './SummaryPane.svelte';
   import WhyDrawer from './WhyDrawer.svelte';
+  import EconomyBars from './EconomyBars.svelte';
+  import {
+    economyRuleIds,
+    type EconomyWhySelection,
+  } from './economy-presentation';
   import './plan.css';
 
   let { systemId }: { systemId: Id64 } = $props();
@@ -109,6 +114,7 @@
   let selectedBody = $state<string | null>(null);
   let selectedSite = $state<string | null>(null);
   let whySite = $state<string | null>(null);
+  let whyEconomy = $state<EconomyWhySelection | null>(null);
   let filter = $state('All');
   let fileInput = $state<HTMLInputElement>();
   let ravenFileInput = $state<HTMLInputElement>();
@@ -128,7 +134,22 @@
     evaluation?.steps.find((step) => step.site_id === whySite),
   );
   const whyBuild = $derived(
-    model.sites.find((site) => site.site_id === whySite),
+    model.sites.find(
+      (site) => site.site_id === (whyEconomy?.siteId ?? whySite),
+    ),
+  );
+  const economyRules = $derived(
+    evaluation && whyEconomy
+      ? economyRuleIds(
+          whyEconomy.economyName,
+          evaluation.economies.now.find(
+            (port) => port.site_id === whyEconomy?.siteId,
+          )?.economies ?? [],
+          evaluation.economies.after_plan.find(
+            (port) => port.site_id === whyEconomy?.siteId,
+          )?.economies ?? [],
+        )
+      : [],
   );
 
   onMount(() => {
@@ -186,7 +207,7 @@
     if (
       event.key === 'Escape' &&
       buildOrderOpen &&
-      !(whyStep && whyBuild && evaluation) &&
+      !((whyStep || whyEconomy) && whyBuild && evaluation) &&
       event.target instanceof Element &&
       event.target.closest('#plan-build-order')
     ) {
@@ -349,12 +370,18 @@
     step?.scrollIntoView?.({ block: 'nearest' });
   }
   function showWhy(id: string): void {
+    whyEconomy = null;
     selectedSite = id;
     filter = 'All';
     whySite = id;
   }
+  function showEconomyWhy(selection: EconomyWhySelection): void {
+    whySite = null;
+    whyEconomy = selection;
+  }
   async function closeWhy(): Promise<void> {
     whySite = null;
+    whyEconomy = null;
     await tick();
     // Resizing can hide the System chip that the drawer would return to.
     if (
@@ -693,6 +720,14 @@
         onwhy={showWhy}
       />
     </div>
+    <EconomyBars
+      {model}
+      {facilities}
+      bodies={bodies.data}
+      {evaluation}
+      {stale}
+      onwhy={showEconomyWhy}
+    />
   {/if}
   {#if older.length}<details class="plan-pane older-items">
       <summary>Older plan items (read-only) · {older.length}</summary>
@@ -703,7 +738,17 @@
           </li>{/each}
       </ul>
     </details>{/if}
-  {#if whyStep && whyBuild && evaluation}
+  {#if whyEconomy && whyBuild && evaluation}
+    <WhyDrawer
+      name={whyBuild.name ||
+        facilities.find((item) => item.id === whyBuild.facility_id)?.name ||
+        whyBuild.facility_id}
+      economy={{ name: whyEconomy.economyName, ruleIds: economyRules }}
+      {evaluation}
+      {stale}
+      onclose={closeWhy}
+    />
+  {:else if whyStep && whyBuild && evaluation}
     <WhyDrawer
       step={whyStep}
       index={model.sites.indexOf(whyBuild)}

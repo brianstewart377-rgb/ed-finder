@@ -29,6 +29,7 @@ import type {
 import type { ExploreAnchor } from './navigation';
 import * as galaxyRegions from '$lib/spatial/galaxy-regions';
 import * as galaxyNebulae from '$lib/spatial/galaxy-nebulae';
+import { galaxyCameraPlanePoint } from '$lib/spatial/galaxy-camera';
 import {
   DENSITY_CROSSFADE_NEAR_LY,
   GALAXY_WIDE_STAR_LIMIT,
@@ -86,6 +87,10 @@ const pyramidFixture: api.MapHeatmapPyramidResponse = {
   source_system_count: 200,
   coverage_at: '2026-01-01T00:00:00Z',
   level: 0,
+  requested_level: 0,
+  served_level: 0,
+  level_cell_count: 2,
+  coverage: 'complete',
   cell_size_ly: 1000,
   voxel_size: 1000,
   bounds: {
@@ -125,6 +130,7 @@ const coarsePyramidFixture: api.MapHeatmapPyramidResponse = {
   ...pyramidFixture,
   cells: [{ ...pyramidFixture.cells[0], system_count: 200 }],
   count: 1,
+  level_cell_count: 1,
 };
 
 const legacyFixture: api.MapHeatmapResponse = { source: 'legacy-fallback' };
@@ -133,6 +139,7 @@ const emptyPyramidFixture: api.MapHeatmapPyramidResponse = {
   ...pyramidFixture,
   cells: [],
   count: 0,
+  level_cell_count: 0,
   source_system_count: 0,
 };
 
@@ -187,10 +194,16 @@ async function waitForCatalogueCells(): Promise<void> {
   await tick();
 }
 
+let runtimeResizeObserverCallback: ResizeObserverCallback;
+
 function stubRuntime(): void {
   vi.stubGlobal(
     'ResizeObserver',
     class {
+      constructor(callback: ResizeObserverCallback) {
+        runtimeResizeObserverCallback = callback;
+      }
+
       observe = vi.fn();
       disconnect = vi.fn();
       unobserve = vi.fn();
@@ -323,16 +336,184 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     expect(
       screen.queryByText(/Known-system density · zoom in/),
     ).not.toBeInTheDocument();
-    // The density swirl requests every occupied cell (min_systems: 1) so a
-    // non-truncated payload reconciles, and keys by the normalized voxel size
-    // (118_000 ly / 200, rounded) rather than the raw float distance.
+    // Ask for every occupied cell in a finite camera-derived area; the server
+    // can coarsen the discrete requested resolution to retain sparse regions.
     expect(api.getMapHeatmap).toHaveBeenCalledWith(
       expect.objectContaining({
         min_systems: 1,
         voxel_size: 590,
         max_cells: 40_000,
+        coverage: 'complete',
+        min_x: expect.any(Number),
+        max_x: expect.any(Number),
+        min_y: expect.any(Number),
+        max_y: expect.any(Number),
+        min_z: expect.any(Number),
+        max_z: expect.any(Number),
       }),
       expect.anything(),
+    );
+    expect(
+      screen.getByLabelText('Known-system density legend'),
+    ).toHaveTextContent('Complete at 1,000 LY');
+  });
+
+  it('debounces camera movement and keys density requests by the bounds bucket', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
+    render(ExploreWorkspaceTestHost);
+    await openLayers();
+    await vi.waitFor(() => expect(api.getMapHeatmap).toHaveBeenCalled(), {
+      interval: 1,
+    });
+    await vi.waitFor(() => expect(currentScene()).toBeDefined(), {
+      interval: 1,
+    });
+    const initial = vi.mocked(api.getMapHeatmap).mock.calls.at(-1)![0];
+    const initialCalls = vi.mocked(api.getMapHeatmap).mock.calls.length;
+    const camera = currentScene().camera;
+    emitRuntime({
+      type: 'CAMERA_CHANGED',
+      camera: {
+        ...camera,
+        distanceLy: 118_050,
+        focusLy: { x: 20, y: 0, z: 0 },
+        revision: 1,
+      },
+    });
+    await vi.advanceTimersByTimeAsync(180);
+    expect(api.getMapHeatmap).toHaveBeenCalledTimes(initialCalls);
+    emitRuntime({
+      type: 'CAMERA_CHANGED',
+      camera: {
+        ...camera,
+        distanceLy: 10_000,
+        focusLy: { x: 10_000, y: 0, z: 0 },
+        revision: 2,
+      },
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(api.getMapHeatmap).toHaveBeenCalledTimes(initialCalls);
+    emitRuntime({
+      type: 'CAMERA_CHANGED',
+      camera: {
+        ...camera,
+        distanceLy: 10_000,
+        focusLy: { x: 30_000, y: 0, z: 0 },
+        revision: 3,
+      },
+    });
+    await vi.advanceTimersByTimeAsync(180);
+    await vi.waitFor(
+      () => expect(api.getMapHeatmap).toHaveBeenCalledTimes(initialCalls + 1),
+      { interval: 1 },
+    );
+    const moved = vi.mocked(api.getMapHeatmap).mock.calls.at(-1)![0];
+    expect(moved.coverage).toBe('complete');
+    expect(moved.max_x! - moved.min_x!).toBeLessThan(
+      initial.max_x! - initial.min_x!,
+    );
+    const farCorner = galaxyCameraPlanePoint(
+      {
+        ...camera,
+        distanceLy: 10_000,
+        focusLy: { x: 30_000, y: 0, z: 0 },
+      },
+      { x: 640, y: 0 },
+      { width: 640, height: 360 },
+    )!;
+    expect(moved.max_x).toBeGreaterThanOrEqual(farCorner.x);
+    expect(moved.max_z).toBeGreaterThanOrEqual(farCorner.z);
+    expect(moved.min_x).toBeGreaterThan(0);
+  });
+
+  it('refreshes density bounds and query keys when the canvas aspect changes at a fixed camera', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let finishDensity!: (response: api.MapHeatmapResponse) => void;
+    vi.mocked(api.getMapHeatmap).mockReturnValue(
+      new Promise((resolve) => (finishDensity = resolve)),
+    );
+    render(ExploreWorkspaceTestHost);
+    await vi.waitFor(() => expect(currentScene()).toBeDefined(), {
+      interval: 1,
+    });
+    emitRuntime({
+      type: 'CAMERA_CHANGED',
+      camera: {
+        ...currentScene().camera,
+        focusLy: { x: 0, y: 0, z: 0 },
+        distanceLy: 10_000,
+        pitchRad: 0.55,
+        revision: 1,
+      },
+    });
+    await vi.advanceTimersByTimeAsync(180);
+    await vi.waitFor(
+      () =>
+        expect(api.getMapHeatmap).toHaveBeenLastCalledWith(
+          expect.objectContaining({ voxel_size: 200 }),
+          expect.anything(),
+        ),
+      { interval: 1 },
+    );
+    const initial = vi.mocked(api.getMapHeatmap).mock.calls.at(-1)![0];
+    const initialCalls = vi.mocked(api.getMapHeatmap).mock.calls.length;
+    const initialKeys = queryClient
+      .getQueryCache()
+      .findAll({ queryKey: ['map-heatmap'] })
+      .map((query) => query.queryHash);
+
+    // A proportional resize has the same bounds. It must preserve even an
+    // in-flight query, rather than aborting and restarting identical work.
+    runtimeResizeObserverCallback(
+      [
+        {
+          contentRect: { width: 1280, height: 720 },
+        } as unknown as ResizeObserverEntry,
+      ],
+      {} as ResizeObserver,
+    );
+    await tick();
+    expect(api.getMapHeatmap).toHaveBeenCalledTimes(initialCalls);
+    expect(
+      queryClient
+        .getQueryCache()
+        .findAll({ queryKey: ['map-heatmap'] })
+        .map((query) => query.queryHash),
+    ).toEqual(initialKeys);
+
+    runtimeResizeObserverCallback(
+      [
+        {
+          contentRect: { width: 1280, height: 360 },
+        } as unknown as ResizeObserverEntry,
+      ],
+      {} as ResizeObserver,
+    );
+    await vi.waitFor(
+      () => expect(api.getMapHeatmap).toHaveBeenCalledTimes(initialCalls + 1),
+      { interval: 1 },
+    );
+    const resized = vi.mocked(api.getMapHeatmap).mock.calls.at(-1)![0];
+    expect(resized.min_x).toBeLessThan(initial.min_x!);
+    expect(resized.max_x).toBeGreaterThan(initial.max_x!);
+    expect(resized.min_z).toBe(initial.min_z);
+    expect(resized.max_z).toBe(initial.max_z);
+    expect(
+      queryClient
+        .getQueryCache()
+        .findAll({ queryKey: ['map-heatmap'] })
+        .some((query) => !initialKeys.includes(query.queryHash)),
+    ).toBe(true);
+    expect(document.querySelector('.spatial-canvas')).toHaveAttribute(
+      'data-camera-revision',
+      '1',
+    );
+    finishDensity(pyramidFixture);
+    await vi.waitFor(
+      () =>
+        expect(queryClient.isFetching({ queryKey: ['map-heatmap'] })).toBe(0),
+      { interval: 1 },
     );
   });
 
@@ -648,7 +829,12 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     { state: 'empty', fixture: emptyPyramidFixture },
     {
       state: 'truncated',
-      fixture: { ...coarsePyramidFixture, truncated: true },
+      fixture: {
+        ...coarsePyramidFixture,
+        truncated: true,
+        coverage: 'truncated' as const,
+        level_cell_count: null,
+      },
     },
   ])(
     'distinguishes a valid $state density area from failure',
@@ -667,7 +853,9 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
       expect(exactStarStatus()).toHaveTextContent('0 exact stars');
       if (state === 'truncated') {
         expect(densityStatus()).toHaveTextContent('1 density cells');
-        expect(densityStatus()).toHaveTextContent('bounded view');
+        expect(densityStatus()).toHaveTextContent(
+          'Truncated · 1 cells shown at 1,000 LY',
+        );
       }
     },
   );
@@ -840,13 +1028,14 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
       { interval: 1 },
     );
     const newerRevision = densityPatches().at(-1)!.contribution.revision;
-    const cachedUpdatedAt = queryClient.getQueryState([
-      'map-heatmap',
-      590,
-    ])!.dataUpdatedAt;
-    expect(cachedUpdatedAt).toBeLessThan(
-      queryClient.getQueryState(['map-heatmap', 900])!.dataUpdatedAt,
-    );
+    const densityQueries = () =>
+      queryClient.getQueryCache().findAll({ queryKey: ['map-heatmap'] });
+    const queryAt = (voxel: number) =>
+      densityQueries().find(
+        (query) => JSON.parse(String(query.queryKey[1])).voxel_size === voxel,
+      )!;
+    const cachedUpdatedAt = queryAt(590).state.dataUpdatedAt;
+    expect(cachedUpdatedAt).toBeLessThan(queryAt(900).state.dataUpdatedAt);
     const fetchesBeforeReturn = vi.mocked(api.getMapHeatmap).mock.calls.length;
 
     emitRuntime({
@@ -859,9 +1048,7 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
       { interval: 1 },
     );
     expect(api.getMapHeatmap).toHaveBeenCalledTimes(fetchesBeforeReturn);
-    expect(queryClient.getQueryState(['map-heatmap', 590])!.dataUpdatedAt).toBe(
-      cachedUpdatedAt,
-    );
+    expect(queryAt(590).state.dataUpdatedAt).toBe(cachedUpdatedAt);
     expect(densityPatches().at(-1)!.contribution.revision).toBeGreaterThan(
       newerRevision,
     );
@@ -1004,6 +1191,11 @@ describe('ExploreWorkspace density cross-fade wiring', () => {
     expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(starFetches);
     // Active-query invalidation must still refetch at the fade endpoint;
     // cached data alone would also be visible with an incorrectly disabled query.
+    // The finer bounds now select a new cache entry at this same voxel size;
+    // let that fetch finish so invalidation isn't deduplicated with it.
+    await waitFor(() =>
+      expect(queryClient.isFetching({ queryKey: ['map-heatmap'] })).toBe(0),
+    );
     const fetches = vi.mocked(api.getMapHeatmap).mock.calls.length;
     await queryClient.invalidateQueries({ queryKey: ['map-heatmap'] });
     await waitFor(() =>

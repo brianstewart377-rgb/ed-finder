@@ -79,6 +79,10 @@ const density: api.MapHeatmapPyramidResponse = {
   source_system_count: 200,
   coverage_at: '2026-01-01T00:00:00Z',
   level: 0,
+  requested_level: 0,
+  served_level: 0,
+  level_cell_count: 1,
+  coverage: 'complete',
   cell_size_ly: 1000,
   voxel_size: 1000,
   bounds: {
