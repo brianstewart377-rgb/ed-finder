@@ -1,5 +1,9 @@
 <script lang="ts">
   import { tick } from 'svelte';
+  import {
+    isTopmostPopout,
+    registerPopout,
+  } from '$lib/components/popout-stack';
   import type {
     PlanBodiesV1,
     PlanEvaluationV1,
@@ -62,6 +66,7 @@
   const pickerId = `${id}-facility-picker`;
   let pickerTrigger = $state<HTMLButtonElement>();
   let pickerPanel = $state<HTMLDivElement>();
+  let pickerLayer = $state(30);
   let pickerComponent = $state<{ dismissPreview: () => boolean }>();
   let addition = $state('');
   let pickerLeft = $state(8);
@@ -209,9 +214,9 @@
   }
 
   function pickerKeydown(event: KeyboardEvent) {
-    if (picker && event.key === 'Escape') {
+    if (picker && isTopmostPopout(pickerPanel) && event.key === 'Escape') {
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
       if (!pickerComponent?.dismissPreview()) closePicker();
     }
   }
@@ -219,6 +224,7 @@
   function outsideClick(event: MouseEvent) {
     if (
       picker &&
+      isTopmostPopout(pickerPanel) &&
       event.target instanceof Node &&
       !pickerPanel?.contains(event.target) &&
       !pickerTrigger?.contains(event.target)
@@ -255,6 +261,11 @@
       window.visualViewport?.removeEventListener('resize', positionPicker);
       window.visualViewport?.removeEventListener('scroll', positionPicker);
     };
+  });
+
+  $effect(() => {
+    if (!picker || hidden || !pickerPanel) return;
+    return registerPopout(pickerPanel, (value) => (pickerLayer = value));
   });
 </script>
 
@@ -470,6 +481,7 @@
     <div
       bind:this={pickerPanel}
       class="facility-picker-dialog"
+      style:z-index={pickerLayer}
       id={pickerId}
       role="dialog"
       aria-modal="false"

@@ -298,6 +298,35 @@
 .attention-list small {
   display: block;
 }
+.review-item-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  padding: 0;
+  list-style: none;
+  color: var(--text-muted);
+}
+.review-unresolved-list {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+.review-unresolved-list li {
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-sunken);
+}
+.review-unresolved-list button {
+  width: 100%;
+  text-align: left;
+}
+.review-unresolved-list small {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--text-muted);
+}
 .rulebook {
   margin-top: 1.5rem;
 }

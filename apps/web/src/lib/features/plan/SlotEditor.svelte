@@ -1,5 +1,9 @@
 <script lang="ts">
   import { tick } from 'svelte';
+  import {
+    isTopmostPopout,
+    registerPopout,
+  } from '$lib/components/popout-stack';
 
   type Props = {
     label: string;
@@ -31,6 +35,7 @@
   let editorTop = $state(0);
   let trigger: HTMLButtonElement;
   let editor = $state<HTMLDivElement>();
+  let layer = $state(30);
   let container: HTMLDivElement;
   const overCapacity = $derived(value !== null && used > value);
   const slotLabel = $derived(kind === 'orbital' ? 'Orbital' : 'Surface');
@@ -75,10 +80,10 @@
   }
 
   function keydown(event: KeyboardEvent) {
-    if (hidden || !open || !editor) return;
+    if (hidden || !open || !editor || !isTopmostPopout(editor)) return;
     if (event.key === 'Escape') {
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
       close();
       return;
     }
@@ -118,6 +123,11 @@
       open = false;
     }
   }
+
+  $effect(() => {
+    if (!open || hidden || !editor) return;
+    return registerPopout(editor, (value) => (layer = value));
+  });
 </script>
 
 <svelte:window onkeydown={keydown} onpointerdown={pointerdown} />
@@ -127,6 +137,7 @@
     bind:this={trigger}
     type="button"
     class="slot-box"
+    data-slot-kind={kind}
     class:over-capacity={overCapacity && !disabled}
     {disabled}
     aria-label={disabled
@@ -153,6 +164,7 @@
     <div
       bind:this={editor}
       class="slot-editor"
+      style:z-index={layer}
       style:left={`${editorLeft}px`}
       style:top={`${editorTop}px`}
       id={`${id}-editor`}

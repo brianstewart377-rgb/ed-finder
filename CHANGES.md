@@ -29,6 +29,25 @@ Explore state ownership, map/layout, requests, URL roundtrips, ranking identitie
 and feature gates are unchanged. Browser visual acceptance remains required
 before promotion; this change does not deploy anything.
 
+## Unreleased
+
+- UI redesign P5b adds Plan's non-modal Review & export pop-out with separate
+  Now/After Tier 2 and Tier 3 balances, per-item links for unknown slots, missing
+  body data, prediction-only surface slots and build-order checks, and **Export
+  DRAFT plan** downloads named `colony-plan-DRAFT-<systemId>.json`. The
+  `cpe_plan_export_v1` format and import of pre-P5b files are unchanged; Home now
+  identifies Review & export as available in Plan. Product E2E/visual acceptance
+  remains required before promotion; this change is not deployed.
+
+## 2026-11-03 — UI redesign P2a: route-owned Explore view state
+
+Extracts route-owned Explore view state so query drafts, URL-backed
+search/filter/ranking intent, selection, result scroll and Galaxy camera/layers
+survive workspace remounts without another search. Existing URL/storage
+formats, presentation and request budgets are unchanged; query data and
+renderer resources retain their existing owners. P2b/P2c are not included, and
+this change is not deployed.
+
 ## 2026-11-03 — UI redesign P5a: Plan tabs and facility preview
 
 The Plan workspace now has accessible System layout / Build order tabs with
