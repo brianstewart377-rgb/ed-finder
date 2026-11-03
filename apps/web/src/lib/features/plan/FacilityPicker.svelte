@@ -398,7 +398,8 @@
     min-height: 0;
     padding: 0.75rem;
     overflow: hidden;
-    background: var(--color-panel);
+    background: var(--panel);
+    background-image: var(--panel-gloss);
   }
   .picker-heading {
     display: flex;
@@ -425,10 +426,6 @@
     padding: 0.4rem 0.6rem;
     font-size: 0.8rem;
   }
-  .picker-tabs button[aria-selected='true'] {
-    border-color: var(--color-signal);
-    background: color-mix(in srgb, var(--color-signal) 15%, var(--color-panel));
-  }
   .picker-search {
     display: flex;
     align-items: center;
@@ -442,7 +439,7 @@
   }
   p {
     margin: 0.6rem 0;
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 0.75rem;
   }
   .picker-list {
@@ -456,7 +453,7 @@
   }
   h4 {
     margin: 0.7rem 0 0.3rem;
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 0.72rem;
     font-weight: 600;
   }
@@ -486,13 +483,13 @@
     padding-right: 0.3rem;
     font-size: 0.7rem;
     font-variant-numeric: tabular-nums;
-    color: var(--muted);
+    color: var(--text-muted);
     text-align: right;
   }
   .picker-prerequisites {
     grid-column: 1 / -1;
     padding: 0 0.4rem 0.25rem;
-    color: var(--muted);
+    color: var(--text-muted);
     font-size: 0.7rem;
   }
   @media (max-width: 400px) {

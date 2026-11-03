@@ -9,27 +9,13 @@
 .plan-workspace input,
 .plan-workspace select {
   font: inherit;
-  color: inherit;
-  border: 1px solid var(--line);
-  border-radius: 0.45rem;
-  background: var(--panel-raised);
   padding: 0.45rem 0.65rem;
   min-width: 0;
   max-width: 100%;
 }
-.plan-workspace button {
-  cursor: pointer;
-}
-.plan-workspace button:hover:not(:disabled) {
-  border-color: var(--color-signal);
-}
-.plan-workspace button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
 .plan-workspace button[aria-pressed='true'] {
-  border-color: var(--color-signal);
-  background: color-mix(in srgb, var(--color-signal) 15%, var(--color-panel));
+  border-color: var(--neon);
+  background: var(--neon-soft);
 }
 .plan-header nav,
 .plan-header-actions,
@@ -43,11 +29,11 @@
   flex-wrap: wrap;
 }
 .plan-header nav {
-  color: var(--muted);
+  color: var(--text-muted);
   margin-bottom: 1rem;
 }
 .build-order-blocked {
-  color: var(--color-signal);
+  color: var(--accent);
 }
 .plan-title {
   display: flex;
@@ -73,8 +59,10 @@
 .plan-pane {
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: 0.8rem;
-  background: var(--color-panel);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  background-image: var(--panel-gloss);
+  box-shadow: var(--shadow-panel);
   padding: 0.65rem;
 }
 .plan-pane[hidden] {
@@ -100,12 +88,13 @@
   font-size: 0.95rem;
 }
 .plan-muted {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.85rem;
 }
 .plan-chip {
-  border: 1px solid var(--line);
-  border-radius: 0.3rem;
+  border: 1px solid var(--neon);
+  border-radius: var(--radius-pill);
+  background: var(--neon-soft);
   padding: 0.15rem 0.35rem;
   font-size: 0.72rem;
 }
@@ -122,7 +111,7 @@
   padding: 2px 0.25rem;
 }
 .plan-site-group.surface {
-  border-radius: 0.3rem;
+  border-radius: var(--radius-sm);
   background: var(--panel-raised);
 }
 .plan-pane .site-group-heading {
@@ -130,7 +119,7 @@
   align-items: center;
   gap: 0.25rem;
   margin: 0;
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.65rem;
   font-weight: 600;
   line-height: 16px;
@@ -184,7 +173,7 @@
   min-width: 0;
   max-width: 50%;
   overflow: hidden;
-  color: var(--muted);
+  color: var(--text-muted);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -200,16 +189,8 @@
   font-size: 0.8rem;
 }
 .blocked {
-  background: color-mix(
-    in srgb,
-    var(--color-signal) 10%,
-    var(--color-panel)
-  ) !important;
-  border-color: color-mix(
-    in srgb,
-    var(--color-signal) 60%,
-    var(--line)
-  ) !important;
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel)) !important;
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line)) !important;
 }
 .stale {
   opacity: 0.5;
@@ -217,7 +198,7 @@
 }
 .negative,
 .plan-error {
-  color: #ffb18b;
+  color: var(--danger);
 }
 .negative {
   text-decoration: underline dotted;
@@ -225,7 +206,7 @@
 .plan-error {
   padding: 0.7rem;
   border: 1px solid currentColor;
-  border-radius: 0.4rem;
+  border-radius: var(--radius-sm);
 }
 .plan-totals {
   display: grid;
@@ -235,12 +216,14 @@
 }
 .plan-totals > div {
   padding: 0.7rem;
-  background: var(--panel-raised);
+  background: var(--panel);
+  background-image: var(--panel-gloss);
   border: 1px solid var(--line);
-  border-radius: 0.5rem;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-panel);
 }
 .plan-totals dt {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 0.8rem;
 }
 .plan-totals dd {
@@ -293,7 +276,7 @@
   font-size: 0.8rem;
 }
 .plan-empty {
-  color: var(--muted);
+  color: var(--text-muted);
   line-height: 1.6;
 }
 .plan-file-input,

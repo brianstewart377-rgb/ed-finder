@@ -208,7 +208,7 @@
     border: 1px solid var(--color-panel);
     border-radius: 0;
     background: var(--economy-colour);
-    color: #11151b;
+    color: var(--accent-text);
     cursor: pointer;
   }
   .economy-segment:first-child {
@@ -219,7 +219,7 @@
   }
   .economy-track .economy-segment:focus-visible {
     z-index: 1;
-    outline: 2px solid white;
+    outline: 2px solid var(--text);
     outline-offset: 2px;
   }
   .segment-label {
@@ -230,7 +230,7 @@
     font-weight: 700;
   }
   .economy-track .changed {
-    box-shadow: inset 0 -4px #11151b;
+    box-shadow: inset 0 -4px var(--accent-text);
   }
   .economy-legend {
     display: flex;
