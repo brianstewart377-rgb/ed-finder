@@ -29,6 +29,15 @@ button styling.
 This is a global visual change that needs visual validation (Product E2E
 screenshots) before production promotion. It is **not deployed**.
 
+## 2026-11-02 — Docs: V3 UI redesign plan
+
+Added the [V3 UI redesign plan](docs/superpowers/specs/2026-11-02-v3-ui-redesign-plan.md)
+and linked it from ROADMAP's UI redesign status. Records the owner's concept
+direction, phase 1 done-pending-merge in #998, ordered PR slices, existing body
+count support and scope gaps, accessibility and browser-validation gates, truth
+rules and open owner decisions. Documentation only; no application, API, schema
+or deployment changes.
+
 ## 2026-11-02 — Colony Planner S5c: economy bars
 
 `/plan` compares Now and After plan economies for every port, Primary Port
