@@ -11,6 +11,15 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## Unreleased
+
+- **UI redesign P2a:** extract route-owned Explore view state so query drafts,
+  URL-backed search/filter/ranking intent, selection, result scroll and Galaxy
+  camera/layers survive workspace remounts without another search. Existing
+  URL/storage formats, presentation and request budgets are unchanged; query
+  data and renderer resources retain their existing owners. P2b/P2c are not
+  included, and this change is not deployed.
+
 ## 2026-11-02 — Design kit phase 1: shared application visual tokens
 
 Adds a shared orange, midnight navy and neon-blue design kit in `apps/web`,
