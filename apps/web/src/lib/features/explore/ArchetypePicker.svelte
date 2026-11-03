@@ -83,7 +83,8 @@
 <style>
   .archetype-controls {
     display: grid;
-    gap: 1rem;
+    gap: 0.85rem;
+    min-width: 0;
     margin-block: 1.5rem;
   }
   fieldset {
@@ -97,28 +98,48 @@
   }
   legend {
     padding-inline: 0.4rem;
-    font-weight: 650;
+    font-family: var(--font-hud);
+    font-size: 1.1rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
   .archetype-choices {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
     gap: 0.75rem;
   }
   .archetype-choice {
     display: grid;
-    grid-template-columns: auto 1fr;
+    grid-template-columns: auto minmax(0, 1fr);
     align-content: start;
     gap: 0.4rem 0.65rem;
-    padding: 0.7rem;
+    padding: 0.85rem;
     border: 1px solid var(--line);
     border-radius: var(--radius-sm);
+    background: var(--panel-sunken);
+  }
+  .archetype-choice:has(input:not(:disabled)):hover {
+    border-color: var(--line-strong);
   }
   .archetype-choice:has(input:checked) {
-    border-color: var(--neon);
+    border-color: var(--accent);
     background: var(--neon-soft);
   }
+  .archetype-choice:has(input:focus-visible) {
+    outline: 2px solid var(--focus);
+    outline-offset: 3px;
+  }
   input {
+    width: 1.1rem;
+    height: 1.1rem;
+    margin: 0.15rem 0 0;
     accent-color: var(--accent);
+  }
+  .archetype-choice label {
+    font-weight: 600;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
   }
   label,
   input {
@@ -136,29 +157,21 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 0.75rem;
+    color: var(--text-muted);
+    font-size: 0.9rem;
   }
   select {
     padding: 0.5rem 0.75rem;
     border: 1px solid var(--line);
     border-radius: var(--radius-sm);
     background: var(--panel-sunken);
-    color: inherit;
+    color: var(--text);
     font: inherit;
   }
   .ranking-tools {
-    justify-self: end;
-    align-self: start;
+    min-width: 0;
   }
   .ranking-tools:empty {
     display: none;
-  }
-  @media (min-width: 48rem) {
-    .archetype-controls:has(.ranking-tools:not(:empty)) {
-      grid-template-columns: minmax(0, 1fr) auto;
-    }
-    .ranking-tools {
-      grid-column: 2;
-      grid-row: 1;
-    }
   }
 </style>

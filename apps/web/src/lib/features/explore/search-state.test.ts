@@ -5,6 +5,7 @@ import {
   DEFAULT_SEARCH_RADIUS,
   MAX_BODIES_PARAMETER_LENGTH,
   SEARCH_RADIUS_OPTIONS,
+  effectiveSearchRadius,
   normalizeSearchRadius,
   parseExploreSearchParams,
   serializeExploreSearchParams,
@@ -108,6 +109,50 @@ describe('Explore search URL', () => {
       ).toString(),
     ).toBe('selected=42');
   });
+
+  it('retains the chosen radius while count filters cap the applied radius', () => {
+    const result = parse('near=42&radius=2000&bodies=elw_count:1-');
+    expect(result.radius).toBe(2000);
+    expect(effectiveSearchRadius(result.radius, result.bodyFilters)).toBe(500);
+    expect(result.canonical.get('radius')).toBe('2000');
+    const cleared = serializeExploreSearchParams(
+      { ...result, bodyFilters: {} },
+      result.canonical,
+    );
+    const resumed = parse(cleared.toString());
+    expect(resumed.bodyFilters).toEqual({});
+    expect(effectiveSearchRadius(resumed.radius, resumed.bodyFilters)).toBe(
+      2000,
+    );
+    expect(resumed.near).toBe('42');
+  });
+
+  it.each(['', 'archetype=paradise'])(
+    '%s keeps paused counts for an anchored Any search',
+    (mode) => {
+      const result = parse(
+        `${mode}&radius=1000&bodies=rocky_ice_count:-0,elw_count:1-`,
+      );
+      expect(result.near).toBeNull();
+      expect(result.bodyFilters).toEqual({
+        elw_count: { min: 1 },
+        rocky_ice_count: { max: 0 },
+      });
+      const reloaded = parse(result.canonical.toString());
+      expect(reloaded.bodyFilters).toEqual(result.bodyFilters);
+      expect(reloaded.radius).toBe(1000);
+      expect(reloaded.canonical.has('weight')).toBe(false);
+      const anchored = serializeExploreSearchParams(
+        { ...reloaded, near: parseId64('42') },
+        reloaded.canonical,
+      );
+      anchored.delete('archetype');
+      expect(parse(anchored.toString()).bodyFilters).toEqual(
+        result.bodyFilters,
+      );
+      expect(parse(anchored.toString()).near).toBe('42');
+    },
+  );
 
   it.each(['0', '9007199254740993', '18446744073709551615'])(
     'restores a lossless id64 %s',

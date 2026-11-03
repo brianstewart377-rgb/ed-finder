@@ -82,7 +82,7 @@
         ? system.overall_development_potential
         : 'Unknown'}
       {#if isTier(system.best_tier)}
-        · <span class="tier-badge" data-tier={system.best_tier}
+        · <span class="tier-badge kit-chip" data-tier={system.best_tier}
           >{tierLabel(system.best_tier)}</span
         >
       {/if}
@@ -94,7 +94,7 @@
           ? system.ranking_score
           : 'Unknown'}
         {#if system.score_kind === 'selected_fit' && isTier(system.ranking_tier)}
-          · <span class="tier-badge" data-tier={system.ranking_tier}
+          · <span class="tier-badge kit-chip" data-tier={system.ranking_tier}
             >{tierLabel(system.ranking_tier)}</span
           >
         {/if}
@@ -106,9 +106,9 @@
         Secondary: {archetypeLabel(system.secondary_archetype) ??
           'No clear secondary'}
       </span>
-      {#if fitLabel}<span class="fit-label">{fitLabel}</span>{/if}
+      {#if fitLabel}<span class="fit-label kit-chip">{fitLabel}</span>{/if}
     </span>
-    <span class="evidence-badge" aria-describedby={descriptionId}
+    <span class="evidence-badge kit-chip" aria-describedby={descriptionId}
       >{badge.label}</span
     >
     <span id={descriptionId} class="evidence-description"
@@ -121,13 +121,25 @@
   .ranking-facts,
   .ranking-summary {
     display: grid;
+    min-width: 0;
     gap: 0.5rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
   }
   .ranking-facts {
     margin-block: 0.75rem;
+    padding: 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--panel-sunken);
   }
-  .overall-potential {
+  .overall-potential,
+  .selected-fit {
     font-weight: 650;
+    font-variant-numeric: tabular-nums;
+  }
+  .selected-fit {
+    color: var(--accent-hi);
   }
   .classification {
     display: flex;
@@ -135,11 +147,13 @@
     align-items: center;
     gap: 0.4rem 0.75rem;
     font-size: 0.85rem;
+    color: var(--text-muted);
   }
   .tier-badge,
   .fit-label,
   .evidence-badge {
     width: fit-content;
+    max-width: 100%;
     padding: 0.15rem 0.4rem;
     border: 1px solid currentColor;
     border-radius: var(--radius-pill);
@@ -147,6 +161,11 @@
   }
   .tier-badge {
     white-space: nowrap;
+    background: var(--panel-raised);
+  }
+  .fit-label {
+    color: var(--neon-hi);
+    background: var(--neon-soft);
   }
   [data-tier='S'] {
     color: var(--color-tier-s);

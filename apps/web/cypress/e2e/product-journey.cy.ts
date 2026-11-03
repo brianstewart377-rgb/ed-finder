@@ -517,6 +517,33 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       'Within 500 LY of Achenar · sorted by distance',
     );
     cy.get('#search-radius').should('be.enabled').and('have.value', '500');
+    // At 1280px, card facts use the narrow results column's full width;
+    // actions follow the identity without taking space away from its name.
+    cy.get('[data-system-result]')
+      .first()
+      .should(($row) => {
+        const row = $row[0];
+        const selection = row.querySelector<HTMLElement>('.result-select')!;
+        const inspect = row.querySelector<HTMLElement>('.inspect-link')!;
+        const bounds = row.getBoundingClientRect();
+        const selectionBounds = selection.getBoundingClientRect();
+        expect(selectionBounds.width).to.be.at.least(bounds.width - 2);
+        expect(inspect.getBoundingClientRect().top).to.be.at.least(
+          selectionBounds.bottom,
+        );
+        for (const field of row.querySelectorAll<HTMLElement>(
+          '.result-title strong, .result-title code, .result-facts',
+        )) {
+          expect(field.scrollWidth).to.be.at.most(field.clientWidth + 1);
+        }
+        expect(row.textContent).not.to.match(/Star star/i);
+      });
+    cy.get('[data-system-result]')
+      .first()
+      .screenshot(
+        `product/explore-finder-card-${Cypress.browser.name}-1280x800`,
+        { overwrite: true },
+      );
     // An unfiltered anchored search may use the wider radii.
     cy.get('#search-radius').select('1000');
     cy.wait('@search', { requestTimeout }).then(({ request, response }) => {
@@ -600,6 +627,10 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     waitForExploreSettled();
     cy.get('@search.all').should('have.length', 3);
     cy.contains('Earth-like ≥ 1').should('be.visible');
+    cy.get('[aria-label="Applied body filters"] .kit-chip').should(
+      'contain.text',
+      'Applied',
+    );
     // Body filters cap the anchored search at the API's 500 LY; the chosen
     // 1,000 LY stays in the URL and resumes when the filters are cleared.
     cy.get('@search.all')
@@ -658,6 +689,10 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.get('#search-radius-capped').should('be.visible');
     cy.get('[data-system-result]').should('have.length.greaterThan', 0);
     cy.contains('Earth-like ≥ 1').should('be.visible');
+    cy.get('[aria-label="Applied body filters"] .kit-chip').should(
+      'contain.text',
+      'Applied',
+    );
     cy.get('[aria-label="Remove Earth-like filter"]').should('be.visible');
     cy.contains('button', /^Clear all$/).should('be.visible');
     cy.location('search', { timeout: 15_000 }).should((search) => {

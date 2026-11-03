@@ -88,4 +88,43 @@ describe('native archetype picker', () => {
       ).violations,
     ).toEqual([]);
   });
+
+  it('keeps tier keyboard input native and commits only its change event', async () => {
+    const { onMinimumTierChange, onArchetypeChange } = picker('paradise');
+    const select = screen.getByRole('combobox', { name: 'Minimum tier' });
+    select.focus();
+    expect(select).toHaveFocus();
+    expect(await fireEvent.keyDown(select, { key: 'ArrowDown' })).toBe(true);
+    expect(onMinimumTierChange).not.toHaveBeenCalled();
+    expect(onArchetypeChange).not.toHaveBeenCalled();
+    // jsdom does not implement the native select's keyboard default action.
+    await fireEvent.change(select, { target: { value: 'S' } });
+    expect(onMinimumTierChange).toHaveBeenCalledExactlyOnceWith('S');
+    expect(select).toHaveFocus();
+  });
+
+  it('disables the whole choice group and minimum tier together', async () => {
+    const { rerender, onArchetypeChange, onMinimumTierChange } =
+      picker('flexible');
+    await rerender({ disabled: true });
+    for (const radio of screen.getAllByRole('radio'))
+      expect(radio).toBeDisabled();
+    expect(
+      screen.getByRole('combobox', { name: 'Minimum tier' }),
+    ).toBeDisabled();
+    expect(onArchetypeChange).not.toHaveBeenCalled();
+    expect(onMinimumTierChange).not.toHaveBeenCalled();
+  });
+
+  it('does not turn body counts or economies into speculative weight controls', async () => {
+    const { rerender, container } = picker();
+    for (const archetype of ['any', 'manufacturing_hub'] as const) {
+      await rerender({ archetype });
+      expect(screen.getAllByRole('radio')).toHaveLength(9);
+      expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+      expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
+      expect(container.querySelector('[name*="weight"]')).toBeNull();
+      expect(screen.queryByText(/weight/i)).not.toBeInTheDocument();
+    }
+  });
 });
