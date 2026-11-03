@@ -10,6 +10,7 @@ import axe from 'axe-core';
 import { createRawSnippet } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import MapLayers from './MapLayers.svelte';
+import { isTopmostPopout, registerPopout } from '$lib/components/popout-stack';
 
 function status(text: string) {
   return createRawSnippet(() => ({ render: () => `<span>${text}</span>` }));
@@ -53,6 +54,29 @@ afterEach(() => {
 });
 
 describe('Map layers pop-out', () => {
+  it('shares layer order and Escape ownership with the enclosing map and other tools', async () => {
+    const map = document.createElement('div');
+    const laterTool = document.createElement('div');
+    const mapLayer = vi.fn();
+    const laterLayer = vi.fn();
+    const unregisterMap = registerPopout(map, mapLayer);
+    renderLayers();
+    const { trigger, dialog } = await openLayers();
+    expect(mapLayer).toHaveBeenLastCalledWith(30);
+    expect(dialog.style.zIndex).toBe('31');
+    expect(isTopmostPopout(dialog)).toBe(true);
+    const unregisterLater = registerPopout(laterTool, laterLayer);
+    expect(laterLayer).toHaveBeenLastCalledWith(32);
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(dialog).toBeInTheDocument();
+    unregisterLater();
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(dialog).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    expect(isTopmostPopout(map)).toBe(true);
+    unregisterMap();
+  });
+
   it('names three independent switches and their descriptions in a non-modal dialog', async () => {
     renderLayers();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

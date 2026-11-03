@@ -59,13 +59,12 @@
     type SearchRadius,
   } from './search-state';
   import type { ExploreResultCache } from './explore-result-cache';
-  import type { ExploreViewState } from './explore-view-state.svelte';
+  import type { ExploreViewState } from './explore-view-state.svelte.ts';
   import MapLayers from './MapLayers.svelte';
-  import SpatialCanvas from '$lib/spatial/SpatialCanvas.svelte';
+  import ExploreMapWindow from './ExploreMapWindow.svelte';
   import type {
     CameraState,
     GalaxySystemPoint,
-    RenderedLayerReceipt,
     RuntimeEvent,
     SpatialContribution,
     SystemCameraState,
@@ -84,7 +83,6 @@
     heatmapViewportQueryKey,
     heatmapViewportRequest,
     mapHeatmapToDensityPayload,
-    type GalaxyDensityResult,
   } from '$lib/spatial/galaxy-density-source';
   import {
     DENSITY_CROSSFADE_NEAR_LY,
@@ -93,7 +91,6 @@
   import {
     fitGalaxyPlaneCamera,
     focusGalaxyCamera,
-    type GalaxyCameraViewport,
   } from '$lib/spatial/galaxy-camera';
   import {
     createGalaxyRegionsContribution,
@@ -104,7 +101,7 @@
     createGalaxyNebulaeContribution,
     fetchGalaxyNebulae,
     GALAXY_NEBULAE_LAYER_ID,
-    type GalaxyNebulaePayload,
+    type GalaxyNebula,
   } from '$lib/spatial/galaxy-nebulae';
   import { galaxyNebulaVisibility } from '$lib/spatial/galaxy-nebulae-policy';
   import { stellarPresentation } from '$lib/spatial/stellar-presentation';
@@ -121,7 +118,6 @@
     createCatalogueStarsContribution,
     galaxyStarViewport,
     withinGalaxyDisk,
-    type GalaxyStarViewport,
   } from '$lib/spatial/galaxy-star-stream';
   import { withinGalaxyStarFootprint } from '$lib/spatial/galaxy-star-footprint';
   import { createGalaxyStarQuery } from '$lib/spatial/galaxy-star-query.svelte';
@@ -139,10 +135,6 @@
   untrack(() => {
     viewState.hasMounted = true;
   });
-  const mountedFocusRevision = untrack(() => viewState.completedFocusRevision);
-  const mountedCameraRevision = untrack(
-    () => viewState.appliedCameraRequestRevision,
-  );
   const watchedSystems = createWatchlistQuery();
   const session = fromStore(auth);
   // The travel heatmap is the signed-in account's own V3 journal travel; the
@@ -189,13 +181,13 @@
       : null,
   );
   let searchInput = $state<HTMLInputElement>();
-  let regions = $state<GalaxyRegionsPayload | null>(null);
-  let regionContribution = $state<SpatialContribution | null>(null);
-  let regionState = $state<'loading' | 'ready' | 'failed'>('loading');
-  let regionResourceRevision = $state(0);
   let spatialCameraTransitionActive = $state(false);
   let regionLoadAttempt = 0;
-  let mapSection = $state<HTMLElement>();
+  let regionsLoading = false;
+  let mapSection = $state<HTMLDivElement>();
+  let mapOpener = $state<HTMLElement | null>(null);
+  let nebulaLoadAttempt = 0;
+  let nebulaController: AbortController | null = null;
   let resultList = $state<HTMLUListElement>();
   let restoredResultScroll = false;
   $effect(() => {
@@ -209,40 +201,30 @@
       untrack(() => viewState.captureResultScroll(list.scrollTop));
     }
   });
-  let canvasViewport = $state<GalaxyCameraViewport>();
   let viewportCameraTimeout: number | null = null;
   let pendingViewportCamera: CameraState | null = null;
-  let appliedCataloguePacket = $state.raw<CatalogueViewportResponse | null>(
-    null,
-  );
-  let appliedCatalogueViewport = $state.raw<GalaxyStarViewport | null>(null);
-  let appliedCatalogueRevision = $state(0);
-  let appliedFootprintKey = '';
   const showDensity = $derived($layerPreferences.value.density);
   const showTravelHeatmap = $derived($layerPreferences.value.journeys);
-  let nebulae = $state<GalaxyNebulaePayload | null>(null);
-  let nebulaState = $state<'loading' | 'ready' | 'failed'>('loading');
-  let nebulaResourceRevision = $state(0);
-  let nebulaLoadAttempt = 0;
-  let renderedNebulaReceipt = $state<RenderedLayerReceipt | null>(null);
-  let nebulaCameraDistanceLy = $state<number | null>(null);
   const nebulaKinds = $derived({
-    diffuse: nebulae?.nebulae.some((nebula) => nebula.kind === 'nebula'),
-    planetary: nebulae?.nebulae.some(
-      (nebula) => nebula.kind === 'planetary-nebula',
+    diffuse: viewState.nebulae?.nebulae.some(
+      (nebula: GalaxyNebula) => nebula.kind === 'nebula',
+    ),
+    planetary: viewState.nebulae?.nebulae.some(
+      (nebula: GalaxyNebula) => nebula.kind === 'planetary-nebula',
     ),
   });
   const nebulaDisplayStatus = $derived.by(() => {
     if (!viewState.showNebulae) return 'Nebula layer hidden';
     if (
-      !nebulae ||
-      !renderedNebulaReceipt ||
-      renderedNebulaReceipt.contributionRevision !== nebulaResourceRevision ||
-      nebulaCameraDistanceLy === null
+      !viewState.nebulae ||
+      !viewState.renderedNebulaReceipt ||
+      viewState.renderedNebulaReceipt.contributionRevision !==
+        viewState.nebulaResourceRevision ||
+      viewState.nebulaCameraDistanceLy === null
     )
       return 'Preparing nebula landmarks…';
-    const visibility = galaxyNebulaVisibility(nebulaCameraDistanceLy);
-    const count = renderedNebulaReceipt.renderedTargetCount;
+    const visibility = galaxyNebulaVisibility(viewState.nebulaCameraDistanceLy);
+    const count = viewState.renderedNebulaReceipt.renderedTargetCount;
     if (count === 0) {
       if (nebulaKinds.planetary && visibility['planetary-nebula'] === 0)
         return 'No landmarks at this zoom · planetary nebulae appear at close range';
@@ -730,7 +712,7 @@
     ),
   );
   const catalogueStars = createGalaxyStarQuery(
-    () => starViewport,
+    () => (viewState.mapOpen ? starViewport : null),
     () => viewState.streamCamera?.focusLy ?? { x: 0, y: 0, z: 0 },
   );
   const footprintKey = $derived(JSON.stringify(starViewport));
@@ -738,13 +720,14 @@
     if (
       catalogueStars.data &&
       starViewport &&
-      (catalogueStars.data !== appliedCataloguePacket ||
-        footprintKey !== appliedFootprintKey)
+      (catalogueStars.data !== viewState.appliedCataloguePacket ||
+        footprintKey !== viewState.appliedFootprintKey)
     ) {
-      appliedCataloguePacket = catalogueStars.data;
-      appliedCatalogueViewport = starViewport;
-      appliedFootprintKey = footprintKey;
-      appliedCatalogueRevision = untrack(() => appliedCatalogueRevision) + 1;
+      viewState.appliedCataloguePacket = catalogueStars.data;
+      viewState.appliedCatalogueViewport = starViewport;
+      viewState.appliedFootprintKey = footprintKey;
+      viewState.appliedCatalogueRevision =
+        untrack(() => viewState.appliedCatalogueRevision) + 1;
     }
   });
   const commanderVisits = createQuery(() => ({
@@ -770,7 +753,10 @@
       );
     },
     enabled:
-      showTravelHeatmap && journeyViewport !== null && travelAccountId !== null,
+      viewState.mapOpen &&
+      showTravelHeatmap &&
+      journeyViewport !== null &&
+      travelAccountId !== null,
     staleTime: 20_000,
     retry: (failureCount, error) =>
       !(error instanceof ApiError && error.status === 401) && failureCount < 1,
@@ -782,7 +768,7 @@
   const journalSummary = createQuery(() => ({
     queryKey: [...queryKeys.auth(), travelAccountId, 'journal-summary'],
     queryFn: ({ signal }) => getCommanderJournalSummary(signal),
-    enabled: showTravelHeatmap && travelAccountId !== null,
+    enabled: viewState.mapOpen && showTravelHeatmap && travelAccountId !== null,
     staleTime: 20_000,
     retry: (failureCount, error) =>
       !(error instanceof ApiError && error.status === 401) && failureCount < 1,
@@ -833,7 +819,10 @@
   // Request and cache key share the bucketed projection bounds, updated after
   // the camera debounce or a canvas resize. The server chooses a complete level.
   const heatmapRequest = $derived(
-    heatmapViewportRequest(viewState.streamCamera, canvasViewport),
+    heatmapViewportRequest(
+      viewState.streamCamera,
+      viewState.starViewportSize ?? undefined,
+    ),
   );
   const heatmapRequestIdentity = $derived(
     heatmapViewportQueryKey(heatmapRequest)[1],
@@ -853,7 +842,7 @@
       queryFn: ({ signal }) => getMapHeatmap(request, signal),
       // Enabled across the zoomed-out + overlap band; below `nearLy` density is
       // fully faded so no fetch needed.
-      enabled: densityEnabled,
+      enabled: viewState.mapOpen && densityEnabled,
       staleTime: 60_000,
       placeholderData: (previousData) => previousData,
     };
@@ -873,12 +862,6 @@
         ? undefined
         : mapHeatmapToDensityPayload(heatmap.data),
   );
-  type ReadyDensity = Extract<GalaxyDensityResult, { kind: 'ready' }>;
-  let lastGoodDensity = $state.raw<ReadyDensity | null>(null);
-  let densityContribution = $state.raw<SpatialContribution | null>(null);
-  let appliedDensityData: typeof heatmap.data;
-  let densityRevision = $state(0);
-  let densityRemovalRevision = $state(0);
   $effect(() => {
     // Query caches may settle after a switch-off. They must never restore a
     // disabled contribution or the retained cells used after refresh failures.
@@ -890,20 +873,21 @@
     // A valid unpublished/empty response, on the other hand, replaces it.
     if (!result || (result.kind !== 'ready' && result.kind !== 'none')) return;
     const data = heatmap.data;
-    if (data === appliedDensityData) return;
-    appliedDensityData = data;
+    if (data === viewState.appliedDensityData) return;
+    viewState.appliedDensityData = data;
     // Cached viewport responses can have older timestamps. The renderer's
     // patch revision must advance even when returning to one of those views.
-    const nextDensityRevision = untrack(() => densityRevision) + 1;
-    densityRevision = nextDensityRevision;
+    const nextDensityRevision = untrack(() => viewState.densityRevision) + 1;
+    viewState.densityRevision = nextDensityRevision;
     const mapped = densityContributionFrom(result, nextDensityRevision);
     const replacement = mapped.kind === 'ready' ? mapped.contribution : null;
-    lastGoodDensity = result.kind === 'ready' ? result : null;
-    if (!replacement && untrack(() => densityContribution) !== null) {
+    viewState.lastGoodDensity = result.kind === 'ready' ? result : null;
+    if (!replacement && untrack(() => viewState.densityContribution) !== null) {
       // A null contribution is not dispatched as a patch; reload to remove it.
-      densityRemovalRevision = untrack(() => densityRemovalRevision) + 1;
+      viewState.densityRemovalRevision =
+        untrack(() => viewState.densityRemovalRevision) + 1;
     }
-    densityContribution = replacement;
+    viewState.densityContribution = replacement;
   });
   const densityFailure = $derived(
     densityResult?.kind === 'unavailable' || densityResult?.kind === 'invalid'
@@ -916,31 +900,37 @@
       : !densityEnabled
         ? 'zoom'
         : densityFailure
-          ? lastGoodDensity
+          ? viewState.lastGoodDensity
             ? 'stale'
             : densityFailure.kind
           : heatmap.isPending || heatmap.isPlaceholderData
             ? 'loading'
             : densityResult?.kind === 'none'
               ? 'none'
-              : lastGoodDensity?.area === 'empty'
+              : viewState.lastGoodDensity?.area === 'empty'
                 ? 'empty'
-                : lastGoodDensity?.area === 'truncated'
+                : viewState.lastGoodDensity?.area === 'truncated'
                   ? 'truncated'
                   : 'ready',
   );
-  const densityCellCount = $derived(lastGoodDensity?.payload.cells.length ?? 0);
+  const densityCellCount = $derived(
+    viewState.lastGoodDensity?.payload.cells.length ?? 0,
+  );
   const densityCoverage = $derived(
-    lastGoodDensity ? densityCoverageLabel(lastGoodDensity) : null,
+    viewState.lastGoodDensity
+      ? densityCoverageLabel(viewState.lastGoodDensity)
+      : null,
   );
   let previousFilteredSystems: CatalogueViewportResponse['systems'] = [];
-  const filteredCatalogueSystems = $derived.by(() => {
-    const filtered = (appliedCataloguePacket?.systems ?? []).filter(
-      (system) => {
+  const filteredCatalogueSystems = $derived.by(
+    (): CatalogueViewportResponse['systems'] => {
+      const packetSystems: CatalogueViewportResponse['systems'] =
+        viewState.appliedCataloguePacket?.systems ?? [];
+      const filtered = packetSystems.filter((system) => {
         // Keep the accepted packet's visibility mask until its replacement is
         // ready. Applying the next viewport's mask to placeholder stars would
         // reveal wide-sample corners or remove local stars during the hand-off.
-        const viewport = appliedCatalogueViewport;
+        const viewport = viewState.appliedCatalogueViewport;
         if (!viewport) return true;
         return (
           system.y >= viewport.minY &&
@@ -948,18 +938,18 @@
           withinGalaxyStarFootprint(viewport.footprint, system.x, system.z) &&
           (!viewport.wide || withinGalaxyDisk(system.x, system.z))
         );
-      },
-    );
-    if (
-      filtered.length === previousFilteredSystems.length &&
-      filtered.every(
-        (system, index) => system === previousFilteredSystems[index],
+      });
+      if (
+        filtered.length === previousFilteredSystems.length &&
+        filtered.every(
+          (system, index) => system === previousFilteredSystems[index],
+        )
       )
-    )
-      return previousFilteredSystems;
-    previousFilteredSystems = filtered;
-    return filtered;
-  });
+        return previousFilteredSystems;
+      previousFilteredSystems = filtered;
+      return filtered;
+    },
+  );
   const viewportSystems = $derived(
     filteredCatalogueSystems.map((system): ExploreSystem => ({
       id64: system.id64,
@@ -1013,8 +1003,11 @@
     return ++commanderHistorySequence;
   });
   const nebulaContribution = $derived(
-    viewState.showNebulae && nebulae
-      ? createGalaxyNebulaeContribution(nebulae, nebulaResourceRevision)
+    viewState.showNebulae && viewState.nebulae
+      ? createGalaxyNebulaeContribution(
+          viewState.nebulae,
+          viewState.nebulaResourceRevision,
+        )
       : null,
   );
   const selectedId = $derived(
@@ -1093,8 +1086,9 @@
         allegiance: finder.allegiance,
         security: finder.security,
       };
-    const catalogue = appliedCataloguePacket?.systems.find(
-      (system) => system.id64 === $selectedSystem.value,
+    const catalogue = viewState.appliedCataloguePacket?.systems.find(
+      (system: CatalogueViewportResponse['systems'][number]) =>
+        system.id64 === $selectedSystem.value,
     );
     return catalogue
       ? {
@@ -1124,6 +1118,16 @@
             : null))
       : null,
   );
+  const selectedWindowPoint = $derived.by((): GalaxySystemPoint | null => {
+    if (selectedPoint) return selectedPoint;
+    if (!selectedMapSystem) return mapAnchorPoint;
+    return (
+      mapExploreSelectedSystemPoint(selectedMapSystem) ??
+      (mapAnchorPoint?.systemId64 === selectedMapSystem.id64
+        ? mapAnchorPoint
+        : null)
+    );
+  });
   const reservedPoints = $derived(
     reservedExploreGalaxyPoints({
       selected:
@@ -1143,13 +1147,16 @@
           : [],
     }),
   );
+  $effect(() => {
+    viewState.reservedPoints = reservedPoints;
+  });
   let catalogueSequence = 0;
   let previousCatalogueContribution: SpatialContribution | null = null;
   const catalogueLimit = $derived(
-    appliedCatalogueViewport?.limit ?? starViewport?.limit ?? 0,
+    viewState.appliedCatalogueViewport?.limit ?? starViewport?.limit ?? 0,
   );
   const catalogueTruncated = $derived(
-    appliedCataloguePacket?.truncated ?? false,
+    viewState.appliedCataloguePacket?.truncated ?? false,
   );
   const catalogueAvailable = $derived(
     filteredCatalogueSystems.length > 0 || reservedPoints.length > 0,
@@ -1207,7 +1214,10 @@
       // Density patches and camera receipts have their own renderer updates.
       // Snapshot them only when visual scene inputs change. Neither timestamps
       // nor placeholder bookkeeping may rebuild all the scene contributions.
-      void densityRemovalRevision;
+      void viewState.densityRemovalRevision;
+      // A reopened canvas starts from the last CPU camera snapshot. This
+      // visibility revision does not replace any query or scene contribution.
+      void viewState.mapOpen;
       return buildExploreGalaxyScene(systems, selectedId, ++sceneSequence, {
         finderContribution,
         finderRevision,
@@ -1215,11 +1225,11 @@
         selectionContribution,
         camera: untrack(() => viewState.retainedCamera?.camera ?? null),
         spatialContributions: collectGalaxySpatialContributions({
-          regions: regionContribution,
+          regions: viewState.regionContribution,
           nebulae: nebulaContribution,
           density: untrack(() =>
             showDensity
-              ? (densityContribution ?? emptyDensityContribution)
+              ? (viewState.densityContribution ?? emptyDensityContribution)
               : null,
           ),
           catalogueStars: catalogueStarsContribution,
@@ -1233,23 +1243,23 @@
       $selectedSystem.value,
       finderRevision +
         viewState.selectionRevision +
-        regionResourceRevision +
+        viewState.regionResourceRevision +
         viewState.streamRevision +
         viewState.layerToggleRevision +
-        appliedCatalogueRevision +
+        viewState.appliedCatalogueRevision +
         (catalogueStarsContribution?.revision ?? 0) +
         commanderVisits.dataUpdatedAt +
         commanderHistoryRevision +
-        nebulaResourceRevision +
-        densityRevision,
+        viewState.nebulaResourceRevision +
+        viewState.densityRevision,
       {
         finderContribution,
         finderRevision,
         camera: viewState.retainedCamera?.camera ?? null,
         spatialContributions: collectGalaxySpatialContributions({
-          regions: regionContribution,
+          regions: viewState.regionContribution,
           nebulae: nebulaContribution,
-          density: showDensity ? densityContribution : null,
+          density: showDensity ? viewState.densityContribution : null,
           catalogueStars: catalogueStarsContribution,
           commanderHistory: commanderHistoryContribution,
         }),
@@ -1336,6 +1346,11 @@
   }
 
   function handleQueryKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape' && autocompleteOpen) {
+      autocompleteOpen = false;
+      event.preventDefault();
+      return;
+    }
     if (!autocompleteOpen || !suggestionRows.length) {
       if (event.key === 'ArrowDown' && suggestionRows.length) {
         autocompleteOpen = true;
@@ -1362,8 +1377,6 @@
       event.preventDefault();
       const hit = suggestionRows[Math.max(0, activeSuggestion)];
       if (hit) chooseSuggestion(hit);
-    } else if (event.key === 'Escape') {
-      autocompleteOpen = false;
     }
   }
 
@@ -1372,6 +1385,102 @@
     commitSelection(system.id64);
     viewState.focusTarget = { kind: 'system', systemId64: system.id64 };
     viewState.focusRevision += 1;
+  }
+
+  function showMap(
+    event: MouseEvent,
+    system: ExploreSystem | null = selectedMapSystem,
+  ): void {
+    if (!viewState.mapOpen) {
+      if (resultList) viewState.captureResultScroll(resultList.scrollTop);
+      viewState.mapReturnScroll = { x: window.scrollX, y: window.scrollY };
+    }
+    mapOpener = event.currentTarget as HTMLElement;
+    const point =
+      system?.id64 === selectedMapSystem?.id64
+        ? selectedWindowPoint
+        : system
+          ? mapExploreSelectedSystemPoint(system)
+          : mapAnchorPoint;
+    if (
+      point &&
+      (point.systemId64 !== viewState.mapFocusedSystemId ||
+        !viewState.retainedCamera)
+    ) {
+      // This is presentation intent only. The existing camera command path
+      // focuses actual coordinates without submitting or changing a search.
+      const camera = focusGalaxyCamera(
+        viewState.retainedCamera?.camera ?? scene.camera,
+        point.positionLy,
+        400,
+      );
+      viewState.initialGalaxyViewRequested = true;
+      viewState.retainedCamera = { finderRevision, camera };
+      updateStreamCamera(camera);
+      requestView(camera);
+      viewState.mapFocusedSystemId = point.systemId64;
+    }
+    viewState.mapResetCamera ??=
+      viewState.retainedCamera?.camera ?? scene.camera;
+    // An already-selected result can have a completed or queued FLY_TO. The
+    // explicit camera request above, or the retained camera on reopen, wins.
+    viewState.completedFocusRevision = viewState.focusRevision;
+    viewState.mapOpen = true;
+    void tick().then(() => {
+      const closeBounds = mapSection
+        ?.querySelector('[data-map-window-close]')
+        ?.getBoundingClientRect();
+      if (
+        window.matchMedia('(max-width: 700px)').matches ||
+        (closeBounds &&
+          (closeBounds.top < 0 || closeBounds.bottom > window.innerHeight))
+      )
+        mapSection?.scrollIntoView?.({ behavior: 'instant', block: 'start' });
+    });
+  }
+
+  function expandMap(): void {
+    if (
+      resultList &&
+      !viewState.mapExpanded &&
+      !window.matchMedia('(max-width: 700px)').matches
+    )
+      viewState.captureResultScroll(resultList.scrollTop);
+    viewState.mapExpanded = !viewState.mapExpanded;
+    if (!viewState.mapExpanded)
+      void tick().then(() => {
+        if (resultList) viewState.restoreResultScroll(resultList);
+      });
+  }
+
+  function closeMap(): void {
+    viewState.mapOpen = false;
+    viewState.mapExpanded = false;
+    spatialCameraTransitionActive = false;
+    void tick().then(() => {
+      if (resultList) viewState.restoreResultScroll(resultList);
+      const previous = viewState.mapReturnScroll;
+      if (
+        previous &&
+        (window.scrollX !== previous.x || window.scrollY !== previous.y)
+      )
+        window.scrollTo({
+          left: previous.x,
+          top: previous.y,
+          behavior: 'instant',
+        });
+    });
+  }
+
+  function captureResultScroll(event: Event): void {
+    if (
+      viewState.mapOpen &&
+      (viewState.mapExpanded || window.matchMedia('(max-width: 700px)').matches)
+    )
+      return;
+    viewState.captureResultScroll(
+      (event.currentTarget as HTMLUListElement).scrollTop,
+    );
   }
 
   function selectMapSystem(point: GalaxySystemPoint): void {
@@ -1413,6 +1522,10 @@
 
   function retainCamera(camera: CameraState): void {
     viewState.retainedCamera = { finderRevision, camera };
+    if (!viewState.mapOpen) {
+      updateStreamCamera(camera);
+      return;
+    }
     pendingViewportCamera = camera;
     if (viewportCameraTimeout !== null) {
       window.clearTimeout(viewportCameraTimeout);
@@ -1445,26 +1558,29 @@
       event.type === 'TRANSITION_FINISHED' &&
       event.target &&
       JSON.stringify(event.target) === JSON.stringify(viewState.focusTarget)
-    )
+    ) {
       viewState.completedFocusRevision = viewState.focusRevision;
+      if (event.target.kind === 'system')
+        viewState.mapFocusedSystemId = event.target.systemId64;
+    }
     if (
       event.type === 'SCENE_APPLIED' ||
       event.type === 'CONTRIBUTION_APPLIED'
     ) {
-      renderedNebulaReceipt =
+      viewState.renderedNebulaReceipt =
         event.renderedLayers.find(
           (layer) =>
             layer.layerId === GALAXY_NEBULAE_LAYER_ID &&
-            layer.contributionRevision === nebulaResourceRevision,
+            layer.contributionRevision === viewState.nebulaResourceRevision,
         ) ?? null;
     } else if (event.type === 'RESOURCE_LOST') {
-      renderedNebulaReceipt = null;
+      viewState.renderedNebulaReceipt = null;
     }
     if (event.type === 'CAMERA_CHANGED' && 'focusLy' in event.camera) {
       acknowledgeCameraRequest(event.camera);
       // Retained navigation state may already hold a flight's destination.
       // Status follows the camera actually applied by the renderer each frame.
-      nebulaCameraDistanceLy = event.camera.distanceLy;
+      viewState.nebulaCameraDistanceLy = event.camera.distanceLy;
       if (spatialCameraTransitionActive) return;
       retainCamera(event.camera);
     } else if (event.type === 'TARGET_HOVERED') {
@@ -1480,6 +1596,7 @@
           const picked = parseId64(event.target.systemId64);
           commitSelection(picked);
           viewState.lastPickedId64 = picked;
+          viewState.mapFocusedSystemId = picked;
         } catch {
           // Renderer events fail closed if an adapter emits a non-Id64 target.
         }
@@ -1507,30 +1624,32 @@
         queryKey: ['map-heatmap'],
         refetchType: 'none',
       });
-      lastGoodDensity = null;
-      densityContribution = null;
-      appliedDensityData = undefined;
+      viewState.lastGoodDensity = null;
+      viewState.densityContribution = null;
+      viewState.appliedDensityData = undefined;
     }
-    densityRemovalRevision += 1;
+    viewState.densityRemovalRevision += 1;
     viewState.layerToggleRevision += 1;
   }
 
   function toggleNebulae(): void {
     viewState.showNebulae = !viewState.showNebulae;
-    renderedNebulaReceipt = null;
+    viewState.renderedNebulaReceipt = null;
     viewState.layerToggleRevision += 1;
   }
 
   function regionName(regionId: string | null): string {
-    if (!regionId || !regions) return 'None';
+    if (!regionId || !viewState.regions) return 'None';
     return (
-      regions.regions.find((region) => String(region.id) === regionId)?.name ??
-      'Unknown'
+      viewState.regions.regions.find(
+        (region: GalaxyRegionsPayload['regions'][number]) =>
+          String(region.id) === regionId,
+      )?.name ?? 'Unknown'
     );
   }
 
   function selectRegion(regionId: string | null): void {
-    if (regionId === viewState.selectedRegionId || !regions) return;
+    if (regionId === viewState.selectedRegionId || !viewState.regions) return;
     viewState.selectedRegionId = regionId;
     viewState.selectionRevision += 1;
   }
@@ -1556,8 +1675,8 @@
   }
 
   function overview(): void {
-    if (!regions) return;
-    const { origin, pixel_scale } = regions.lookup;
+    if (!viewState.regions) return;
+    const { origin, pixel_scale } = viewState.regions.lookup;
     const canvas = mapSection?.querySelector('canvas');
     requestView(
       fitGalaxyPlaneCamera(
@@ -1571,9 +1690,9 @@
         {
           min: { x: origin.x, y: 0, z: origin.z },
           max: {
-            x: origin.x + regions.source.width * pixel_scale,
+            x: origin.x + viewState.regions.source.width * pixel_scale,
             y: 0,
-            z: origin.z + regions.source.height * pixel_scale,
+            z: origin.z + viewState.regions.source.height * pixel_scale,
           },
         },
         {
@@ -1585,8 +1704,9 @@
   }
 
   function viewSelectedRegion(): void {
-    const region = regions?.regions.find(
-      (candidate) => String(candidate.id) === viewState.selectedRegionId,
+    const region = viewState.regions?.regions.find(
+      (candidate: GalaxyRegionsPayload['regions'][number]) =>
+        String(candidate.id) === viewState.selectedRegionId,
     );
     if (region)
       requestView(
@@ -1601,50 +1721,108 @@
   }
 
   async function loadRegions(): Promise<void> {
+    if (regionsLoading) return;
+    regionsLoading = true;
     const attempt = ++regionLoadAttempt;
-    regionState = 'loading';
+    viewState.regionState = 'loading';
     try {
       const accepted = await fetchAuthoritativeGalaxyRegions();
       if (attempt !== regionLoadAttempt) return;
-      regions = accepted;
-      regionContribution = createGalaxyRegionsContribution(accepted, 1);
-      regionResourceRevision += 1;
-      regionState = 'ready';
-      if (!viewState.initialGalaxyViewRequested) {
+      viewState.regions = accepted;
+      viewState.regionContribution = createGalaxyRegionsContribution(
+        accepted,
+        1,
+      );
+      viewState.regionResourceRevision += 1;
+      viewState.regionState = 'ready';
+      if (viewState.mapOpen && !viewState.initialGalaxyViewRequested) {
         viewState.initialGalaxyViewRequested = true;
-        void tick().then(() => overview());
+        void tick().then(() => {
+          if (viewState.mapOpen) overview();
+        });
       }
     } catch {
       if (attempt !== regionLoadAttempt) return;
-      regions = null;
-      regionContribution = null;
-      regionState = 'failed';
+      viewState.regions = null;
+      viewState.regionContribution = null;
+      viewState.regionState = 'failed';
+    } finally {
+      regionsLoading = false;
     }
   }
 
   async function loadNebulae(): Promise<void> {
     const attempt = ++nebulaLoadAttempt;
-    nebulaState = 'loading';
-    renderedNebulaReceipt = null;
+    nebulaController?.abort();
+    const controller = new AbortController();
+    nebulaController = controller;
+    viewState.nebulaState = 'loading';
+    viewState.renderedNebulaReceipt = null;
     try {
-      const accepted = await fetchGalaxyNebulae();
-      if (attempt !== nebulaLoadAttempt) return;
-      nebulae = accepted;
-      nebulaResourceRevision += 1;
-      nebulaState = 'ready';
+      const accepted = await fetchGalaxyNebulae(controller.signal);
+      if (attempt !== nebulaLoadAttempt || controller.signal.aborted) return;
+      viewState.nebulae = accepted;
+      viewState.nebulaResourceRevision += 1;
+      viewState.nebulaState = 'ready';
     } catch {
-      if (attempt !== nebulaLoadAttempt) return;
-      nebulae = null;
-      nebulaState = 'failed';
+      if (attempt !== nebulaLoadAttempt || controller.signal.aborted) return;
+      viewState.nebulae = null;
+      viewState.nebulaState = 'failed';
+    } finally {
+      if (nebulaController === controller) nebulaController = null;
     }
   }
 
+  $effect(() => {
+    const open = viewState.mapOpen;
+    const nebulaeEnabled = viewState.showNebulae;
+    untrack(() => {
+      if (open) {
+        if (!viewState.regions && viewState.regionState !== 'failed')
+          void loadRegions();
+        if (
+          nebulaeEnabled &&
+          !viewState.nebulae &&
+          viewState.nebulaState !== 'failed'
+        )
+          void loadNebulae();
+        return;
+      }
+      // Dropping the catalogue viewport removes its active observers and
+      // aborts their work. Other spatial queries retain their cached receipts
+      // but must not finish retries or dispatch while the canvas is absent.
+      void queryClient.cancelQueries({ queryKey: ['map-heatmap'] });
+      if (travelAccountId !== null)
+        void queryClient.cancelQueries({
+          queryKey: queryKeys.commanderTravel(
+            travelAccountId,
+            journeyViewport ?? {
+              minX: 0,
+              maxX: 0,
+              minY: 0,
+              maxY: 0,
+              minZ: 0,
+              maxZ: 0,
+              limit: 1,
+            },
+          ),
+        });
+      nebulaController?.abort();
+      nebulaController = null;
+      if (viewportCameraTimeout !== null) {
+        window.clearTimeout(viewportCameraTimeout);
+        viewportCameraTimeout = null;
+      }
+      if (pendingViewportCamera) updateStreamCamera(pendingViewportCamera);
+      pendingViewportCamera = null;
+    });
+  });
+
   onMount(() => {
-    void loadRegions();
-    void loadNebulae();
     return () => {
       regionLoadAttempt += 1;
       nebulaLoadAttempt += 1;
+      nebulaController?.abort();
       // Cancel a pending viewport-camera debounce so it can't fire after teardown.
       if (viewportCameraTimeout !== null) {
         window.clearTimeout(viewportCameraTimeout);
@@ -1810,7 +1988,11 @@
     <p role="status" class="ranking-status">{viewState.rankingNotice}</p>
   {/if}
 
-  <div class="explore-grid">
+  <div
+    class="explore-grid"
+    class:is-map-open={viewState.mapOpen}
+    class:is-map-expanded={viewState.mapExpanded}
+  >
     <section
       class="results-panel"
       aria-labelledby="results-title"
@@ -1843,6 +2025,18 @@
 
       <div class="search-scope">
         <p id="results-scope">{resultsScope}</p>
+        <button
+          type="button"
+          class="secondary-button pill-action"
+          data-explore-map-open
+          aria-controls="explore-map-window"
+          aria-expanded={viewState.mapOpen}
+          disabled={selectedMapSystem !== null && !selectedWindowPoint}
+          onclick={(event) => showMap(event)}>Show on map</button
+        >
+        {#if selectedMapSystem && !selectedWindowPoint}
+          <span>Map coordinates unavailable for the selected system.</span>
+        {/if}
         <label class="search-radius" for="search-radius">
           Within
           <select
@@ -1977,8 +2171,7 @@
         <ul
           class="result-list"
           bind:this={resultList}
-          onscroll={(event) =>
-            viewState.captureResultScroll(event.currentTarget.scrollTop)}
+          onscroll={captureResultScroll}
           aria-label="System results"
           aria-describedby="results-scope"
         >
@@ -2029,6 +2222,18 @@
                     >{/if}
                 </span>
               </button>
+              {#if selectedId === system.id64}
+                <button
+                  type="button"
+                  class="result-map-action secondary-button pill-action"
+                  data-result-map-open
+                  aria-controls="explore-map-window"
+                  aria-expanded={viewState.mapOpen}
+                  disabled={!selectedWindowPoint}
+                  onclick={(event) => showMap(event, system)}
+                  >Show on map</button
+                >
+              {/if}
               <!-- eslint-disable svelte/no-navigation-without-resolve -- inspectHref resolves the Inspect route -->
               <a
                 class="inspect-link secondary-button"
@@ -2097,380 +2302,427 @@
       {/if}
     </section>
 
-    <section
-      class="map-panel"
-      aria-labelledby="map-title"
-      data-hovered-system-id={viewState.hoveredSystemId ?? ''}
-      bind:this={mapSection}
-    >
-      <div class="panel-heading">
-        <div>
-          <p class="eyebrow">Galaxy presentation</p>
-          <h2 id="map-title">Spatial results</h2>
-        </div>
-        <span data-region-resource-state={regionState}
-          ><LocateFixed aria-hidden="true" size={15} />
-          {regionState === 'ready' ? '42/42 regions' : 'canonical ly'}</span
-        >
-      </div>
-      <p class="map-note">
-        Stars use exact catalogue coordinates and class-specific presentation.
-        Amber marks active selections. Region geometry is the pinned in-game
-        source; no synthetic geography, stars, or density are substituted.
-      </p>
-      {#if regionState === 'loading'}
-        <p class="region-load-state" role="status">
-          Loading all 42 authoritative regions…
-        </p>
-      {:else if regionState === 'failed'}
-        <div class="region-load-state error" role="alert">
-          <span>The authoritative region resource failed validation.</span>
-          <button type="button" onclick={loadRegions}>Retry regions</button>
-        </div>
-      {:else if regions}
-        <div class="product-region-controls">
-          <label for="explore-region-picker">
-            <span>Galactic region</span>
-            <select
-              id="explore-region-picker"
-              value={viewState.selectedRegionId ?? ''}
-              onchange={(event) =>
-                selectRegion(event.currentTarget.value || null)}
-            >
-              <option value="">No region selected</option>
-              {#each regions.regions as region (region.id)}
-                <option
-                  value={String(region.id)}
-                  data-galaxy-region-option={region.id}
-                >
-                  {region.id}. {region.name}
-                </option>
-              {/each}
-            </select>
-          </label>
-          <div
-            class="product-region-actions"
-            role="group"
-            aria-label="Map views"
-          >
-            <button type="button" onclick={overview}>All 42 regions</button>
-            <button
-              type="button"
-              disabled={!viewState.selectedRegionId}
-              onclick={viewSelectedRegion}>View selected</button
-            >
-          </div>
-          <div class="product-region-status" aria-live="polite">
-            <span
-              >Selected: <strong
-                data-selected-region-id={viewState.selectedRegionId ?? ''}
-                >{regionName(viewState.selectedRegionId)}</strong
-              ></span
-            >
-            <span
-              >Hovered: <strong
-                data-hovered-region-id={viewState.hoveredRegionId ?? ''}
-                >{regionName(viewState.hoveredRegionId)}</strong
-              ></span
-            >
-          </div>
-        </div>
-      {/if}
-      <div class="map-layer-toolbar">
-        <MapLayers
-          densityEnabled={showDensity}
-          journeysEnabled={showTravelHeatmap}
-          nebulaeEnabled={viewState.showNebulae}
-          onDensityToggle={toggleDensity}
-          onJourneysToggle={toggleTravelHeatmap}
-          onNebulaeToggle={toggleNebulae}
-          densityCellSizeLy={lastGoodDensity?.payload.cellSizeLy ?? null}
-          densityGeneration={lastGoodDensity?.payload.generationId ?? null}
-          {densityCoverage}
-          journeysMaxVisits={travelHeatmapState === 'ready'
-            ? Math.max(
-                1,
-                ...(commanderVisits.data?.visits.map(
-                  (visit) => visit.visitCount,
-                ) ?? []),
-              )
-            : undefined}
-        >
-          {#snippet densityStatus()}
-            <span
-              role="status"
-              aria-label="Catalogue density"
-              data-density-state={densityState}
-              data-density-reason={densityEnabled
-                ? densityFailure?.reason
+    {#if viewState.mapOpen}
+      <ExploreMapWindow
+        bind:element={mapSection}
+        expanded={viewState.mapExpanded}
+        onExpand={expandMap}
+        onClose={closeMap}
+        opener={mapOpener ?? searchInput}
+        fallbackFocus={searchInput}
+        hoveredSystemId={viewState.hoveredSystemId}
+        canvasProps={{
+          scene,
+          resetCamera: viewState.mapResetCamera,
+          anchorPoint: mapAnchorPoint,
+          onSystemSelect: selectMapSystem,
+          systemInspectHref: (point) =>
+            FINDER_F4_ENABLED
+              ? inspectHref(parseId64(point.systemId64), page.url)
+              : resolve(`/inspect?system=${point.systemId64}`),
+          onSystemInspect: FINDER_F4_ENABLED
+            ? (event, point) =>
+                followInspect(event, parseId64(point.systemId64))
+            : undefined,
+          onViewportChange: (viewport) => {
+            if (
+              viewState.starViewportSize?.width !== viewport.width ||
+              viewState.starViewportSize?.height !== viewport.height
+            )
+              viewState.starViewportSize = viewport;
+          },
+          cameraRequest:
+            viewState.cameraRequestRevision ===
+            viewState.appliedCameraRequestRevision
+              ? null
+              : viewState.cameraRequest,
+          cameraRequestRevision: viewState.cameraRequestRevision,
+          focusTarget:
+            viewState.focusRevision === viewState.completedFocusRevision
+              ? null
+              : viewState.focusTarget,
+          focusRevision: viewState.focusRevision,
+          contributionPatch:
+            FINDER_F4_ENABLED && showDensity
+              ? viewState.densityContribution
+              : null,
+          contributionPatchRevision: FINDER_F4_ENABLED
+            ? (viewState.densityContribution?.revision ?? 0)
+            : 0,
+          onRuntimeEvent: handleRuntimeEvent,
+          onTransitionChange: handleCameraTransitionChange,
+        }}
+      >
+        {#snippet beforeCanvas()}
+          <div class="map-layer-toolbar">
+            <MapLayers
+              densityEnabled={showDensity}
+              journeysEnabled={showTravelHeatmap}
+              nebulaeEnabled={viewState.showNebulae}
+              onDensityToggle={toggleDensity}
+              onJourneysToggle={toggleTravelHeatmap}
+              onNebulaeToggle={toggleNebulae}
+              densityCellSizeLy={viewState.lastGoodDensity?.payload
+                .cellSizeLy ?? null}
+              densityGeneration={viewState.lastGoodDensity?.payload
+                .generationId ?? null}
+              {densityCoverage}
+              journeysMaxVisits={travelHeatmapState === 'ready'
+                ? Math.max(
+                    1,
+                    ...(commanderVisits.data?.visits.map(
+                      (visit) => visit.visitCount,
+                    ) ?? []),
+                  )
                 : undefined}
-              data-density-cell-count={densityCellCount}
             >
-              {#if densityState === 'off'}
-                Density layer hidden
-              {:else if densityState === 'zoom'}
-                Zoom out to see known-system density
-              {:else if densityState === 'loading'}
-                Loading catalogue density…{lastGoodDensity
-                  ? ' · showing previous area'
-                  : ''}
-              {:else if densityState === 'stale'}
-                {densityCellCount.toLocaleString()} density cells · {densityCoverage}
-                · stale · {densityFailure?.kind === 'invalid'
-                  ? 'density response invalid'
-                  : 'density refresh unavailable'}
-              {:else if densityState === 'unavailable'}
-                Density layer unavailable
-              {:else if densityState === 'invalid'}
-                Density response invalid
-              {:else if densityState === 'none'}
-                No published density pyramid
-              {:else if densityState === 'empty'}
-                No density cells in this area
-              {:else}
-                {densityCellCount.toLocaleString()} density cells{lastGoodDensity?.area ===
-                'truncated'
-                  ? ` · ${densityCoverage}`
-                  : ''}
-              {/if}
-              {#if densityEnabled && densityFailure}
-                · <button type="button" onclick={() => void heatmap.refetch()}
-                  >Retry</button
+              {#snippet densityStatus()}
+                <span
+                  role="status"
+                  aria-label="Catalogue density"
+                  data-density-state={densityState}
+                  data-density-reason={densityEnabled
+                    ? densityFailure?.reason
+                    : undefined}
+                  data-density-cell-count={densityCellCount}
                 >
-              {/if}
-            </span>
-          {/snippet}
-          {#snippet journeysStatus()}
+                  {#if densityState === 'off'}
+                    Density layer hidden
+                  {:else if densityState === 'zoom'}
+                    Zoom out to see known-system density
+                  {:else if densityState === 'loading'}
+                    Loading catalogue density…{viewState.lastGoodDensity
+                      ? ' · showing previous area'
+                      : ''}
+                  {:else if densityState === 'stale'}
+                    {densityCellCount.toLocaleString()} density cells · {densityCoverage}
+                    · stale · {densityFailure?.kind === 'invalid'
+                      ? 'density response invalid'
+                      : 'density refresh unavailable'}
+                  {:else if densityState === 'unavailable'}
+                    Density layer unavailable
+                  {:else if densityState === 'invalid'}
+                    Density response invalid
+                  {:else if densityState === 'none'}
+                    No published density pyramid
+                  {:else if densityState === 'empty'}
+                    No density cells in this area
+                  {:else}
+                    {densityCellCount.toLocaleString()} density cells{viewState
+                      .lastGoodDensity?.area === 'truncated'
+                      ? ` · ${densityCoverage}`
+                      : ''}
+                  {/if}
+                  {#if densityEnabled && densityFailure}
+                    · <button
+                      type="button"
+                      onclick={() => void heatmap.refetch()}>Retry</button
+                    >
+                  {/if}
+                </span>
+              {/snippet}
+              {#snippet journeysStatus()}
+                <span
+                  role="status"
+                  aria-label="My journeys"
+                  data-commander-history-count={travelHeatmapState === 'ready'
+                    ? (commanderVisits.data?.count ?? 0)
+                    : 0}
+                  data-commander-history-state={travelHeatmapState}
+                >
+                  {#if travelHeatmapState === 'checking'}
+                    Checking your sign-in…
+                  {:else if travelHeatmapState === 'auth-error'}
+                    Account check unavailable · <button
+                      type="button"
+                      onclick={() => void auth.bootstrap()}>Retry</button
+                    >
+                  {:else if travelHeatmapState === 'signed-out'}
+                    <a href={resolve('/account')}
+                      >Sign in and import your journals</a
+                    >
+                  {:else if travelHeatmapState === 'summary-error'}
+                    Journal import status unavailable · <button
+                      type="button"
+                      onclick={() => journalSummary.refetch()}>Retry</button
+                    >
+                  {:else if travelHeatmapState === 'off'}
+                    My journeys hidden
+                  {:else if travelHeatmapState === 'no-journals'}
+                    No imported journals yet
+                  {:else if travelHeatmapState === 'zoom'}
+                    Travel history appears when individual-star range is active
+                  {:else if travelHeatmapState === 'loading'}
+                    Reading imported journal visits…
+                  {:else if travelHeatmapState === 'error'}
+                    Travel heatmap unavailable · <button
+                      type="button"
+                      onclick={() => commanderVisits.refetch()}>Retry</button
+                    >
+                  {:else if travelHeatmapState === 'empty'}
+                    No imported journal travel in this view
+                  {:else}
+                    {(commanderVisits.data?.count ?? 0).toLocaleString()} visited
+                    {commanderVisits.data?.mode === 'density'
+                      ? ' cells'
+                      : ' systems'}{commanderVisits.data?.truncated
+                      ? ' · bounded view'
+                      : ''}
+                  {/if}
+                </span>
+              {/snippet}
+              {#snippet nebulaeStatus()}
+                <span
+                  role="status"
+                  aria-label="Nebulae"
+                  data-nebula-resource-state={viewState.nebulaState}
+                >
+                  {#if viewState.nebulaState === 'loading'}
+                    Loading complete nebula inventory…
+                  {:else if viewState.nebulaState === 'failed'}
+                    Nebula layer unavailable · <button
+                      type="button"
+                      onclick={loadNebulae}>Retry</button
+                    >
+                  {:else if viewState.nebulae}
+                    {`${viewState.nebulae.nebulae.length.toLocaleString()} catalogue ${
+                      viewState.nebulae.nebulae.length === 1
+                        ? 'record'
+                        : 'records'
+                    }`} · {nebulaDisplayStatus} ·
+                    <a
+                      href="https://edastro.com/mapcharts/files.html"
+                      target="_blank"
+                      rel="noreferrer">{viewState.nebulae.attribution}</a
+                    >
+                    ·
+                    <a
+                      href="https://edastro.com/mapcharts/files/nebulae-coordinates.csv"
+                      target="_blank"
+                      rel="noreferrer">source CSV</a
+                    >
+                    · {viewState.nebulae.rightsNotice}
+                  {/if}
+                </span>
+              {/snippet}
+            </MapLayers>
             <span
-              role="status"
-              aria-label="My journeys"
-              data-commander-history-count={travelHeatmapState === 'ready'
-                ? (commanderVisits.data?.count ?? 0)
-                : 0}
-              data-commander-history-state={travelHeatmapState}
+              data-catalogue-star-count={catalogueStarsContribution?.layers[0]
+                ?.targetCount ?? 0}
             >
-              {#if travelHeatmapState === 'checking'}
-                Checking your sign-in…
-              {:else if travelHeatmapState === 'auth-error'}
-                Account check unavailable · <button
-                  type="button"
-                  onclick={() => void auth.bootstrap()}>Retry</button
-                >
-              {:else if travelHeatmapState === 'signed-out'}
-                <a href={resolve('/account')}
-                  >Sign in and import your journals</a
-                >
-              {:else if travelHeatmapState === 'summary-error'}
-                Journal import status unavailable · <button
-                  type="button"
-                  onclick={() => journalSummary.refetch()}>Retry</button
-                >
-              {:else if travelHeatmapState === 'off'}
-                My journeys hidden
-              {:else if travelHeatmapState === 'no-journals'}
-                No imported journals yet
-              {:else if travelHeatmapState === 'zoom'}
-                Travel history appears when individual-star range is active
-              {:else if travelHeatmapState === 'loading'}
-                Reading imported journal visits…
-              {:else if travelHeatmapState === 'error'}
-                Travel heatmap unavailable · <button
-                  type="button"
-                  onclick={() => commanderVisits.refetch()}>Retry</button
-                >
-              {:else if travelHeatmapState === 'empty'}
-                No imported journal travel in this view
+              {#if !starViewport}
+                Zoom in for individual catalogue stars
+              {:else if catalogueStars.isPending && !viewState.appliedCataloguePacket}
+                Loading exact catalogue stars…
+              {:else if catalogueStars.isError}
+                Exact-star layer unavailable
               {:else}
-                {(commanderVisits.data?.count ?? 0).toLocaleString()} visited
-                {commanderVisits.data?.mode === 'density'
-                  ? ' cells'
-                  : ' systems'}{commanderVisits.data?.truncated
+                {(
+                  catalogueStarsContribution?.layers[0]?.targetCount ?? 0
+                ).toLocaleString()} exact stars{catalogueStarsContribution
+                  ?.layers[0]?.truncated
                   ? ' · bounded view'
                   : ''}
               {/if}
             </span>
-          {/snippet}
-          {#snippet nebulaeStatus()}
-            <span
-              role="status"
-              aria-label="Nebulae"
-              data-nebula-resource-state={nebulaState}
-            >
-              {#if nebulaState === 'loading'}
-                Loading complete nebula inventory…
-              {:else if nebulaState === 'failed'}
-                Nebula layer unavailable · <button
-                  type="button"
-                  onclick={loadNebulae}>Retry</button
-                >
-              {:else if nebulae}
-                {`${nebulae.nebulae.length.toLocaleString()} catalogue ${
-                  nebulae.nebulae.length === 1 ? 'record' : 'records'
-                }`} · {nebulaDisplayStatus} ·
-                <a
-                  href="https://edastro.com/mapcharts/files.html"
-                  target="_blank"
-                  rel="noreferrer">{nebulae.attribution}</a
-                >
-                ·
-                <a
-                  href="https://edastro.com/mapcharts/files/nebulae-coordinates.csv"
-                  target="_blank"
-                  rel="noreferrer">source CSV</a
-                >
-                · {nebulae.rightsNotice}
-              {/if}
-            </span>
-          {/snippet}
-        </MapLayers>
-        <span
-          data-catalogue-star-count={catalogueStarsContribution?.layers[0]
-            ?.targetCount ?? 0}
-        >
-          {#if !starViewport}
-            Zoom in for individual catalogue stars
-          {:else if catalogueStars.isPending && !appliedCataloguePacket}
-            Loading exact catalogue stars…
-          {:else if catalogueStars.isError}
-            Exact-star layer unavailable
-          {:else}
-            {(
-              catalogueStarsContribution?.layers[0]?.targetCount ?? 0
-            ).toLocaleString()} exact stars{catalogueStarsContribution
-              ?.layers[0]?.truncated
-              ? ' · bounded view'
-              : ''}
-          {/if}
-        </span>
-      </div>
-      <SpatialCanvas
-        onViewportChange={(viewport) => {
-          canvasViewport = viewport;
-          if (
-            viewState.starViewportSize?.width !== viewport.width ||
-            viewState.starViewportSize?.height !== viewport.height
-          )
-            viewState.starViewportSize = viewport;
-        }}
-        {scene}
-        anchorPoint={mapAnchorPoint}
-        onSystemSelect={selectMapSystem}
-        systemInspectHref={(point) =>
-          FINDER_F4_ENABLED
-            ? inspectHref(parseId64(point.systemId64), page.url)
-            : resolve(`/inspect?system=${point.systemId64}`)}
-        onSystemInspect={FINDER_F4_ENABLED
-          ? (event, point) => followInspect(event, parseId64(point.systemId64))
-          : undefined}
-        cameraRequest={remount &&
-        viewState.cameraRequestRevision === mountedCameraRevision
-          ? null
-          : viewState.cameraRequest}
-        cameraRequestRevision={viewState.cameraRequestRevision}
-        focusTarget={remount && viewState.focusRevision === mountedFocusRevision
-          ? null
-          : viewState.focusTarget}
-        focusRevision={viewState.focusRevision}
-        contributionPatch={FINDER_F4_ENABLED && showDensity
-          ? densityContribution
-          : null}
-        contributionPatchRevision={FINDER_F4_ENABLED
-          ? (densityContribution?.revision ?? 0)
-          : 0}
-        onRuntimeEvent={handleRuntimeEvent}
-        onTransitionChange={handleCameraTransitionChange}
-      />
-      {#if selectedMapSystem}
-        <article
-          class="map-system-card"
-          aria-labelledby="map-system-card-title"
-          data-selected-system-card={selectedMapSystem.id64}
-        >
-          <div class="map-system-card__identity">
-            <span
-              class="stellar-glyph"
-              data-stellar-glyph={selectedStarPresentation.glyph}
-              style:--stellar-core={`rgb(${selectedStarPresentation.coreRgb.map((channel) => Math.round(channel * 255)).join(', ')})`}
-              style:--stellar-halo={`rgb(${selectedStarPresentation.haloRgb.map((channel) => Math.round(channel * 255)).join(', ')})`}
-              aria-hidden="true"
-            ></span>
-            <div>
-              <p class="eyebrow">Selected system</p>
-              <h3 id="map-system-card-title">
-                {selectedMapSystem.name ?? `System ${selectedMapSystem.id64}`}
-              </h3>
-              <code>{selectedMapSystem.id64}</code>
-            </div>
           </div>
-          <dl class="map-system-card__facts">
+        {/snippet}
+        {#snippet afterCanvas()}
+          <div class="panel-heading">
             <div>
-              <dt>Primary star</dt>
-              <dd>
-                {selectedMapSystem.main_star_type ??
-                  'Unknown'}{selectedMapSystem.main_star_subtype
-                  ? ` · ${selectedMapSystem.main_star_subtype}`
-                  : ''}
-              </dd>
+              <p class="eyebrow">Galaxy presentation</p>
+              <h2 id="map-title">Spatial results</h2>
             </div>
-            {#if selectedMapSystem.distance != null}<div>
-                <dt>Distance</dt>
-                <dd>{selectedMapSystem.distance.toFixed(1)} ly</dd>
-              </div>{/if}
-            {#if selectedMapSystem.population != null}<div>
-                <dt>Population</dt>
-                <dd>{population(selectedMapSystem.population) ?? '0'}</dd>
-              </div>{/if}
-            {#if selectedMapSystem.primaryEconomy}<div>
-                <dt>Economy</dt>
-                <dd>{selectedMapSystem.primaryEconomy}</dd>
-              </div>{/if}
-            {#if selectedMapSystem.allegiance}<div>
-                <dt>Allegiance</dt>
-                <dd>{selectedMapSystem.allegiance}</dd>
-              </div>{/if}
-            {#if selectedMapSystem.security}<div>
-                <dt>Security</dt>
-                <dd>{selectedMapSystem.security}</dd>
-              </div>{/if}
-          </dl>
-          <nav
-            class="map-system-card__actions"
-            aria-label="Selected system actions"
+            <span data-region-resource-state={viewState.regionState}
+              ><LocateFixed aria-hidden="true" size={15} />
+              {viewState.regionState === 'ready'
+                ? '42/42 regions'
+                : 'canonical ly'}</span
+            >
+          </div>
+          <p class="map-note">
+            Stars use exact catalogue coordinates and class-specific
+            presentation. Amber marks active selections. Region geometry is the
+            pinned in-game source; no synthetic geography, stars, or density are
+            substituted.
+          </p>
+          {#if viewState.regionState === 'loading'}
+            <p class="region-load-state" role="status">
+              Loading all 42 authoritative regions…
+            </p>
+          {:else if viewState.regionState === 'failed'}
+            <div class="region-load-state error" role="alert">
+              <span>The authoritative region resource failed validation.</span>
+              <button type="button" onclick={loadRegions}>Retry regions</button>
+            </div>
+          {:else if viewState.regions}
+            <div class="product-region-controls">
+              <label for="explore-region-picker">
+                <span>Galactic region</span>
+                <select
+                  id="explore-region-picker"
+                  value={viewState.selectedRegionId ?? ''}
+                  onchange={(event) =>
+                    selectRegion(event.currentTarget.value || null)}
+                >
+                  <option value="">No region selected</option>
+                  {#each viewState.regions.regions as region (region.id)}
+                    <option
+                      value={String(region.id)}
+                      data-galaxy-region-option={region.id}
+                    >
+                      {region.id}. {region.name}
+                    </option>
+                  {/each}
+                </select>
+              </label>
+              <div
+                class="product-region-actions"
+                role="group"
+                aria-label="Map views"
+              >
+                <button type="button" onclick={overview}>All 42 regions</button>
+                <button
+                  type="button"
+                  disabled={!viewState.selectedRegionId}
+                  onclick={viewSelectedRegion}>View selected</button
+                >
+              </div>
+              <div class="product-region-status" aria-live="polite">
+                <span
+                  >Selected: <strong
+                    data-selected-region-id={viewState.selectedRegionId ?? ''}
+                    >{regionName(viewState.selectedRegionId)}</strong
+                  ></span
+                >
+                <span
+                  >Hovered: <strong
+                    data-hovered-region-id={viewState.hoveredRegionId ?? ''}
+                    >{regionName(viewState.hoveredRegionId)}</strong
+                  ></span
+                >
+              </div>
+            </div>
+          {/if}
+          {#if selectedMapSystem}
+            <article
+              class="map-system-card"
+              aria-labelledby="map-system-card-title"
+              data-selected-system-card={selectedMapSystem.id64}
+            >
+              <div class="map-system-card__identity">
+                <span
+                  class="stellar-glyph"
+                  data-stellar-glyph={selectedStarPresentation.glyph}
+                  style:--stellar-core={`rgb(${selectedStarPresentation.coreRgb.map((channel) => Math.round(channel * 255)).join(', ')})`}
+                  style:--stellar-halo={`rgb(${selectedStarPresentation.haloRgb.map((channel) => Math.round(channel * 255)).join(', ')})`}
+                  aria-hidden="true"
+                ></span>
+                <div>
+                  <p class="eyebrow">Selected system</p>
+                  <h3 id="map-system-card-title">
+                    {selectedMapSystem.name ??
+                      `System ${selectedMapSystem.id64}`}
+                  </h3>
+                  <code>{selectedMapSystem.id64}</code>
+                </div>
+              </div>
+              <dl class="map-system-card__facts">
+                <div>
+                  <dt>Primary star</dt>
+                  <dd>
+                    {selectedMapSystem.main_star_type ??
+                      'Unknown'}{selectedMapSystem.main_star_subtype
+                      ? ` · ${selectedMapSystem.main_star_subtype}`
+                      : ''}
+                  </dd>
+                </div>
+                {#if selectedMapSystem.distance != null}<div>
+                    <dt>Distance</dt>
+                    <dd>{selectedMapSystem.distance.toFixed(1)} ly</dd>
+                  </div>{/if}
+                {#if selectedMapSystem.population != null}<div>
+                    <dt>Population</dt>
+                    <dd>{population(selectedMapSystem.population) ?? '0'}</dd>
+                  </div>{/if}
+                {#if selectedMapSystem.primaryEconomy}<div>
+                    <dt>Economy</dt>
+                    <dd>{selectedMapSystem.primaryEconomy}</dd>
+                  </div>{/if}
+                {#if selectedMapSystem.allegiance}<div>
+                    <dt>Allegiance</dt>
+                    <dd>{selectedMapSystem.allegiance}</dd>
+                  </div>{/if}
+                {#if selectedMapSystem.security}<div>
+                    <dt>Security</dt>
+                    <dd>{selectedMapSystem.security}</dd>
+                  </div>{/if}
+              </dl>
+              <nav
+                class="map-system-card__actions"
+                aria-label="Selected system actions"
+              >
+                <!-- eslint-disable svelte/no-navigation-without-resolve -- inspectHref resolves the Inspect route -->
+                <a
+                  href={FINDER_F4_ENABLED
+                    ? inspectHref(selectedMapSystem.id64, page.url)
+                    : resolve(`/inspect?system=${selectedMapSystem.id64}`)}
+                  onclick={FINDER_F4_ENABLED
+                    ? (event) => followInspect(event, selectedMapSystem!.id64)
+                    : undefined}>Open System Map</a
+                >
+                <!-- eslint-enable svelte/no-navigation-without-resolve -->
+                <a href={resolve(`/plan?system=${selectedMapSystem.id64}`)}
+                  >Plan here <ArrowRight aria-hidden="true" size={15} /></a
+                >
+              </nav>
+            </article>
+          {/if}
+          <p
+            class="selection-status"
+            aria-live="polite"
+            data-last-picked-id64={viewState.lastPickedId64}
           >
-            <!-- eslint-disable svelte/no-navigation-without-resolve -- inspectHref resolves the Inspect route -->
-            <a
-              href={FINDER_F4_ENABLED
-                ? inspectHref(selectedMapSystem.id64, page.url)
-                : resolve(`/inspect?system=${selectedMapSystem.id64}`)}
-              onclick={FINDER_F4_ENABLED
-                ? (event) => followInspect(event, selectedMapSystem!.id64)
-                : undefined}>Open System Map</a
-            >
-            <!-- eslint-enable svelte/no-navigation-without-resolve -->
-            <a href={resolve(`/plan?system=${selectedMapSystem.id64}`)}
-              >Plan here <ArrowRight aria-hidden="true" size={15} /></a
-            >
-          </nav>
-        </article>
-      {/if}
-      <p
-        class="selection-status"
-        aria-live="polite"
-        data-last-picked-id64={viewState.lastPickedId64}
-      >
-        {#if viewState.lastPickedId64}Spatial pick selected <code
-            >{viewState.lastPickedId64}</code
-          >.{:else if $selectedSystem.value}Active system <code
-            >{$selectedSystem.value}</code
-          >.{:else}Select a result to focus the map.{/if}
-      </p>
-    </section>
+            {#if viewState.lastPickedId64}Spatial pick selected <code
+                >{viewState.lastPickedId64}</code
+              >.{:else if $selectedSystem.value}Active system <code
+                >{$selectedSystem.value}</code
+              >.{:else}Select a result to focus the map.{/if}
+          </p>
+        {/snippet}
+      </ExploreMapWindow>
+    {/if}
   </div>
   <div id="saved-systems"><WatchlistPanel /></div>
   <div id="compare-systems"><ComparePanel /></div>
 </main>
 
 <style>
+  .explore-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .explore-grid.is-map-open {
+    grid-template-columns: minmax(17rem, 0.65fr) minmax(0, 1.35fr);
+  }
+  .explore-grid.is-map-expanded {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .explore-grid.is-map-expanded .results-panel {
+    display: none;
+  }
+  .result-map-action {
+    justify-self: start;
+    margin: 0.25rem 1.15rem;
+  }
+  @media (max-width: 700px) {
+    .explore-grid.is-map-open {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .explore-grid.is-map-open .results-panel {
+      display: none;
+    }
+  }
   .committed-anchor,
   .result-paging {
     display: flex;

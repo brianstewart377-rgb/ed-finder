@@ -10,10 +10,16 @@ Product E2E/visual acceptance before promotion; none is deployed. The other
 phases below retain their recorded status; implementation is not a claim of
 shipped behaviour.
 
-The approved 1 November 2026 concept pack is not in this repository. This plan
-records the owner's supplied direction; it does not reconstruct unseen images
-or invent features. The map-window image governs styling and placement, not
-galaxy data. Its visual comparison remains an implementation acceptance input.
+The owner's 1 November 2026 concept pack is committed as reference in
+[`2026-11-01-ui-concept-pack/`](2026-11-01-ui-concept-pack/README.md), except the
+Orbis homepage mockup, which is held back from this public repository pending a
+rights decision (the owner's black hole screenshot is the homepage background
+candidate). Slices P1 to P6a were built from this plan's written description,
+before the images were in the repository. A first comparison on 2026-11-03 found
+gaps on the home page, map window, Inspect, Plan and Review; aligning built
+screens to the images is tracked as follow-up slices. The map-window image
+governs styling and placement, not galaxy data; its visual comparison remains
+an implementation acceptance input.
 
 Follow the [ROADMAP](../../ROADMAP.md), [application stack](../../development/v3-application-stack-decision.md),
 [spatial product contract](../../colonisation-redesign/spatial-platform-product-contract.md),
@@ -113,7 +119,7 @@ Evidence: [UI definitions](../../../apps/web/src/lib/features/explore/body-filte
 [column mapping](../../../apps/api/src/search_economies.py) and
 [local-search validation](../../../apps/api/src/local_search.py).
 The existing nineteenth control, **Rocky ice** (`rocky_ice_count`), is retained
-pending owner decision 3. Do not describe it as missing or silently remove it.
+by owner decision 3 (2026-11-03). All 19 count controls remain exposed.
 Min/max are inclusive; maximum zero means none, minimum zero alone adds no
 restriction. The UI's whole-number bound is 0–999, with an unbounded maximum
 shown as Any; 999 is a UI limit, not a newly asserted backend limit.
@@ -143,7 +149,7 @@ No slice needs a SQL migration or new backend contract.
 | P0 | This plan, ROADMAP link and CHANGES entry | No | No |
 | P1 | Shared tokens, Saira headings, glossy panels, opt-in pill actions, tabs, chips and pop-out skins; **done-pending-merge, #998** | No | Yes |
 | P2a | Extract Explore view state from layout ownership; retain query, filters, selection, result scroll and spatial context through layout changes; **implemented in this PR** | No | Verify unchanged |
-| P2b | M09: on-demand map window, **Show on map**, **Expand**, close/reopen and state preservation using the existing canvas | No | Yes |
+| P2b | M09: on-demand map window, **Show on map**, **Expand**, close/reopen and state preservation using the existing canvas; **implemented in this PR** | No | Yes |
 | P2c | Explore main-task tabs and shared movable/dockable tool behaviour; keep Layers and map controls accessible in the window | No | Yes |
 | P3 | Finder control polish: archetype/results priority, existing count-group tabs, persistent chips and truthful scope gaps; all 19 existing count controls retained; **implemented in this PR** | No | Yes |
 | P4 | Inspect **Overview / Bodies / Stations** tabs; evidence explanation pop-out and retained Sources & freshness; **implemented (#1002)** | No | Yes |
@@ -189,17 +195,20 @@ scope/radius and deliberate System entry/return now on main. Retain actual
 coordinates and regions; missing coordinates stay unavailable. The concept
 image is a placement/style reference, **never generated geography**. Renderer
 algorithms, scene contracts, layer provenance, API requests and routes stay
-unchanged. Explore tab labels/partition and phone behaviour need §7 decisions;
+unchanged. Phone behaviour follows the 2026-11-03 decisions in §7; approved
+Finder / Saved / Compare task tabs belong to P2c and are not added by P2b;
 the primary Finder task keeps archetype selection and results together, and
 Body filters/Layers remain occasional tools rather than primary task tabs.
 
 Extend `ExploreWorkspace.test.ts`, its workload tests, `MapLayers.test.ts` and
 spatial component/lifecycle tests for state retention, bounds and single-runtime
 ownership. Product `product-journey.cy.ts` and `spatial-foundation.cy.ts` cover
-Show/close/reopen/Expand, tab switches, scroll retention, resize, keyboard docking,
+Show/close/reopen/Expand, existing tool-tab switches, scroll retention, resize,
 topmost Escape, focus return, axe and reduced-motion camera behaviour. Review
 Lab retains injected map failure/recovery and empty/partial/oversized data
 checks through the real canvas. Apply §5 to every visible slice.
+Keyboard docking/resize is deferred to P2c. The phone window fills the available
+workspace and remains non-modal at every width; closing restores the results.
 
 ### Phase 3 — Finder controls
 
@@ -336,21 +345,22 @@ F4 flag as a redesign switch. Keep existing URLs/storage readable and main
 shippable throughout. Mobile decisions gate the affected replacement, not all
 unrelated work. Promotion always retains §5's separate visual gate.
 
-## 7. Open owner decisions
+## 7. Owner decisions
 
-1. **Phone Explore layout:** after Show on map, should the window occupy the
-   available workspace or leave part of the result list visible? Search,
-   filters, selection and scroll must survive either choice.
-2. **Mobile modality:** keep the map non-modal at phone width, or explicitly
-   make it modal there? Only the latter needs a focus trap/background inertness;
-   both require Close, Escape and focus restoration. Other tools remain non-modal.
-3. **Count exposure:** keep the already-supported nineteenth Rocky ice control,
-   or present exactly the owner's 18? All 18 exist today; for modes lacking
-   support, retain paused chips/disabled controls or hide only the unavailable
-   inputs? No choice authorizes widening API support.
-4. **Explore task tabs:** approve labels and grouping for the existing Finder,
-   saved-list and comparison surfaces while keeping archetype/results together.
-   Body filters and Layers keep their pop-outs; this adds no new task feature.
-5. **Visual reference hand-off:** identify the approved map-window image and
-   phone variant for P2/P6 comparison. Until available, do not claim pixel-level
-   fidelity or treat invented placement as an approved baseline.
+1. **Phone Explore layout — decided 2026-11-03:** after Show on map, the window
+   fills the available workspace. Close restores results exactly, including
+   scroll, selection, filters and query.
+2. **Mobile modality — decided 2026-11-03:** the map is **non-modal at every
+   width**, with no focus trap or inert background. Close, topmost Escape and
+   focus return are required. Other tools remain non-modal.
+3. **Count exposure — decided 2026-11-03:** keep all 19 existing count controls,
+   including Rocky ice. P3 already respects this; P2b does not change controls
+   or widen API support. Unsupported modes retain their paused chips.
+4. **Explore task tabs — decided 2026-11-03:** **Finder / Saved / Compare** are
+   approved for P2c. P2b adds no task tabs. Archetype/results stay together and
+   Body filters/Layers remain pop-outs.
+5. **Visual reference hand-off — resolved 2026-11-03:** the owner's concept pack
+   is now in the repository (see §1). P2b was built before the images were
+   available and follows this plan's description only; it makes no claim of
+   pixel fidelity or an approved visual baseline. Aligning the map window to
+   `02-map.png` is a follow-up (P2d); the other screens follow in turn.

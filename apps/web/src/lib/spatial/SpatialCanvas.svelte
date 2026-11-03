@@ -55,6 +55,7 @@
     focusRevision = 0,
     cameraRequest = null,
     cameraRequestRevision = 0,
+    resetCamera: initialGalaxyCamera = null,
     contributionPatch = null,
     contributionPatchRevision = 0,
     onRuntimeEvent,
@@ -70,6 +71,8 @@
     focusRevision?: number;
     cameraRequest?: CameraState | null;
     cameraRequestRevision?: number;
+    /** Route-owned Reset view target retained while this canvas is suspended. */
+    resetCamera?: CameraState | null;
     contributionPatch?: SpatialContribution | null;
     contributionPatchRevision?: number;
     onRuntimeEvent?: (event: RuntimeEvent) => void;
@@ -424,7 +427,7 @@
       'executed'
     ) {
       if (!homeCamera && nextScene.kind === 'galaxy')
-        homeCamera = nextScene.camera;
+        homeCamera = untrack(() => initialGalaxyCamera) ?? nextScene.camera;
       if (nextScene.kind === 'system' && contractCamera) {
         // Fit the contract's overview to this canvas; Reset view returns to
         // it. A context recovery resumes the camera the canvas already owns

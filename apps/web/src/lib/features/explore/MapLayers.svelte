@@ -1,5 +1,9 @@
 <script lang="ts">
   import { tick, type Snippet } from 'svelte';
+  import {
+    isTopmostPopout,
+    registerPopout,
+  } from '$lib/components/popout-stack';
 
   let {
     densityEnabled,
@@ -36,6 +40,7 @@
   let open = $state(false);
   let trigger = $state<HTMLButtonElement>();
   let panel = $state<HTMLDivElement>();
+  let layer = $state(30);
   let panelLeft = $state(8);
   let panelTop = $state(8);
   let panelMaxWidth = $state<number | null>(null);
@@ -97,9 +102,9 @@
   }
 
   function keydown(event: KeyboardEvent) {
-    if (open && event.key === 'Escape') {
+    if (open && event.key === 'Escape' && isTopmostPopout(panel)) {
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
       closePanel();
     }
   }
@@ -107,12 +112,24 @@
   function outsideClick(event: MouseEvent) {
     if (
       open &&
+      isTopmostPopout(panel) &&
       event.target instanceof Node &&
       !panel?.contains(event.target) &&
       !trigger?.contains(event.target)
     )
       closePanel();
   }
+
+  $effect(() => {
+    const element = panel;
+    if (!element) return;
+    const unregister = registerPopout(element, (value) => (layer = value));
+    window.addEventListener('keydown', keydown, true);
+    return () => {
+      unregister();
+      window.removeEventListener('keydown', keydown, true);
+    };
+  });
 
   $effect(() => {
     const element = panel;
@@ -143,7 +160,7 @@
   });
 </script>
 
-<svelte:window onkeydown={keydown} onclick={outsideClick} />
+<svelte:window onclick={outsideClick} />
 
 <button
   bind:this={trigger}
@@ -169,6 +186,7 @@
     aria-labelledby={`${dialogId}-title`}
     tabindex="-1"
     style:left={`${panelLeft}px`}
+    style:z-index={layer}
     style:top={`${panelTop}px`}
     style:max-width={panelMaxWidth === null ? undefined : `${panelMaxWidth}px`}
     style:max-height={panelMaxHeight === null
@@ -302,7 +320,6 @@
   }
   .layers-dialog {
     position: fixed;
-    z-index: 30;
     box-sizing: border-box;
     width: min(27rem, calc(100vw - 1rem));
     max-height: calc(100dvh - 1rem);

@@ -1,4 +1,4 @@
-// Tool order is shared by Inspect and Plan. Registration follows opening order;
+// Tool order is shared by Explore, Inspect and Plan. Registration follows opening order;
 // hidden task panels unregister until their tools become visible again.
 const panels: {
   element: HTMLElement;
@@ -6,7 +6,15 @@ const panels: {
 }[] = [];
 
 function updateLayers(): void {
-  panels.forEach((entry, index) => entry.setLayer?.(30 + index));
+  panels.forEach((entry, index) => {
+    // A fixed tool inside the map inherits its parent's stacking context.
+    // Raise that context with its newest child so visual order still matches
+    // Escape order when another workspace tool sits between them.
+    const highestChild = panels.findLastIndex((candidate) =>
+      entry.element.contains(candidate.element),
+    );
+    entry.setLayer?.(30 + Math.max(index, highestChild));
+  });
 }
 
 export function registerPopout(
