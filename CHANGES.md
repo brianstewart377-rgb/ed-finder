@@ -24,8 +24,6 @@ viewports, keyboard order, reduced motion and accessibility.
 P6b's journey-wide visual sweep remains a separate PR. This visual change
 requires Product E2E/visual acceptance before promotion; it is not deployed.
 
-## Unreleased
-
 ## 2026-11-03 — UI redesign P3: Finder control polish
 
 Finder archetype choices, ranking facts and the Body filters tool now use the
