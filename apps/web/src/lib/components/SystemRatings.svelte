@@ -10,6 +10,7 @@
   import { queryKeys } from '$lib/api/query';
   import type { Id64 } from '$lib/domain/id64';
   import RatingExplanation from './RatingExplanation.svelte';
+  import InspectPopout from './InspectPopout.svelte';
   import {
     AVAILABILITY_LABELS,
     type RatingsSourceState,
@@ -24,9 +25,17 @@
     id64: Id64;
     bodies: readonly SystemDetailBody[];
     headingId: string;
+    active?: boolean;
     onSourceChange?: (source: RatingsSourceState) => void;
   };
-  let { id64, bodies, headingId, onSourceChange }: Props = $props();
+  let {
+    id64,
+    bodies,
+    headingId,
+    active = true,
+    onSourceChange,
+  }: Props = $props();
+  let trigger = $state<HTMLButtonElement>();
 
   const queryClient = useQueryClient();
 
@@ -103,9 +112,15 @@
     return data.economies.find((economy) => economy.economy === open) ?? null;
   });
 
-  function toggle(economy: string): void {
+  function toggle(economy: string, button: HTMLButtonElement): void {
+    trigger = button;
     opened = open === economy ? null : { id64, economy };
+    if (open === null) button.focus({ preventScroll: true });
   }
+
+  $effect.pre(() => {
+    if (opened !== null && opened.id64 !== id64) opened = null;
+  });
 
   /**
    * After a republish, reload the ratings and the open explanation together.
@@ -118,7 +133,10 @@
     });
   }
 
-  const regionId = (economy: string) => `${headingId}-rating-${economy}`;
+  const dialogId = $derived(`${headingId}-rating-evidence`);
+  const selectedRating = $derived(
+    ordered.find((rating) => rating.economy === open),
+  );
 </script>
 
 <section
@@ -191,76 +209,91 @@
                 <button
                   type="button"
                   class="rating-why"
+                  data-inspect-popout-trigger
+                  aria-haspopup="dialog"
                   aria-label={`Why? ${label}`}
                   aria-expanded={open === rating.economy}
-                  aria-controls={regionId(rating.economy)}
-                  onclick={() => toggle(rating.economy)}
+                  aria-controls={open === rating.economy ? dialogId : undefined}
+                  onclick={(event) =>
+                    toggle(rating.economy, event.currentTarget)}
                 >
                   Why?
                 </button>
-              </td>
-            </tr>
-            <tr class="rating-explanation-row" hidden={open !== rating.economy}>
-              <td colspan={4}>
-                <div
-                  id={regionId(rating.economy)}
-                  class="rating-explanation"
-                  role="region"
-                  aria-label={`Why ${label} scores ${rating.potential}`}
-                >
-                  {#if open !== rating.economy}
-                    <!-- Collapsed: nothing is fetched or rendered. -->
-                  {:else if explanation.isPending}
-                    <p role="status">Loading the explanation…</p>
-                  {:else if explanation.isError}
-                    <p
-                      role="alert"
-                      data-unavailable-fields
-                      data-availability={isAbsent(explanation.error)
-                        ? 'unknown'
-                        : 'unavailable'}
-                    >
-                      {#if isAbsent(explanation.error)}
-                        <strong>{AVAILABILITY_LABELS.unknown}</strong> — the published
-                        source has no explanation for this system.
-                      {:else}
-                        <strong>{AVAILABILITY_LABELS.unavailable}</strong> — the explanation
-                        could not be loaded.
-                      {/if}
-                    </p>
-                    {#if !isAbsent(explanation.error)}
-                      <button
-                        class="quiet-button"
-                        type="button"
-                        onclick={() => explanation.refetch()}
-                      >
-                        Retry
-                      </button>
-                    {/if}
-                  {:else if explanation.data?.kind === 'republished'}
-                    <p role="alert">
-                      The ratings were republished while this page was open.
-                    </p>
-                    <button
-                      class="quiet-button"
-                      type="button"
-                      onclick={reloadRatings}
-                    >
-                      Reload ratings
-                    </button>
-                  {:else if explained && explanation.data}
-                    <RatingExplanation
-                      {explained}
-                      identity={explanation.data.identity}
-                      {bodyNames}
-                    />
-                  {/if}
-                </div>
               </td>
             </tr>
           {/each}
         </tbody>
       </table>
     </div>
+    <InspectPopout
+      id={dialogId}
+      title={selectedRating
+        ? `Why ${ratingEconomyLabel(selectedRating.economy)} scores ${selectedRating.potential}`
+        : 'Economy evidence'}
+      open={open !== null}
+      {active}
+      {trigger}
+      kind="evidence"
+      onclose={() => (opened = null)}
+    >
+      <div class="rating-explanation">
+        {#if explanation.isPending}
+          <p role="status">Loading the explanation…</p>
+        {:else if explanation.isError}
+          <p
+            role="alert"
+            data-unavailable-fields
+            data-availability={isAbsent(explanation.error)
+              ? 'unknown'
+              : 'unavailable'}
+          >
+            {#if isAbsent(explanation.error)}
+              <strong>{AVAILABILITY_LABELS.unknown}</strong> — the published source
+              has no explanation for this system.
+            {:else}
+              <strong>{AVAILABILITY_LABELS.unavailable}</strong> — the explanation
+              could not be loaded.
+            {/if}
+          </p>
+          {#if !isAbsent(explanation.error)}
+            <button
+              class="quiet-button"
+              type="button"
+              onclick={() => explanation.refetch()}
+            >
+              Retry
+            </button>
+          {/if}
+        {:else if explanation.data?.kind === 'republished'}
+          <p role="alert">
+            The ratings were republished while this page was open.
+          </p>
+          <button class="quiet-button" type="button" onclick={reloadRatings}>
+            Reload ratings
+          </button>
+        {:else if explained && explanation.data}
+          <RatingExplanation
+            {explained}
+            identity={explanation.data.identity}
+            {bodyNames}
+          />
+        {/if}
+      </div>
+    </InspectPopout>
   {/if}
 </section>
+
+<style>
+  .rating-why {
+    border-color: var(--line, hsl(216 10% 24%));
+    border-radius: var(--radius, 0.4rem);
+    background: var(--panel-raised, hsl(216 10% 14%));
+    color: var(--neon, #7dd3fc);
+  }
+  .rating-why[aria-expanded='true'] {
+    border-color: var(--accent, #ff7a14);
+  }
+  .system-ratings-note {
+    color: var(--text-muted, #a6acb4);
+  }
+</style>

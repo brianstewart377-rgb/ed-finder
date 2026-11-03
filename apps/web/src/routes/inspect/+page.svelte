@@ -1,13 +1,27 @@
 <script lang="ts">
+  import { replaceState } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
   import SystemDetail from '$lib/components/SystemDetail.svelte';
+  import {
+    parseInspectTab,
+    type InspectTab,
+  } from '$lib/components/inspect-tabs';
   import WorkspaceHeader from '$lib/components/WorkspaceHeader.svelte';
   import { FINDER_F4_ENABLED } from '$lib/config';
   import { parseId64, type Id64 } from '$lib/domain/id64';
   import { navigateWithAnchor } from '$lib/features/explore/navigation';
 
   const rawSystem = $derived(page.url.searchParams.get('system'));
+  const tab = $derived(parseInspectTab(page.url.searchParams.get('tab')));
+
+  function changeTab(next: InspectTab): void {
+    const url = new URL(page.url);
+    url.searchParams.set('tab', next);
+    // Shallow URL state: retain mounted queries, focus, scroll and Finder context.
+    // eslint-disable-next-line svelte/no-navigation-without-resolve -- the current page URL already contains the resolved base path
+    replaceState(url, page.state);
+  }
   const systemId = $derived.by((): Id64 | null => {
     if (!rawSystem) return null;
     try {
@@ -51,7 +65,12 @@
 <WorkspaceHeader />
 <main class="inspect-page product-page">
   {#if systemId}
-    <SystemDetail id64={systemId} autofocusHeading />
+    <SystemDetail
+      id64={systemId}
+      {tab}
+      onTabChange={changeTab}
+      autofocusHeading
+    />
     <nav class="detail-actions" aria-label="System actions">
       <!-- eslint-disable svelte/no-navigation-without-resolve -- exploreHref resolves the Explore route -->
       <a

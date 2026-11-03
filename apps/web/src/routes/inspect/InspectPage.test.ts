@@ -8,6 +8,10 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as api from '$lib/api/client';
 import { queryClient } from '$lib/api/query';
+import {
+  referenceSystemDetail,
+  referenceSystemRatings,
+} from '$lib/api/v3-system-fixtures';
 import { parseId64 } from '$lib/domain/id64';
 import ExploreWorkspaceTestHost from '$lib/features/explore/ExploreWorkspaceTestHost.svelte';
 import {
@@ -17,17 +21,23 @@ import {
 } from '$lib/features/explore/navigation';
 import InspectPageTestHost from './InspectPageTestHost.svelte';
 
-const { mockedPage, mockedGoto, featureGate } = vi.hoisted(() => ({
-  mockedPage: {
-    url: new URL('http://localhost/inspect'),
-    state: {} as App.PageState,
-  },
-  mockedGoto: vi.fn(),
-  featureGate: { enabled: false },
-}));
+const { mockedPage, mockedGoto, mockedReplaceState, featureGate } = vi.hoisted(
+  () => ({
+    mockedPage: {
+      url: new URL('http://localhost/inspect'),
+      state: {} as App.PageState,
+    },
+    mockedGoto: vi.fn(),
+    mockedReplaceState: vi.fn(),
+    featureGate: { enabled: false },
+  }),
+);
 
 vi.mock('$app/state', () => ({ page: mockedPage }));
-vi.mock('$app/navigation', () => ({ goto: mockedGoto }));
+vi.mock('$app/navigation', () => ({
+  goto: mockedGoto,
+  replaceState: mockedReplaceState,
+}));
 vi.mock('$lib/config', () => ({
   get FINDER_F4_ENABLED() {
     return featureGate.enabled;
@@ -36,6 +46,7 @@ vi.mock('$lib/config', () => ({
 vi.mock('$lib/api/client', async (loadOriginal) => ({
   ...(await loadOriginal<typeof import('$lib/api/client')>()),
   getSystem: vi.fn(),
+  getSystemRatings: vi.fn(),
   autocompleteSystems: vi.fn(),
   searchExploreSystems: vi.fn(),
   getArchetypeRankings: vi.fn(),
@@ -95,6 +106,30 @@ function renderExplore(): void {
   });
 }
 
+function renderInspect() {
+  return render(InspectPageTestHost, {
+    initialPage: { url: mockedPage.url, state: mockedPage.state },
+    installPage(model) {
+      Object.defineProperties(mockedPage, {
+        url: {
+          configurable: true,
+          get: () => model.url,
+          set: (url: URL) => {
+            model.url = url;
+          },
+        },
+        state: {
+          configurable: true,
+          get: () => model.state,
+          set: (state: App.PageState) => {
+            model.state = state;
+          },
+        },
+      });
+    },
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   queryClient.clear();
@@ -111,8 +146,13 @@ beforeEach(() => {
     mockedPage.url = new URL(destination, mockedPage.url);
     mockedPage.state = options.state;
   });
+  mockedReplaceState.mockImplementation((destination, state) => {
+    mockedPage.url = new URL(destination, mockedPage.url);
+    mockedPage.state = state;
+  });
   // Keep detail mounted under its real QueryClientProvider without starting a map.
   vi.mocked(api.getSystem).mockImplementation(() => new Promise(() => {}));
+  vi.mocked(api.getSystemRatings).mockResolvedValue(referenceSystemRatings());
   vi.mocked(api.searchExploreSystems).mockImplementation(
     () => new Promise(() => {}),
   );
@@ -139,6 +179,110 @@ afterEach(() => {
   cleanup();
   queryClient.clear();
   vi.unstubAllGlobals();
+});
+
+describe('Inspect tab URL state', () => {
+  beforeEach(() => {
+    vi.mocked(api.getSystem).mockResolvedValue(
+      referenceSystemDetail({ id64: inspectedId }),
+    );
+  });
+
+  it.each([
+    ['overview', 'Overview'],
+    ['bodies', 'Bodies'],
+    ['stations', 'Stations'],
+  ])('restores the %s task from a direct link', async (value, name) => {
+    mockedPage.url.searchParams.set('tab', value);
+    renderInspect();
+    expect(await screen.findByRole('tab', { name })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.getByRole('tabpanel', { name })).toBeVisible();
+    expect(mockedReplaceState).not.toHaveBeenCalled();
+    expect(mockedGoto).not.toHaveBeenCalled();
+  });
+
+  it.each([null, '', 'unknown', 'BODIES', 'bodies/stations', 'x'.repeat(1024)])(
+    'uses Overview for an absent or invalid tab %s',
+    async (value) => {
+      if (value !== null) mockedPage.url.searchParams.set('tab', value);
+      renderInspect();
+      expect(
+        await screen.findByRole('tab', { name: 'Overview' }),
+      ).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getAllByRole('tabpanel')).toHaveLength(1);
+      expect(screen.getByRole('tabpanel', { name: 'Overview' })).toBeVisible();
+      expect(mockedReplaceState).not.toHaveBeenCalled();
+    },
+  );
+
+  it('round-trips tab choices on reload while preserving the system, originating URL and navigation state', async () => {
+    featureGate.enabled = true;
+    arriveFrom('archetype=flexible&min-tier=A&page_size=1&campaign=survey', {
+      anchor,
+    });
+    mockedPage.url.searchParams.set('campaign', 'inspect');
+    mockedPage.url.hash = '#details';
+    const originalFrom = mockedPage.url.searchParams.get('from');
+    const mounted = renderInspect();
+    const originalState = mockedPage.state;
+    await fireEvent.click(await screen.findByRole('tab', { name: 'Bodies' }));
+    expect(mockedPage.url.searchParams.get('tab')).toBe('bodies');
+    await fireEvent.click(screen.getByRole('tab', { name: 'Stations' }));
+    expect(mockedPage.url.searchParams.getAll('tab')).toEqual(['stations']);
+    expect(mockedPage.url.searchParams.get('system')).toBe(inspectedId);
+    expect(mockedPage.url.searchParams.get('from')).toBe(originalFrom);
+    expect(mockedPage.url.searchParams.get('campaign')).toBe('inspect');
+    expect(mockedPage.url.hash).toBe('#details');
+    expect(mockedPage.state).toBe(originalState);
+    expect(mockedReplaceState).toHaveBeenCalledTimes(2);
+    expect(mockedGoto).not.toHaveBeenCalled();
+    expect(api.getSystem).toHaveBeenCalledTimes(1);
+    expect(api.getSystemRatings).toHaveBeenCalledTimes(1);
+
+    mounted.unmount();
+    renderInspect();
+    expect(
+      await screen.findByRole('tab', { name: 'Stations' }),
+    ).toHaveAttribute('aria-selected', 'true');
+    await fireEvent.click(screen.getByRole('tab', { name: 'Overview' }));
+    expect(mockedPage.url.searchParams.get('tab') ?? 'overview').toBe(
+      'overview',
+    );
+    expect(screen.getByRole('tabpanel', { name: 'Overview' })).toBeVisible();
+    expect(api.getSystem).toHaveBeenCalledTimes(1);
+    expect(api.getSystemRatings).toHaveBeenCalledTimes(1);
+  });
+
+  it('responds to a history URL update and evacuates keyboard focus from the hidden task', async () => {
+    mockedPage.url.searchParams.set('tab', 'bodies');
+    renderInspect();
+    const body = await screen.findByRole('button', {
+      name: 'Reference System 3 Planet',
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { name: 'Reference System' }),
+      ).toHaveFocus(),
+    );
+    body.focus();
+    const destination = new URL(mockedPage.url);
+    destination.searchParams.set('tab', 'stations');
+    mockedPage.url = destination;
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Stations' })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      ),
+    );
+    expect(screen.getByRole('tab', { name: 'Stations' })).toHaveFocus();
+    expect(body.closest('[role="tabpanel"]')).toHaveAttribute('hidden');
+    expect(mockedReplaceState).not.toHaveBeenCalled();
+    expect(api.getSystem).toHaveBeenCalledTimes(1);
+    expect(api.getSystemRatings).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('Inspect Explore navigation', () => {

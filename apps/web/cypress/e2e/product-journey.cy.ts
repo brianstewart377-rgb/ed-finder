@@ -68,9 +68,48 @@ const waitForInspectSettled = () => {
     'aria-busy',
     'false',
   );
-  cy.get(`.inspect-page ${readySelector}`, { timeout: 20_000 }).should(
-    'be.visible',
-  );
+  cy.get('.inspect-page [role="tabpanel"]:visible', {
+    timeout: 20_000,
+  }).should('have.length', 1);
+};
+
+const inspectTab = (name: 'Overview' | 'Bodies' | 'Stations') =>
+  cy.contains('.inspect-page [role="tab"]', new RegExp(`^${name}$`));
+
+const assertInspectTab = (name: 'Overview' | 'Bodies' | 'Stations') => {
+  inspectTab(name)
+    .should('have.attr', 'aria-selected', 'true')
+    .and('have.attr', 'tabindex', '0')
+    .then(($tab) => {
+      const panelId = $tab.attr('aria-controls');
+      expect(panelId, `${name} panel ID`).to.be.a('string');
+      expect(panelId).not.to.equal('');
+      cy.get(`[id="${panelId}"]`)
+        .should('be.visible')
+        .and('have.attr', 'role', 'tabpanel')
+        .and('have.attr', 'aria-labelledby', $tab.attr('id'));
+    });
+  cy.get('.inspect-page [role="tab"][tabindex="0"]').should('have.length', 1);
+  cy.get('.inspect-page [role="tabpanel"][hidden]')
+    .should('have.length', 2)
+    .each(($panel) => {
+      expect($panel).to.have.attr('inert');
+      expect(
+        $panel[0].contains($panel[0].ownerDocument.activeElement),
+      ).to.equal(false);
+    });
+};
+
+const evidenceDialog = '[data-evidence-popout][aria-modal="false"]';
+
+const preferReducedMotion = (window: Window) => {
+  const matchMedia = window.matchMedia.bind(window);
+  window.matchMedia = (query) => {
+    const media = matchMedia(query);
+    if (query === '(prefers-reduced-motion: reduce)')
+      Object.defineProperty(media, 'matches', { value: true });
+    return media;
+  };
 };
 
 let anchorAutocompleteCount = 0;
@@ -1128,6 +1167,13 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.get('[data-system-id64="10477373803000"]', { timeout: 20_000 })
       .should('contain.text', 'Achenar')
       .and('contain.text', '10477373803000');
+    assertInspectTab('Overview');
+    inspectTab('Bodies').click();
+    assertInspectTab('Bodies');
+    // Renderer status sits below the canvas inside the scrollable Bodies tab.
+    cy.get(`.inspect-page ${readySelector}`, { timeout: 20_000 }).should(
+      'exist',
+    );
     cy.contains('h2', 'Explore Achenar').should('be.visible');
     cy.contains(
       'Planet classes come from the published Ratings V4 derived catalogue',
@@ -1138,8 +1184,14 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       .first()
       .click()
       .should('have.attr', 'aria-pressed', 'true');
-    cy.get('[data-selected-body-id]').should('be.visible');
+    cy.get('[data-selected-body-id]').scrollIntoView().should('be.visible');
     cy.injectAxe();
+    cy.checkA11y();
+    inspectTab('Stations').click();
+    assertInspectTab('Stations');
+    cy.checkA11y();
+    inspectTab('Overview').click();
+    assertInspectTab('Overview');
     cy.checkA11y();
 
     cy.viewport(820, 640);
@@ -1157,7 +1209,7 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     });
   });
 
-  it('opens a real system directly in Inspect from the V3 canonical generation', () => {
+  it('opens real Inspect tabs and evidence with keyboard and reduced motion', () => {
     // Release-smoke candidate: one real system page, read only through the
     // generation-pinned V3 routes. The V2-backed /api/system route (absent
     // tables in V3 production) must never be called.
@@ -1175,80 +1227,249 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       'GET',
       '/api/ratings/v4/systems/10477373803000/explanation',
     ).as('v4Explanation');
-    cy.visit('/inspect?system=10477373803000');
+    cy.visit('/inspect?system=10477373803000', {
+      onBeforeLoad: preferReducedMotion,
+    });
+    cy.window().should((window) => {
+      expect(
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+      ).to.equal(true);
+    });
     for (const alias of [
       '@v3System',
       '@v3Bodies',
       '@v3Rings',
       '@v3Stations',
       '@v4Ratings',
-    ])
+    ] as const)
       cy.wait(alias).its('response.statusCode').should('eq', 200);
     cy.get('[data-system-id64="10477373803000"]', { timeout: 20_000 })
       .should('contain.text', 'Achenar')
       .and('contain.text', '10477373803000');
     cy.focused().should('have.prop', 'tagName', 'H1');
+    assertInspectTab('Overview');
+    cy.get('.inspect-page [role="tablist"]')
+      .should('have.attr', 'aria-label')
+      .and('not.be.empty');
     cy.contains('dt', 'Main star').next('dd').should('have.text', 'G2 V');
     cy.contains('dt', 'Bodies returned').next('dd').should('have.text', '41');
     cy.get('[data-unavailable-fields][data-availability="not-integrated"]')
       .should('have.length', 2)
       .each(($row) => expect($row).to.contain.text('Not integrated yet'));
-    cy.get('[aria-label="System bodies"] button')
-      .first()
-      .should('contain.text', 'Star · G2 V');
     // Ratings V4: all seven economies from the published derived generation,
     // and an explanation fetched only when one is opened.
     cy.get('[data-rating-economy]').should('have.length', 7);
     cy.get('@v4Explanation.all').should('have.length', 0);
+    // Capture the visible panel rather than cropping an element that can
+    // extend past its scroll container, particularly on phone layouts.
+    cy.get('.system-ratings').scrollIntoView();
+    cy.screenshot(`product/inspect-achenar-ratings-${Cypress.browser.name}`, {
+      capture: 'viewport',
+      overwrite: true,
+      disableTimersAndAnimations: true,
+    });
     cy.get('[data-rating-economy] .rating-why')
       .first()
       .click()
       .should('have.attr', 'aria-expanded', 'true');
     cy.wait('@v4Explanation').its('response.statusCode').should('eq', 200);
+    cy.get(evidenceDialog)
+      .should('be.visible')
+      .and('contain.text', 'Scorer')
+      .and('contain.text', 'mechanics');
     cy.contains('.rating-explanation dt', 'Evidence known').should(
       'be.visible',
     );
-    // Visual evidence for the Inspect ratings section, desktop then phone.
-    cy.get('.system-ratings').screenshot(
-      `product/inspect-achenar-ratings-${Cypress.browser.name}`,
-      { overwrite: true },
-    );
     cy.injectAxe();
     cy.checkA11y();
+    cy.screenshot(`product/inspect-evidence-${Cypress.browser.name}`, {
+      capture: 'viewport',
+      overwrite: true,
+      disableTimersAndAnimations: true,
+    });
+    cy.get(evidenceDialog).contains('button', 'Close').focus();
+    cy.press(Cypress.Keyboard.Keys.ESC);
+    cy.get(evidenceDialog).should('not.exist');
+    cy.get('[data-rating-economy] .rating-why')
+      .first()
+      .should('be.focused')
+      .and('have.attr', 'aria-expanded', 'false');
+    // The shared explanation query supplies one economy at a time. Capture
+    // its count before tab switches: reopening a stale query can refresh it.
+    let explanationRequests = 0;
+    cy.get('[data-rating-economy]')
+      .eq(1)
+      .then(($row) => {
+        const economy = $row.find('th').text().trim();
+        const potential = $row.find('.rating-potential').text().trim();
+        cy.wrap($row).find('.rating-why').click();
+        cy.get(evidenceDialog)
+          .should('have.length', 1)
+          .and('contain.text', `Why ${economy} scores ${potential}`);
+      });
+    cy.get(evidenceDialog).contains('button', 'Close').click();
+    cy.get('[data-rating-economy] .rating-why').eq(1).should('be.focused');
+    cy.get('@v4Explanation.all')
+      .its('length')
+      .then((count) => {
+        explanationRequests = Number(count);
+      });
+
+    // Tabs support a single roving stop, wrapped arrows, Home and End. The
+    // mounted scene and selected body survive each switch.
+    inspectTab('Overview').focus();
+    cy.press(Cypress.Keyboard.Keys.RIGHT);
+    inspectTab('Bodies').should('be.focused');
+    assertInspectTab('Bodies');
+    cy.get(`.inspect-page ${readySelector}`, { timeout: 20_000 }).should(
+      'exist',
+    );
+    let systemCanvas!: HTMLCanvasElement;
+    let selectedBody!: string;
+    let bodiesScrollTop = 0;
+    cy.get<HTMLCanvasElement>(canvasSelector).then(([canvas]) => {
+      systemCanvas = canvas;
+    });
+    cy.get('[aria-label="System bodies"] button')
+      .first()
+      .should('contain.text', 'Star · G2 V')
+      .click()
+      .should('have.attr', 'aria-pressed', 'true');
+    cy.get('[data-selected-body-id]')
+      .scrollIntoView()
+      .should('be.visible')
+      .invoke('attr', 'data-selected-body-id')
+      .then((id) => {
+        selectedBody = id ?? '';
+        expect(selectedBody).not.to.equal('');
+      });
+    cy.get('.spatial-canvas').should(
+      'have.attr',
+      'data-camera-transition-active',
+      'false',
+    );
+    cy.checkA11y();
+    cy.screenshot(`product/inspect-bodies-${Cypress.browser.name}`, {
+      capture: 'viewport',
+      overwrite: true,
+      disableTimersAndAnimations: true,
+    });
+    cy.get('.inspect-page [role="tabpanel"]:visible')
+      .scrollTo('bottom')
+      .invoke('scrollTop')
+      .then((position) => {
+        bodiesScrollTop = Number(position);
+        expect(bodiesScrollTop).to.be.greaterThan(0);
+      });
+    inspectTab('Bodies').focus();
+    cy.press(Cypress.Keyboard.Keys.END);
+    inspectTab('Stations').should('be.focused');
+    assertInspectTab('Stations');
+    cy.checkA11y();
+    cy.screenshot(`product/inspect-stations-${Cypress.browser.name}`, {
+      capture: 'viewport',
+      overwrite: true,
+      disableTimersAndAnimations: true,
+    });
+    cy.press(Cypress.Keyboard.Keys.RIGHT);
+    inspectTab('Overview').should('be.focused');
+    assertInspectTab('Overview');
+    cy.press(Cypress.Keyboard.Keys.LEFT);
+    inspectTab('Stations').should('be.focused');
+    assertInspectTab('Stations');
+    cy.press(Cypress.Keyboard.Keys.HOME);
+    inspectTab('Overview').should('be.focused');
+    assertInspectTab('Overview');
+
     cy.contains('button', 'Sources & freshness').click();
-    cy.get('[role="dialog"][aria-modal="false"]')
+    cy.get('.sources-dialog')
       .should('be.visible')
       .and('contain.text', 'Canonical catalogue')
       .and('contain.text', 'Ratings V4 potentials')
       .and('contain.text', 'Commander data');
-    cy.checkA11y('[role="dialog"][aria-modal="false"]');
-    // Viewport capture: the pop-out can extend past the viewport edge, and an
-    // element crop then fails on Firefox with a negative buffer size.
-    cy.get('[role="dialog"][aria-modal="false"]').scrollIntoView();
+    cy.checkA11y('.sources-dialog');
+    // A non-modal tool may cover the tab strip; keyboard users can still
+    // leave Overview without closing it or clicking through the pop-out.
+    inspectTab('Overview').focus();
+    cy.press(Cypress.Keyboard.Keys.RIGHT);
+    assertInspectTab('Bodies');
+    cy.get('.sources-dialog').should('not.be.visible');
+    cy.then(() => {
+      cy.get('.inspect-page [role="tabpanel"]:visible').should(($panel) => {
+        expect($panel[0].scrollTop).to.equal(bodiesScrollTop);
+      });
+      cy.get('[data-selected-body-id]')
+        .scrollIntoView()
+        .should('be.visible')
+        .and('have.attr', 'data-selected-body-id', selectedBody);
+      cy.get(canvasSelector).should(([canvas]) => {
+        expect(canvas).to.equal(systemCanvas);
+      });
+    });
+    inspectTab('Bodies').focus();
+    cy.press(Cypress.Keyboard.Keys.HOME);
+    cy.get('.sources-dialog').should('be.visible');
+    // The fixed tool is viewport-bounded; capture it without scrolling its
+    // underlying Overview panel or cropping overflowing content.
     cy.screenshot(`product/inspect-sources-freshness-${Cypress.browser.name}`, {
       capture: 'viewport',
       overwrite: true,
     });
-    cy.get('[role="dialog"][aria-modal="false"]')
-      .contains('button', 'Close')
-      .click();
+    cy.get('.sources-dialog').contains('button', 'Close').click();
+    cy.contains('button', 'Sources & freshness').should('be.focused');
+    for (const alias of [
+      '@v3System.all',
+      '@v3Bodies.all',
+      '@v3Rings.all',
+      '@v3Stations.all',
+      '@v4Ratings.all',
+    ])
+      cy.get(alias).should('have.length', 1);
+    cy.then(() => {
+      cy.get('@v4Explanation.all').should('have.length', explanationRequests);
+    });
     cy.viewport(375, 812);
-    cy.get('.system-ratings').screenshot(
+    cy.get('.system-ratings').scrollIntoView();
+    cy.screenshot(
       `product/inspect-achenar-ratings-${Cypress.browser.name}-375w`,
-      { overwrite: true },
+      {
+        capture: 'viewport',
+        overwrite: true,
+        disableTimersAndAnimations: true,
+      },
     );
+    cy.get('[data-rating-economy] .rating-why').first().click();
+    cy.get(evidenceDialog).should('be.visible');
+    cy.checkA11y();
+    cy.screenshot(`product/inspect-evidence-${Cypress.browser.name}-375w`, {
+      capture: 'viewport',
+      overwrite: true,
+      disableTimersAndAnimations: true,
+    });
+    cy.get(evidenceDialog).contains('button', 'Close').click();
+    cy.get('[data-rating-economy] .rating-why').first().should('be.focused');
     cy.contains('button', 'Sources & freshness').click();
-    cy.checkA11y('[role="dialog"][aria-modal="false"]');
-    // Viewport capture: the pop-out can extend past the viewport edge, and an
-    // element crop then fails on Firefox with a negative buffer size.
-    cy.get('[role="dialog"][aria-modal="false"]').scrollIntoView();
+    cy.checkA11y('.sources-dialog');
     cy.screenshot(
       `product/inspect-sources-freshness-${Cypress.browser.name}-375w`,
       { capture: 'viewport', overwrite: true },
     );
-    cy.get('[role="dialog"][aria-modal="false"]')
-      .contains('button', 'Close')
-      .click();
+    cy.get('.sources-dialog').contains('button', 'Close').focus();
+    cy.press(Cypress.Keyboard.Keys.ESC);
+    cy.get('.sources-dialog').should('not.exist');
+    cy.contains('button', 'Sources & freshness').should('be.focused');
+    inspectTab('Stations').click();
+    assertInspectTab('Stations');
+    cy.location('search').should((search) => {
+      const params = new URLSearchParams(search);
+      expect(params.get('system')).to.equal('10477373803000');
+      expect(params.get('tab')).to.equal('stations');
+    });
+    cy.reload();
+    waitForInspectSettled();
+    assertInspectTab('Stations');
+    cy.injectAxe();
+    cy.checkA11y();
     cy.viewport(
       Cypress.config('viewportWidth'),
       Cypress.config('viewportHeight'),

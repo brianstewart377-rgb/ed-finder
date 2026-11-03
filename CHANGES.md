@@ -38,6 +38,85 @@ and reloads. The existing Cypress body-filter journey now checks scope, a
 assertions. This user-visible change requires Product E2E/visual
 validation before production promotion and is **not deployed**.
 
+## 2026-11-03 — UI redesign P4: Inspect tabs and evidence pop-out
+
+Inspect now groups system facts and the seven independent economy potentials
+under Overview, the System Map and body selection under Bodies, and ports and
+their economies under Stations. Keyboard-accessible tabs preserve mounted
+queries, body selection, scroll positions and open tool state; bounded `tab=`
+URL state restores the chosen task on links and reloads. Why explanations use
+a closable, non-modal evidence pop-out sharing Sources & freshness behaviour,
+with Escape dismissal and focus return. Existing evidence and availability
+wording, routes, APIs and ratings mechanics are unchanged.
+
+Component tests and Product journey coverage exercise tabs, query counts,
+retained state, URL round-trips, evidence, keyboard access and accessibility.
+This visual change needs Product E2E/visual validation before promotion; it is
+not deployed.
+
+## 2026-11-02 — Viewport-aware Galaxy catalogue streaming (M08)
+
+The Galaxy star sample now follows the actual camera aspect, bearing and pitch:
+its frustum intersects the existing galactic Y band, with a 15% footprint
+margin clipped to the catalogue and 15,000 LY window. Explore filters by that
+polygon instead of the old local circle. Whole spatial cells reuse TanStack
+queries across small camera moves; adjacent local cells share requests when
+their union fits the API bounds. Overview keeps one wide sample until the local
+detail band. At most 16 cells are active, with a 64-cell cache evicting distant
+inactive cells first and least-recently-used ties. Downloads run nearest first,
+with at most four in flight and 48 starts per minute. They yield to foreground
+queries (including rankings, autocomplete, density and journeys), wait 150 ms
+after idle/camera settle, and cancel obsolete queued work. The transport also
+requests low browser priority. One initial request establishes availability;
+404/503 stops the whole layer until remount and shows the existing unavailable
+state, without per-cell retries. Local cached packets retain up to 5,000 rows;
+the single wide sample retains its 8,000-row budget (at most 512,000 rows across
+64 cached packets), rather than retaining full 40,000-row responses per cell.
+
+The catalogue query bridge publishes through a stable result field and keeps
+cache callbacks outside Svelte dependency tracking. Local Firefox reproduction
+showed autocomplete responses and query-cache entries already successful while
+the DOM remained loading; reducing requests alone did not resolve that stall.
+The stable observer result fixes this propagation failure without changing
+Product E2E/Review Lab assertions or Cypress timeouts.
+Map teardown also cancels the hover-dismissal timer created by pointer
+cancellation, preventing callbacks after unmount during the full test suite.
+
+Truncated cells now request the visible sub-volume on zoom-in, with X/Y/Z
+bounds rounded out to 62.5 LY and distinct cache keys. Complete cells and
+complete covering refinements stay cached without another request. Each
+refinement replaces one active cell, retaining the existing row, concurrency,
+rate and cache limits; its parent stays cached as truncation evidence.
+
+My journeys now has independent bounds: the whole galaxy at overview and the
+camera footprint with 15% overscan when zoomed, without the catalogue's
+15,000 LY clipping. Journey requests keep the camera debounce and their own
+20,000-point cap, so distant imported travel remains eligible at overview.
+
+Selected systems, the search reference, Finder results and known pin/watchlist
+positions reserve catalogue slots before deterministic background sampling and
+receive picking preference. Missing positions, population and stellar facts
+remain unknown. API request shape and per-band limits, detail thresholds and
+materials are unchanged. The exact-star count reports the assembled visible
+contribution, including reserved systems.
+
+Vitest coverage replaces old fixed-box and single-request-count expectations
+with frustum, cell reuse/eviction, reserved-slot, request-lifecycle and workspace
+contracts. Follow-up regressions cover foreground priority, availability probes,
+404/503 circuit breaking, cancellation, transitions from an absent viewport,
+wide-sample retention, and retrieving a star omitted by a truncated
+250 LY cell after zooming, complete-cell reuse, independent journey/catalogue
+bounds and journey request debounce. Local validation passed: `pnpm check`
+(no errors or warnings), `pnpm lint`, `pnpm format:check`, `pnpm test
+--maxWorkers=2` (1,920 tests across 91 files), and `pnpm build`. The unchanged
+Product E2E journey passes all five tests in Firefox 159 and Chromium 151 against
+the disposable normal API, including the previously stalled Flexible B
+ranking/history flow, with screenshots and accessibility checks unchanged.
+The official Review Lab local preflight fails closed because this runner cannot
+access Docker; its isolated browser lane still requires CI verification.
+This visible map change requires Product E2E/visual validation before promotion.
+**Not deployed.**
+
 ## 2026-11-02 — Docs: V3 UI redesign plan
 
 Added the [V3 UI redesign plan](docs/superpowers/specs/2026-11-02-v3-ui-redesign-plan.md)
