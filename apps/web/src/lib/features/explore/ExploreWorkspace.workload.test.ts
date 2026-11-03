@@ -10,6 +10,7 @@ import { tick } from 'svelte';
 import * as api from '$lib/api/client';
 import { queryClient, queryKeys } from '$lib/api/query';
 import { parseId64 } from '$lib/domain/id64';
+import { applicationStores } from '$lib/persistence/stores';
 import { createHeadlessEngine } from '$lib/spatial/babylon/test-support';
 import * as sceneBuilder from '$lib/spatial/explore-scene';
 import * as regionsSource from '$lib/spatial/galaxy-regions';
@@ -20,6 +21,7 @@ import type {
   SpatialRuntimeStatus,
 } from '$lib/spatial/contracts';
 import ExploreWorkloadTestHost from './ExploreWorkloadTestHost.svelte';
+import { ExploreViewState } from './explore-view-state.svelte';
 
 const { page, featureGate, goto, adapter } = vi.hoisted(() => ({
   page: {
@@ -187,6 +189,8 @@ function deferred<T>() {
  * HTTP/static-resource responses, GPU drawing, and the frame clock are replaced.
  * Staggered resource arrivals are intentional: renderer work must stay bounded
  * regardless of which network response completes after the initial overview.
+ * P2a also re-ran this unchanged budget on main ab78d39d before extracting view
+ * state; request/build/scene counts below are identical after the extraction.
  */
 describe('Explore load and interaction work budget', () => {
   beforeEach(() => {
@@ -275,6 +279,7 @@ describe('Explore load and interaction work budget', () => {
       const frames = new Map<number, () => void>();
       let nextFrame = 0;
       const commands: RuntimeCommand[] = [];
+      const disposals = vi.fn();
       adapter.mockImplementation(
         (_canvas, onStatus: (status: SpatialRuntimeStatus) => void) => {
           const runtime = createManagedSpatialRuntime(
@@ -294,6 +299,11 @@ describe('Explore load and interaction work budget', () => {
           vi.spyOn(runtime, 'dispatch').mockImplementation((command) => {
             commands.push(command);
             return dispatch(command);
+          });
+          const dispose = runtime.dispose.bind(runtime);
+          vi.spyOn(runtime, 'dispose').mockImplementation(() => {
+            disposals();
+            dispose();
           });
           return runtime;
         },
@@ -343,7 +353,13 @@ describe('Explore load and interaction work budget', () => {
           auth: vi.mocked(api.getAuthSession).mock.calls.length,
         },
       });
-      render(ExploreWorkloadTestHost, {
+      const viewState = new ExploreViewState(
+        () => page,
+        enabled,
+        applicationStores,
+      );
+      const mounted = render(ExploreWorkloadTestHost, {
+        viewState,
         installPage(model) {
           Object.defineProperties(page, {
             url: {
@@ -390,6 +406,11 @@ describe('Explore load and interaction work budget', () => {
       ).not.toBeInTheDocument();
       expect(api.searchExploreSystems).not.toHaveBeenCalled();
       expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+      expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(
+        1,
+      );
+      expect(adapter).toHaveBeenCalledTimes(1);
+      expect(disposals).not.toHaveBeenCalled();
       const loaded = work();
 
       vi.mocked(api.autocompleteSystems).mockResolvedValueOnce({
@@ -439,6 +460,11 @@ describe('Explore load and interaction work budget', () => {
         await tick();
       }
       expect(work()).toEqual(interacted);
+      expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(
+        1,
+      );
+      expect(adapter).toHaveBeenCalledTimes(1);
+      expect(disposals).not.toHaveBeenCalled();
       const catalogueQueries = queryClient
         .getQueryCache()
         .getAll()
@@ -498,7 +524,23 @@ describe('Explore load and interaction work budget', () => {
           density: enabled ? 4 : 5,
         },
       });
-      if (!enabled) return;
+      const assertCleanup = async () => {
+        const requestsBeforeUnmount = work().api;
+        mounted.unmount();
+        await settle();
+        expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(
+          0,
+        );
+        expect(adapter).toHaveBeenCalledTimes(1);
+        expect(disposals).toHaveBeenCalledTimes(1);
+        expect(work().activeQueries).toBe(0);
+        expect(work().api).toEqual(requestsBeforeUnmount);
+        expect(frames.size).toBe(0);
+      };
+      if (!enabled) {
+        await assertCleanup();
+        return;
+      }
 
       const visualWork = () => {
         const current = work();
@@ -594,6 +636,7 @@ describe('Explore load and interaction work budget', () => {
           density: 4,
         },
       });
+      await assertCleanup();
     },
     30_000,
   );

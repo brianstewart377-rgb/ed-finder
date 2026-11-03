@@ -21,6 +21,15 @@ Pre-cutover history remains available in Git history and dated/archive documents
   identifies Review & export as available in Plan. Product E2E/visual acceptance
   remains required before promotion; this change is not deployed.
 
+## 2026-11-03 — UI redesign P2a: route-owned Explore view state
+
+Extracts route-owned Explore view state so query drafts, URL-backed
+search/filter/ranking intent, selection, result scroll and Galaxy camera/layers
+survive workspace remounts without another search. Existing URL/storage
+formats, presentation and request budgets are unchanged; query data and
+renderer resources retain their existing owners. P2b/P2c are not included, and
+this change is not deployed.
+
 ## 2026-11-03 — UI redesign P5a: Plan tabs and facility preview
 
 The Plan workspace now has accessible System layout / Build order tabs with
