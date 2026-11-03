@@ -64,6 +64,14 @@ function detailValue(term: string): string | null {
   return dt.parentElement?.querySelector('dd')?.textContent?.trim() ?? null;
 }
 
+async function openTab(
+  name: 'Overview' | 'Bodies' | 'Stations',
+): Promise<HTMLElement> {
+  const tab = await screen.findByRole('tab', { name });
+  await fireEvent.click(tab);
+  return screen.getByRole('tabpanel', { name });
+}
+
 async function openSources(): Promise<HTMLElement> {
   await fireEvent.click(
     await screen.findByRole('button', { name: 'Sources & freshness' }),
@@ -99,6 +107,159 @@ describe('shared system detail', () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it('links the three tasks to mounted panels and keeps only the active task keyboard-accessible', async () => {
+    mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+    render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });
+
+    const tablist = await screen.findByRole('tablist', {
+      name: 'Inspect sections',
+    });
+    const tabs = within(tablist).getAllByRole('tab');
+    expect(tabs.map((tab) => tab.textContent?.trim())).toEqual([
+      'Overview',
+      'Bodies',
+      'Stations',
+    ]);
+    for (const [index, tab] of tabs.entries()) {
+      const panel = document.getElementById(tab.getAttribute('aria-controls')!);
+      expect(panel).toHaveAttribute('role', 'tabpanel');
+      expect(panel).toHaveAttribute('aria-labelledby', tab.id);
+      expect(tab).toHaveAttribute('aria-selected', String(index === 0));
+      expect(tab).toHaveAttribute('tabindex', index === 0 ? '0' : '-1');
+      if (index === 0) {
+        expect(panel).toBeVisible();
+        expect(panel).toHaveProperty('inert', false);
+      } else {
+        expect(panel).toHaveAttribute('hidden');
+        expect(panel).toHaveProperty('inert', true);
+      }
+    }
+    const overview = screen.getByRole('tabpanel', { name: 'Overview' });
+    expect(within(overview).getByText('Coordinates')).toBeVisible();
+    expect(
+      await within(overview).findByRole('table', { name: 'Economy potential' }),
+    ).toBeVisible();
+    expect(
+      within(overview).getByRole('button', { name: 'Sources & freshness' }),
+    ).toBeVisible();
+    expect(screen.queryByRole('list', { name: 'System bodies' })).toBeNull();
+
+    const bodies = await openTab('Bodies');
+    expect(
+      within(bodies).getByRole('list', { name: 'System bodies' }),
+    ).toBeVisible();
+    expect(
+      within(bodies).getByRole('complementary', { name: 'System map legend' }),
+    ).toBeVisible();
+    expect(overview).toHaveAttribute('hidden');
+    expect(overview).toHaveProperty('inert', true);
+    const stations = await openTab('Stations');
+    expect(within(stations).getByText('Reference Port')).toBeVisible();
+    expect(screen.getAllByRole('tabpanel', { hidden: true })).toHaveLength(3);
+  });
+
+  it('automatically activates arrow, Home and End navigation with roving focus and wraparound', async () => {
+    mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+    render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });
+    const overview = await screen.findByRole('tab', { name: 'Overview' });
+    overview.focus();
+    for (const [key, name] of [
+      ['ArrowRight', 'Bodies'],
+      ['ArrowRight', 'Stations'],
+      ['ArrowRight', 'Overview'],
+      ['ArrowLeft', 'Stations'],
+      ['Home', 'Overview'],
+      ['End', 'Stations'],
+    ] as const) {
+      await fireEvent.keyDown(document.activeElement!, { key });
+      const active = screen.getByRole('tab', { name });
+      expect(active).toHaveFocus();
+      expect(active).toHaveAttribute('aria-selected', 'true');
+      expect(active).toHaveAttribute('tabindex', '0');
+      expect(
+        screen.getAllByRole('tab').filter((tab) => tab.tabIndex === 0),
+      ).toEqual([active]);
+      expect(screen.getByRole('tabpanel', { name })).toBeVisible();
+    }
+    await fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
+    expect(screen.getByRole('tab', { name: 'Stations' })).toHaveFocus();
+  });
+
+  it('retains body selection, sources state and each panel scroll position without refetching on tab switches', async () => {
+    mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+    render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });
+    await screen.findByRole('button', { name: 'Why? Agriculture' });
+    const overview = screen.getByRole('tabpanel', { name: 'Overview' });
+    overview.scrollTop = 110;
+    const sources = await openSources();
+    expect(sources).toHaveFocus();
+    const bodies = await openTab('Bodies');
+    expect(
+      screen.queryByRole('dialog', { name: 'Sources & freshness' }),
+    ).toBeNull();
+    expect(screen.getByRole('tab', { name: 'Bodies' })).toHaveFocus();
+    bodies.scrollTop = 225;
+    const body = within(bodies).getByRole('button', {
+      name: 'Reference System 3 Planet',
+    });
+    await fireEvent.click(body);
+    const selectedCard = within(bodies).getByRole('article');
+    expect(selectedCard).toHaveAttribute('data-selected-body-id', '3');
+    const stations = await openTab('Stations');
+    stations.scrollTop = 70;
+    await openTab('Overview');
+    expect(overview.scrollTop).toBe(110);
+    expect(
+      await screen.findByRole('dialog', { name: 'Sources & freshness' }),
+    ).toBeVisible();
+    await openTab('Bodies');
+    expect(bodies.scrollTop).toBe(225);
+    expect(within(bodies).getByRole('article')).toBe(selectedCard);
+    expect(body).toHaveAttribute('aria-pressed', 'true');
+    expect(selectedCard).toBeVisible();
+    await openTab('Stations');
+    expect(stations.scrollTop).toBe(70);
+    expect(mockedGetSystem).toHaveBeenCalledTimes(1);
+    expect(mockedGetRatings).toHaveBeenCalledTimes(1);
+    expect(mockedGetExplanation).not.toHaveBeenCalled();
+  });
+
+  it.each(['Overview', 'Bodies', 'Stations'] as const)(
+    'has no axe violations on the %s task',
+    async (name) => {
+      mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+      const { container } = render(SystemDetailTestHost, {
+        props: { id64: parseId64('10477373803') },
+      });
+      await screen.findByRole('button', { name: 'Why? Agriculture' });
+      await openTab(name);
+      const result = await axe.run(container, {
+        rules: {
+          'color-contrast': { enabled: false },
+          region: { enabled: false },
+        },
+      });
+      expect(result.violations).toEqual([]);
+    },
+  );
+
+  it('moves focus out of a panel hidden by an external tab change', async () => {
+    const id64 = parseId64('10477373803');
+    mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+    const view = render(SystemDetailTestHost, {
+      props: { id64, tab: 'bodies' },
+    });
+    const body = await screen.findByRole('button', {
+      name: 'Reference System 3 Planet',
+    });
+    body.focus();
+    expect(body).toHaveFocus();
+    await view.rerender({ id64, tab: 'stations' });
+    expect(screen.getByRole('tab', { name: 'Stations' })).toHaveFocus();
+    expect(body.closest('[role="tabpanel"]')).toHaveAttribute('hidden');
+    expect(body).not.toHaveFocus();
   });
 
   it('renders V3 canonical fields with an exact unsafe id64', async () => {
@@ -300,6 +461,7 @@ describe('shared system detail', () => {
     expect(within(observations).getByText('Available')).toBeVisible();
     expect(within(observations).getByText('No observation yet')).toBeVisible();
     expect(observations.querySelector('time')).toBeNull();
+    await openTab('Stations');
     expect(screen.getByText('Extraction (primary)')).toBeVisible();
   });
 
@@ -403,15 +565,13 @@ describe('shared system detail', () => {
     mockedGetSystem.mockResolvedValue(referenceSystemDetail());
     render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });
     const dialog = await openSources();
-    const body = screen.getByRole('button', {
-      name: 'Reference System 3 Planet',
-    });
-    body.focus();
-    await fireEvent.keyDown(body, { key: 'Tab' });
-    expect(body).toHaveFocus();
+    const overview = screen.getByRole('tab', { name: 'Overview' });
+    overview.focus();
+    await fireEvent.keyDown(overview, { key: 'Tab' });
+    expect(overview).toHaveFocus();
     expect(dialog).toBeVisible();
 
-    await fireEvent.keyDown(body, { key: 'Escape' });
+    await fireEvent.keyDown(overview, { key: 'Escape' });
 
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(
@@ -500,6 +660,7 @@ describe('shared system detail', () => {
         props: { id64: parseId64('10477373803') },
       });
 
+      await openTab('Bodies');
       const bodies = await screen.findByRole('list', { name: 'System bodies' });
       const label = bodyClass ?? 'Planet';
       const button = within(bodies).getByRole('button', {
@@ -543,6 +704,7 @@ describe('shared system detail', () => {
       /undefined|null|NaN|0\.00, 0\.00, 0\.00/u,
     );
 
+    await openTab('Bodies');
     const bodies = screen.getByRole('list', { name: 'System bodies' });
     await fireEvent.click(
       within(bodies).getByRole('button', { name: 'Reference System 3 Planet' }),
@@ -579,6 +741,7 @@ describe('shared system detail', () => {
 
     render(SystemDetailTestHost, { props: { id64 } });
 
+    await openTab('Bodies');
     const list = await screen.findByRole('list', { name: 'System bodies' });
     const buttons = within(list).getAllByRole('button');
     // The body without a Frontier BodyID is counted but not selectable.
@@ -660,6 +823,7 @@ describe('shared system detail', () => {
       props: { id64: parseId64('10477373803') },
     });
 
+    await openTab('Bodies');
     const legend = await screen.findByRole('complementary', {
       name: 'System map legend',
     });
@@ -685,6 +849,7 @@ describe('shared system detail', () => {
       container.querySelector('[data-unplaced-body-id="2"]'),
     ).not.toHaveTextContent('Unattached group');
 
+    await openTab('Bodies');
     const bodies = screen.getByRole('list', { name: 'System bodies' });
     await fireEvent.click(
       within(bodies).getByRole('button', {
@@ -712,6 +877,7 @@ describe('shared system detail', () => {
       referenceSystemRatings(),
     );
     const view = render(SystemDetailTestHost, { props: { id64 } });
+    await openTab('Bodies');
     await fireEvent.click(
       await screen.findByRole('button', { name: 'Reference System 3 Planet' }),
     );
@@ -730,6 +896,7 @@ describe('shared system detail', () => {
     await screen.findByRole('heading', { name: 'Second System' });
 
     expect(screen.queryByRole('article')).toBeNull();
+    await openTab('Bodies');
     const bodies = screen.getByRole('list', { name: 'System bodies' });
     for (const button of within(bodies).getAllByRole('button')) {
       expect(button).toHaveAttribute('aria-pressed', 'false');
@@ -764,6 +931,7 @@ describe('shared system detail', () => {
         : Promise.resolve(referenceSystemDetail()),
     );
     const view = render(SystemDetailTestHost, { props: { id64 } });
+    await openTab('Bodies');
     await fireEvent.click(
       await screen.findByRole('button', { name: 'Reference System 3 Planet' }),
     );
@@ -829,6 +997,7 @@ describe('shared system detail', () => {
             }),
         );
       const view = render(SystemDetailTestHost, { props: { id64 } });
+      await openTab('Bodies');
       await fireEvent.click(
         await screen.findByRole('button', {
           name: 'Reference System 3 Planet',
@@ -883,6 +1052,7 @@ describe('shared system detail', () => {
       referenceSystemDetail({ id64: next, name: 'Second System' }),
     );
     const view = render(SystemDetailTestHost, { props: { id64 } });
+    await openTab('Bodies');
     await fireEvent.click(
       await screen.findByRole('button', { name: 'Reference System 3 Planet' }),
     );
@@ -930,6 +1100,7 @@ describe('shared system detail', () => {
     expect(announcement).toHaveClass('system-detail-announcement');
     expect(announcement.textContent?.trim()).toBe('');
 
+    await openTab('Bodies');
     await fireEvent.click(
       screen.getByRole('button', { name: 'Reference System 3 Planet' }),
     );
@@ -1063,6 +1234,7 @@ describe('shared system detail', () => {
     );
     render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });
 
+    await openTab('Bodies');
     const list = await screen.findByRole('list', { name: 'System bodies' });
     await fireEvent.click(
       within(list).getByRole('button', { name: /Reference System 3/u }),
@@ -1134,6 +1306,7 @@ describe('shared system detail', () => {
     );
     render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });
 
+    await openTab('Stations');
     const heading = await screen.findByRole('heading', { name: 'Stations' });
     const section = heading.closest('section') as HTMLElement;
     // The first list is the fixed ports; carriers follow inside <details>.
@@ -1202,6 +1375,160 @@ describe('shared system detail', () => {
     expect(section.textContent).not.toMatch(/undefined|null|NaN/u);
   });
 
+  it.each(['Escape', 'Close', 'trigger', 'outside'] as const)(
+    'opens non-modal evidence and closes on %s with focus restored to its Why button',
+    async (method) => {
+      mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+      render(SystemDetailTestHost, {
+        props: { id64: parseId64('10477373803') },
+      });
+      const why = await screen.findByRole('button', {
+        name: 'Why? Agriculture',
+      });
+      why.focus();
+      await fireEvent.click(why);
+      const dialog = await screen.findByRole('dialog', {
+        name: 'Why Agriculture scores 84',
+      });
+      expect(dialog).toHaveAttribute('aria-modal', 'false');
+      expect(dialog).toHaveFocus();
+      expect(why).toHaveAttribute('aria-expanded', 'true');
+      expect(why).toHaveAttribute('aria-controls', dialog.id);
+      await within(dialog).findByRole('table', {
+        name: 'Bodies that make up this score',
+      });
+      if (method === 'Escape') {
+        const tab = screen.getByRole('tab', { name: 'Overview' });
+        tab.focus();
+        expect(tab).toHaveFocus();
+        await fireEvent.keyDown(tab, { key: 'Escape' });
+      } else if (method === 'Close') {
+        await fireEvent.click(
+          within(dialog).getByRole('button', { name: 'Close' }),
+        );
+      } else if (method === 'trigger') {
+        await fireEvent.click(why);
+      } else {
+        await fireEvent.click(document.body);
+      }
+      expect(
+        screen.queryByRole('dialog', { name: 'Why Agriculture scores 84' }),
+      ).toBeNull();
+      expect(why).toHaveAttribute('aria-expanded', 'false');
+      expect(why).toHaveFocus();
+      await fireEvent.click(why);
+      await screen.findByRole('dialog', { name: 'Why Agriculture scores 84' });
+      expect(mockedGetExplanation).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('shows evidence for one economy at a time and returns focus to the latest opener', async () => {
+    mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+    render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });
+    const agriculture = await screen.findByRole('button', {
+      name: 'Why? Agriculture',
+    });
+    await fireEvent.click(agriculture);
+    const first = await screen.findByRole('dialog', {
+      name: 'Why Agriculture scores 84',
+    });
+    await within(first).findByRole('table', {
+      name: 'Bodies that make up this score',
+    });
+    const tourism = screen.getByRole('button', { name: 'Why? Tourism' });
+    await fireEvent.click(tourism);
+    const current = await screen.findByRole('dialog', {
+      name: 'Why Tourism scores 70',
+    });
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(agriculture).toHaveAttribute('aria-expanded', 'false');
+    expect(tourism).toHaveAttribute('aria-expanded', 'true');
+    expect(current).not.toHaveTextContent('Native (water world)');
+    expect(current).not.toHaveTextContent('Why Agriculture scores 84');
+    expect(mockedGetExplanation).toHaveBeenCalledTimes(1);
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(tourism).toHaveFocus();
+  });
+
+  it('retains an open evidence selection across tabs without refetching', async () => {
+    mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+    render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Why? Agriculture' }),
+    );
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Why Agriculture scores 84',
+    });
+    await within(dialog).findByRole('table', {
+      name: 'Bodies that make up this score',
+    });
+    await openTab('Bodies');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await openTab('Stations');
+    await openTab('Overview');
+    const restored = await screen.findByRole('dialog', {
+      name: 'Why Agriculture scores 84',
+    });
+    expect(
+      within(restored).getByRole('table', {
+        name: 'Bodies that make up this score',
+      }),
+    ).toBeVisible();
+    expect(mockedGetSystem).toHaveBeenCalledTimes(1);
+    expect(mockedGetRatings).toHaveBeenCalledTimes(1);
+    expect(mockedGetExplanation).toHaveBeenCalledTimes(1);
+  });
+
+  it('dismisses only the topmost tool when evidence and Sources are both open', async () => {
+    mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+    render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });
+    const why = await screen.findByRole('button', { name: 'Why? Agriculture' });
+    await openSources();
+    await fireEvent.click(why);
+    await screen.findByRole('dialog', { name: 'Why Agriculture scores 84' });
+    expect(screen.getAllByRole('dialog')).toHaveLength(2);
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(
+      screen.queryByRole('dialog', { name: 'Why Agriculture scores 84' }),
+    ).toBeNull();
+    expect(
+      screen.getByRole('dialog', { name: 'Sources & freshness' }),
+    ).toBeVisible();
+    expect(why).toHaveFocus();
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Sources & freshness' }),
+    ).toHaveFocus();
+  });
+
+  it('has no axe violations with evidence open and after closing it', async () => {
+    mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+    const { container } = render(SystemDetailTestHost, {
+      props: { id64: parseId64('10477373803') },
+    });
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Why? Agriculture' }),
+    );
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Why Agriculture scores 84',
+    });
+    await within(dialog).findByRole('table', {
+      name: 'Bodies that make up this score',
+    });
+    const options = {
+      rules: {
+        'color-contrast': { enabled: false },
+        region: { enabled: false },
+      },
+    };
+    expect((await axe.run(container, options)).violations).toEqual([]);
+    await fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Close' }),
+    );
+    expect((await axe.run(container, options)).violations).toEqual([]);
+  });
+
   it('explains a rating on demand with body names, links and unknowns', async () => {
     mockedGetSystem.mockResolvedValue(referenceSystemDetail());
     render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });
@@ -1211,7 +1538,7 @@ describe('shared system detail', () => {
     await fireEvent.click(why);
     expect(why).toHaveAttribute('aria-expanded', 'true');
 
-    const region = await screen.findByRole('region', {
+    const region = await screen.findByRole('dialog', {
       name: 'Why Agriculture scores 84',
     });
     const table = await within(region).findByRole('table', {
@@ -1269,7 +1596,7 @@ describe('shared system detail', () => {
       await fireEvent.click(
         await screen.findByRole('button', { name: 'Why? Agriculture' }),
       );
-      const region = await screen.findByRole('region', {
+      const region = await screen.findByRole('dialog', {
         name: 'Why Agriculture scores 84',
       });
       await within(region).findByText('Unknown');
@@ -1302,7 +1629,7 @@ describe('shared system detail', () => {
     await fireEvent.click(
       await screen.findByRole('button', { name: 'Why? Agriculture' }),
     );
-    await screen.findByRole('region', { name: 'Why Agriculture scores 84' });
+    await screen.findByRole('dialog', { name: 'Why Agriculture scores 84' });
     expect(mockedGetExplanation).toHaveBeenCalledTimes(1);
 
     await view.rerender({ id64: next });
@@ -1328,7 +1655,7 @@ describe('shared system detail', () => {
     await fireEvent.click(
       await screen.findByRole('button', { name: 'Why? Agriculture' }),
     );
-    const region = await screen.findByRole('region', {
+    const region = await screen.findByRole('dialog', {
       name: 'Why Agriculture scores 84',
     });
     expect(
