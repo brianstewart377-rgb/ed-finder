@@ -11,6 +11,19 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-03 — UI redesign P6a: home polish
+
+Home adopts the shared design kit's Saira headings, orange primary and blue
+outline actions, glossy tool cards, spacing and visible keyboard focus. The
+existing Explore, Inspect and Plan destinations remain unchanged; Review &
+export remains available in Plan. The compass/orbit illustration stays
+decorative and hidden from assistive technology, with no catalogue or map-data
+claim. Responsive coverage checks the existing desktop, tablet and phone
+viewports, keyboard order, reduced motion and accessibility.
+
+P6b's journey-wide visual sweep remains a separate PR. This visual change
+requires Product E2E/visual acceptance before promotion; it is not deployed.
+
 ## 2026-11-03 — Tenth F2d release `96644cad` accepted: map review fixes, design kit and Plan review live
 
 Records the tenth accepted F2d release. Release run 41606910682 built source
