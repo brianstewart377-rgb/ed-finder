@@ -20,6 +20,7 @@ import {
   serializeRankingSearchParams,
   stripRankingSearchParams,
 } from './ranking-state';
+import { SEARCH_RADIUS_OPTIONS } from './search-state';
 
 const params = (query: string) => new URLSearchParams(query);
 const parse = (query: string) => parseRankingSearchParams(params(query));
@@ -427,6 +428,58 @@ describe('request selection', () => {
       pageSize: 1,
     });
     expect(page.request).not.toHaveProperty('min_development_score');
+  });
+
+  it.each(SEARCH_RADIUS_OPTIONS)(
+    'uses radius %s for anchored Any in both ranking builds',
+    (radius) => {
+      for (const enabled of [false, true]) {
+        const page = selectFinderRequest(
+          parse('page_size=1&offset=2').state,
+          anchor,
+          {
+            enabled,
+            radius,
+          },
+        );
+        expect(page).toEqual({
+          kind: 'any',
+          request: {
+            reference_coords: anchor,
+            filters: { distance: { min: 0, max: radius }, economy: 'any' },
+            sort_by: 'distance',
+            size: enabled ? 1 : 24,
+            from: enabled ? 2 : 0,
+          },
+          pageSize: enabled ? 1 : 24,
+        });
+      }
+    },
+  );
+
+  it('uses the default radius for invalid runtime input', () => {
+    for (const enabled of [false, true]) {
+      expect(
+        selectFinderRequest(parse('').state, anchor, {
+          enabled,
+          radius: 2001 as never,
+        }).request,
+      ).toMatchObject({ filters: { distance: { min: 0, max: 500 } } });
+    }
+  });
+
+  it('leaves galaxy-wide and archetype requests unchanged by the radius', () => {
+    for (const enabled of [false, true]) {
+      expect(
+        selectFinderRequest(parse('').state, null, { enabled, radius: 1000 }),
+      ).toEqual(selectFinderRequest(parse('').state, null, { enabled }));
+    }
+    const state = parse(
+      'archetype=mining_hub&min-tier=S&page_size=24&offset=48',
+    ).state;
+    expect(
+      selectFinderRequest(state, anchor, { enabled: true, radius: 1000 }),
+    ).toEqual(selectFinderRequest(state, anchor, { enabled: true }));
   });
 
   it('sends a selected archetype to rankings with the B default and facade page size', () => {

@@ -28,6 +28,49 @@ keyboard focus, separate balances, axe and reduced motion. P5b Review/export
 remains a separate PR; API, routes and export format are unchanged. This visual
 change needs Product E2E/visual validation before promotion; it is not deployed.
 
+## 2026-11-02 — Explore search scope and bounded radius (A02)
+
+Explore now states the search scope below the results heading and exposes it
+to the results list's accessible description. Anchored Any searches show their
+radius and distance sort, picked archetypes show their galaxy-wide fit ranking
+and minimum tier, and unanchored Any shows galaxy-wide best colony potential.
+Distance-bearing result cards include the radius that produced their results.
+
+The compact Within control offers 100, 250, 500 (default), 1,000 and 2,000 LY
+for anchored Any searches. Its bounded `radius` URL parameter survives reloads
+alongside `near` and `bodies`; invalid or duplicate values are cleared with the
+existing notice. Each change resets pagination and commits one search through
+the body-filter navigation path. The control is disabled with an explanation
+outside anchored Any. Because the API caps an anchored search that carries body
+filters at 500 LY, the wider options are disabled while filters are active and
+a wider URL radius is applied as 500 LY with an explanation; the chosen radius
+stays in the URL and resumes when the filters are cleared. No local-storage
+preference, API change, ranking change, archetype request change or page-size
+change is introduced.
+
+Vitest covers URL/request bounds, scope, control availability, pagination reset
+and reloads. The existing Cypress body-filter journey now checks scope, a
+1,000-LY unfiltered request and the 500-LY filtered cap;
+`tests/test_v3_product_journey_contract.py` pins the new text and journey
+assertions. This user-visible change requires Product E2E/visual
+validation before production promotion and is **not deployed**.
+
+## 2026-11-03 — UI redesign P4: Inspect tabs and evidence pop-out
+
+Inspect now groups system facts and the seven independent economy potentials
+under Overview, the System Map and body selection under Bodies, and ports and
+their economies under Stations. Keyboard-accessible tabs preserve mounted
+queries, body selection, scroll positions and open tool state; bounded `tab=`
+URL state restores the chosen task on links and reloads. Why explanations use
+a closable, non-modal evidence pop-out sharing Sources & freshness behaviour,
+with Escape dismissal and focus return. Existing evidence and availability
+wording, routes, APIs and ratings mechanics are unchanged.
+
+Component tests and Product journey coverage exercise tabs, query counts,
+retained state, URL round-trips, evidence, keyboard access and accessibility.
+This visual change needs Product E2E/visual validation before promotion; it is
+not deployed.
+
 ## 2026-11-02 — Viewport-aware Galaxy catalogue streaming (M08)
 
 The Galaxy star sample now follows the actual camera aspect, bearing and pitch:

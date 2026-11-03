@@ -4131,6 +4131,245 @@ describe.each([false, true])(
       vi.unstubAllGlobals();
     });
 
+    it('describes the anchored search scope, bounds the radius choices and includes the radius with card distances', async () => {
+      const anchor = { ...anchorA, name: 'Achenar' };
+      vi.mocked(api.searchExploreSystems).mockImplementation(
+        async (request, _signal, _anchor, pageSize) => {
+          const response = finderPage(
+            request.from ?? 0,
+            pageSize ?? request.size ?? 50,
+          );
+          return {
+            ...response,
+            results: response.results.map((system) => ({
+              ...system,
+              distance: 12.5,
+            })),
+          };
+        },
+      );
+      renderEnabled(`near=${anchor.id64}`, { anchor });
+      await screen.findByText('Ranked 1');
+
+      const scope = 'Within 500 LY of Achenar · sorted by distance';
+      expect(document.getElementById('results-scope')).toHaveTextContent(scope);
+      const list = screen.getByRole('list', { name: 'System results' });
+      expect(list).toHaveAttribute('aria-describedby', 'results-scope');
+      expect(list).toHaveAccessibleDescription(scope);
+      expect(within(list).getAllByRole('listitem')[0]).toHaveTextContent(
+        enabled ? '12.50 LY · within 500 LY' : '12.5 ly · within 500 LY',
+      );
+      const radius = screen.getByRole('combobox', { name: 'Within' });
+      expect(radius).toBeEnabled();
+      expect(radius).toHaveValue('500');
+      expect(
+        within(radius)
+          .getAllByRole('option')
+          .map((option) => ({
+            value: (option as HTMLOptionElement).value,
+            label: option.textContent,
+          })),
+      ).toEqual([
+        { value: '100', label: '100 LY' },
+        { value: '250', label: '250 LY' },
+        { value: '500', label: '500 LY' },
+        { value: '1000', label: '1,000 LY' },
+        { value: '2000', label: '2,000 LY' },
+      ]);
+    });
+
+    it('describes galaxy-wide Any scope and disables radius without an anchor', async () => {
+      renderEnabled(enabled ? 'page_size=1' : '');
+      if (enabled) await screen.findByText('Ranked 1');
+      const scope = 'Galaxy-wide · best colony potential';
+      expect(document.getElementById('results-scope')).toHaveTextContent(scope);
+      if (enabled) {
+        expect(
+          screen.getByRole('list', { name: 'System results' }),
+        ).toHaveAccessibleDescription(scope);
+      }
+      const radius = screen.getByRole('combobox', { name: 'Within' });
+      expect(radius).toBeDisabled();
+      expect(radius).toHaveAccessibleDescription(
+        'Search radius works when you search near a system with Any selected.',
+      );
+    });
+
+    it('commits one radius search, resets pagination and restores its URL on reload', async () => {
+      renderEnabled(
+        `${enabled ? 'page_size=1&offset=1&' : ''}selected=${anchorA.id64}&view=cards&near=${anchorA.id64}`,
+        { anchor: anchorA },
+      );
+      await screen.findByText(enabled ? 'Ranked 2' : 'Ranked 1');
+      expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
+      expect(mockedGoto).not.toHaveBeenCalled();
+
+      await fireEvent.change(screen.getByRole('combobox', { name: 'Within' }), {
+        target: { value: '1000' },
+      });
+      await waitFor(() =>
+        expect(api.searchExploreSystems).toHaveBeenCalledTimes(2),
+      );
+      await tick();
+      expect(mockedGoto).toHaveBeenCalledTimes(1);
+      expect(mockedGoto.mock.calls[0][1].replaceState).toBe(false);
+      expect(mockedPage.url.searchParams.get('radius')).toBe('1000');
+      expect(mockedPage.url.searchParams.has('offset')).toBe(false);
+      expect(mockedPage.url.searchParams.get('near')).toBe(anchorA.id64);
+      expect(mockedPage.url.searchParams.get('selected')).toBe(anchorA.id64);
+      expect(mockedPage.url.searchParams.get('view')).toBe('cards');
+      expect(vi.mocked(api.searchExploreSystems).mock.lastCall?.[0]).toEqual({
+        reference_coords: { x: 10, y: 20, z: 30 },
+        filters: { distance: { min: 0, max: 1000 }, economy: 'any' },
+        sort_by: 'distance',
+        size: enabled ? 1 : 24,
+        from: 0,
+      });
+      expect(document.getElementById('results-scope')).toHaveTextContent(
+        'Within 1,000 LY of Anchor A · sorted by distance',
+      );
+
+      const reloadQuery = mockedPage.url.search.slice(1);
+      cleanup();
+      queryClient.clear();
+      vi.mocked(api.searchExploreSystems).mockClear();
+      mockedGoto.mockClear();
+      renderEnabled(reloadQuery);
+      await screen.findByText('Ranked 1');
+      expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
+      expect(mockedGoto).not.toHaveBeenCalled();
+      expect(screen.getByRole('combobox', { name: 'Within' })).toHaveValue(
+        '1000',
+      );
+      expect(document.getElementById('results-scope')).toHaveTextContent(
+        'Within 1,000 LY of Anchor A · sorted by distance',
+      );
+      expect(
+        vi.mocked(api.searchExploreSystems).mock.lastCall?.[0].filters
+          ?.distance,
+      ).toEqual({ min: 0, max: 1000 });
+      expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+    });
+
+    it('caps a filtered search at the API radius and resumes the chosen radius once filters clear', async () => {
+      // The API rejects anchored searches with body filters beyond 500 LY, so
+      // the wider options are disabled and a wider URL radius is applied as 500.
+      renderEnabled(
+        `${enabled ? 'page_size=1&' : ''}near=${anchorA.id64}&bodies=elw_count%3A1-&radius=1000`,
+        { anchor: anchorA },
+      );
+      await screen.findByText('Ranked 1');
+      expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(api.searchExploreSystems).mock.lastCall?.[0]).toEqual({
+        reference_coords: { x: 10, y: 20, z: 30 },
+        filters: { distance: { min: 0, max: 500 }, economy: 'any' },
+        body_filters: { elw_count: { min: 1 } },
+        sort_by: 'distance',
+        size: enabled ? 1 : 24,
+        from: 0,
+      });
+      const radius = screen.getByRole('combobox', { name: 'Within' });
+      expect(radius).toHaveValue('500');
+      expect(radius).toHaveAccessibleDescription(
+        'Body filters limit the search to 500 LY; your 1,000 LY radius resumes when the filters are cleared.',
+      );
+      expect(
+        within(radius)
+          .getAllByRole('option')
+          .map((option) => (option as HTMLOptionElement).disabled),
+      ).toEqual([false, false, false, true, true]);
+      expect(document.getElementById('results-scope')).toHaveTextContent(
+        'Within 500 LY of Anchor A · sorted by distance',
+      );
+      // The URL still records the commander's choice.
+      expect(mockedPage.url.searchParams.get('radius')).toBe('1000');
+
+      await fireEvent.change(radius, { target: { value: '250' } });
+      await waitFor(() =>
+        expect(api.searchExploreSystems).toHaveBeenCalledTimes(2),
+      );
+      expect(
+        vi.mocked(api.searchExploreSystems).mock.lastCall?.[0].filters
+          ?.distance,
+      ).toEqual({ min: 0, max: 250 });
+      expect(mockedPage.url.searchParams.get('radius')).toBe('250');
+      expect(radius).toHaveAccessibleDescription(
+        'Body filters limit the search to 500 LY.',
+      );
+    });
+
+    it('keeps each card distance tied to its response radius while the next radius is loading', async () => {
+      const response = {
+        ...finderPage(0, enabled ? 50 : 24),
+        results: rankedRows.map((system) => ({ ...system, distance: 12.5 })),
+      };
+      let finish!: (page: typeof response) => void;
+      vi.mocked(api.searchExploreSystems)
+        .mockResolvedValueOnce(response)
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        );
+      renderEnabled(`near=${anchorA.id64}`, { anchor: anchorA });
+      await screen.findByText('Ranked 1');
+      const list = screen.getByRole('list', { name: 'System results' });
+      expect(within(list).getAllByRole('listitem')[0]).toHaveTextContent(
+        'within 500 LY',
+      );
+
+      await fireEvent.change(screen.getByRole('combobox', { name: 'Within' }), {
+        target: { value: '1000' },
+      });
+      await waitFor(() =>
+        expect(api.searchExploreSystems).toHaveBeenCalledTimes(2),
+      );
+      expect(document.getElementById('results-scope')).toHaveTextContent(
+        'Within 1,000 LY of Anchor A · sorted by distance',
+      );
+      if (enabled) {
+        const retained = screen.getByRole('list', { name: 'System results' });
+        expect(within(retained).getAllByRole('listitem')[0]).toHaveTextContent(
+          'within 500 LY',
+        );
+        expect(retained).not.toHaveTextContent('within 1,000 LY');
+      }
+
+      finish(response);
+      await waitFor(() =>
+        expect(
+          within(
+            screen.getByRole('list', { name: 'System results' }),
+          ).getAllByRole('listitem')[0],
+        ).toHaveTextContent('within 1,000 LY'),
+      );
+      expect(api.searchExploreSystems).toHaveBeenCalledTimes(2);
+    });
+
+    it('clears an invalid radius with the existing notice and searches at the default radius once', async () => {
+      renderEnabled(`near=${anchorA.id64}&radius=3000&bodies=elw_count:1-`, {
+        anchor: anchorA,
+      });
+      await screen.findByText('Invalid search link option removed.');
+      await screen.findByText('Ranked 1');
+      expect(mockedPage.url.searchParams.has('radius')).toBe(false);
+      expect(mockedPage.url.searchParams.get('near')).toBe(anchorA.id64);
+      expect(mockedPage.url.searchParams.get('bodies')).toBe('elw_count:1-');
+      expect(screen.getByRole('combobox', { name: 'Within' })).toHaveValue(
+        '500',
+      );
+      expect(document.getElementById('results-scope')).toHaveTextContent(
+        'Within 500 LY of Anchor A · sorted by distance',
+      );
+      expect(mockedGoto).toHaveBeenCalledTimes(1);
+      expect(mockedGoto.mock.calls[0][1].replaceState).toBe(true);
+      expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
+      expect(
+        vi.mocked(api.searchExploreSystems).mock.calls[0][0].filters?.distance,
+      ).toEqual({ min: 0, max: 500 });
+    });
+
     it('restores the anchor and filters from a reload with no history payload', async () => {
       renderEnabled(
         `near=${anchorA.id64}&bodies=elw_count:1-,landable_count:2-5`,
@@ -4391,6 +4630,38 @@ describe('Explore body filters in archetype mode', () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
+
+  it.each([
+    { tier: 'B', query: '', anchor: null },
+    { tier: 'A', query: '&min-tier=A', anchor: anchorA },
+  ])(
+    'describes galaxy-wide archetype scope at tier $tier and disables the retained radius',
+    async ({ tier, query, anchor }) => {
+      renderEnabled(
+        `archetype=manufacturing_hub&radius=1000${query}${anchor ? `&near=${anchor.id64}` : ''}`,
+        { anchor },
+      );
+      await screen.findByText('Ranked 1');
+      const scope = `Galaxy-wide · ranked by Manufacturing Hub fit · minimum tier ${tier}`;
+      expect(document.getElementById('results-scope')).toHaveTextContent(scope);
+      const list = screen.getByRole('list', { name: 'System results' });
+      expect(list).toHaveAttribute('aria-describedby', 'results-scope');
+      expect(list).toHaveAccessibleDescription(scope);
+      const radius = screen.getByRole('combobox', { name: 'Within' });
+      expect(radius).toBeDisabled();
+      expect(radius).toHaveValue('1000');
+      expect(radius).toHaveAccessibleDescription(
+        'Search radius works when you search near a system with Any selected.',
+      );
+      expect(vi.mocked(api.getArchetypeRankings).mock.calls[0][0]).toEqual({
+        archetype: 'manufacturing_hub',
+        min_score: tier === 'B' ? 60 : 76,
+        page_size: 50,
+        offset: 0,
+      });
+      expect(api.searchExploreSystems).not.toHaveBeenCalled();
+    },
+  );
 
   it('keeps a ranking on its page when a paused chip is removed or cleared', async () => {
     renderEnabled(

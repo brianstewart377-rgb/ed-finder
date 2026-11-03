@@ -24,6 +24,11 @@ import {
   type ArchetypeKey,
   type SelectedMinimumTier,
 } from './archetypes';
+import {
+  DEFAULT_SEARCH_RADIUS,
+  normalizeSearchRadius,
+  type SearchRadius,
+} from './search-state';
 
 export type FinderRankingState = Readonly<{
   archetype: typeof ANY_ARCHETYPE | ArchetypeKey;
@@ -444,18 +449,22 @@ export function rankingWireWindow(
 }
 
 /**
- * Today's exact Explore request derivation (the live default-off path):
- * anchored → distance-sorted 500 ly search, otherwise a 24-row galaxy-wide
+ * Explore request derivation for the default-off ranking path:
+ * anchored → distance-sorted bounded-radius search, otherwise a 24-row galaxy-wide
  * development ranking. It carries no F4 field and no tier floor.
  */
 export function legacyExploreRequest(
   anchor: AnchorCoordinates | null | undefined,
+  radius: SearchRadius = DEFAULT_SEARCH_RADIUS,
 ): ExploreSearchRequest {
   const coords = anchoredCoordinates(anchor);
   if (coords) {
     return {
       reference_coords: coords,
-      filters: { distance: { min: 0, max: 500 }, economy: 'any' },
+      filters: {
+        distance: { min: 0, max: normalizeSearchRadius(radius) },
+        economy: 'any',
+      },
       sort_by: 'distance',
       size: LEGACY_EXPLORE_PAGE_SIZE,
       from: 0,
@@ -477,12 +486,12 @@ export function legacyExploreRequest(
 export function selectFinderRequest(
   input: Partial<FinderRankingState> | null | undefined,
   anchor: AnchorCoordinates | null | undefined,
-  options: { enabled: boolean },
+  options: { enabled: boolean; radius?: SearchRadius },
 ): FinderRequest {
   if (!options.enabled) {
     return {
       kind: 'any',
-      request: legacyExploreRequest(anchor),
+      request: legacyExploreRequest(anchor, options.radius),
       pageSize: LEGACY_EXPLORE_PAGE_SIZE,
     };
   }
@@ -493,7 +502,10 @@ export function selectFinderRequest(
     const request: ExploreSearchRequest = coords
       ? {
           reference_coords: coords,
-          filters: { distance: { min: 0, max: 500 }, economy: 'any' },
+          filters: {
+            distance: { min: 0, max: normalizeSearchRadius(options.radius) },
+            economy: 'any',
+          },
           sort_by: 'distance',
           size: window.limit,
           from: window.offset,

@@ -389,7 +389,7 @@ describe('Galaxy Map Review Lab density truth slice', () => {
           detail: 'System is not in the published Ratings V4 generation',
         },
       });
-      cy.visit('/inspect?system=42', {
+      cy.visit('/inspect?system=42&tab=bodies', {
         onBeforeLoad(window) {
           if (backend === 'WEBGL2') {
             Object.defineProperty(window.navigator, 'gpu', {
@@ -409,6 +409,7 @@ describe('Galaxy Map Review Lab density truth slice', () => {
         expect($canvas).to.have.attr('role', 'application');
       });
       cy.get('[aria-label="System bodies"] button').should('have.length', 3);
+      cy.get('.spatial-canvas canvas').scrollIntoView();
       captureSubmittedBabylonFrame(
         `map-review-lab/system-map-${backend}-1440x900`,
       );
@@ -422,6 +423,7 @@ describe('Galaxy Map Review Lab density truth slice', () => {
         .should((bearing) => {
           expect(Number(bearing)).to.be.closeTo(-0.6, 0.001);
         });
+      cy.get('.spatial-canvas canvas').scrollIntoView();
       captureSubmittedBabylonFrame(
         `map-review-lab/system-map-selected-${backend}-1440x900`,
       );
