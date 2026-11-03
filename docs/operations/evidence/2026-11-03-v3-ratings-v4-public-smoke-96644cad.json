@@ -1,0 +1,138 @@
+{
+  "base_url": "https://ed-finder.app",
+  "build_sha": "96644cad65cfc2561a54c09810a66765b30d78ee",
+  "database": "connected",
+  "generation": {
+    "canonical_generation_id": "a7076522-54cd-52f3-a291-4e5406bea230",
+    "canonical_publication_sequence": 4,
+    "derived_generation_id": "cfc25d36-3bc7-4011-a465-d6460eaaf826",
+    "mechanics_version": "v4-mechanics-2026-09",
+    "publication_sequence": 1,
+    "published_at": "2026-09-16T08:38:23.453057Z",
+    "scorer_version": "4.0.0",
+    "validation_receipt": {
+      "content_sha256": "48c5c89873b12504096a21d655b4cd8f6b804fcebe4d9d4c5c8c6a5fea9d8b11",
+      "elapsed_seconds": 37769.258943,
+      "eligible_opportunities": 740001532,
+      "every_stored_chunk_read_back": true,
+      "every_system_replayed": true,
+      "manifest_sha256": "e9581f0222369f594cc2172a77fa9c60a97f35b84c757b477a9f38a676e2ccc5",
+      "physical_bodies": 577709320,
+      "potential_max": {
+        "Agriculture": 95,
+        "Extraction": 100,
+        "HighTech": 92,
+        "Industrial": 94,
+        "Military": 75,
+        "Refinery": 85,
+        "Tourism": 100
+      },
+      "potential_min": {
+        "Agriculture": 0,
+        "Extraction": 0,
+        "HighTech": 0,
+        "Industrial": 0,
+        "Military": 0,
+        "Refinery": 0,
+        "Tourism": 0
+      },
+      "ratings": 1389698002,
+      "status": "VERIFIED",
+      "systems": 198528286,
+      "unknown_quality": {
+        "Agriculture": 0,
+        "Extraction": 0,
+        "HighTech": 0,
+        "Industrial": 0,
+        "Military": 0,
+        "Refinery": 19027416,
+        "Tourism": 0
+      }
+    }
+  },
+  "requests": [
+    {
+      "latency_ms": 273.415,
+      "method": "GET",
+      "path": "/api/health",
+      "status": 200,
+      "validation": {
+        "errors": [],
+        "status": "passed"
+      }
+    },
+    {
+      "latency_ms": 251.045,
+      "method": "GET",
+      "path": "/api/ratings/v4/generation",
+      "status": 200,
+      "validation": {
+        "errors": [],
+        "status": "passed"
+      }
+    },
+    {
+      "latency_ms": 253.488,
+      "method": "GET",
+      "path": "/api/ratings/v4/systems/10477373803",
+      "status": 200,
+      "validation": {
+        "errors": [],
+        "status": "passed"
+      }
+    },
+    {
+      "latency_ms": 313.695,
+      "method": "GET",
+      "path": "/api/ratings/v4/systems/10477373803/explanation",
+      "status": 200,
+      "validation": {
+        "errors": [],
+        "status": "passed"
+      }
+    },
+    {
+      "latency_ms": 210.11,
+      "method": "GET",
+      "path": "/api/ratings/v4/systems/164098653",
+      "status": 200,
+      "validation": {
+        "errors": [],
+        "status": "passed"
+      }
+    },
+    {
+      "latency_ms": 290.357,
+      "method": "GET",
+      "path": "/api/ratings/v4/systems/164098653/explanation",
+      "status": 200,
+      "validation": {
+        "errors": [],
+        "status": "passed"
+      }
+    },
+    {
+      "latency_ms": 241.564,
+      "method": "GET",
+      "path": "/api/ratings/v4/systems/1109989017963",
+      "status": 200,
+      "validation": {
+        "errors": [],
+        "status": "passed"
+      }
+    },
+    {
+      "latency_ms": 278.254,
+      "method": "GET",
+      "path": "/api/ratings/v4/systems/1109989017963/explanation",
+      "status": 200,
+      "validation": {
+        "errors": [],
+        "status": "passed"
+      }
+    }
+  ],
+  "schema_version": "ed-finder/ratings-v4-public-smoke/v1",
+  "started_at": "2026-11-03T10:15:16.196959+00:00",
+  "status": "passed"
+}
