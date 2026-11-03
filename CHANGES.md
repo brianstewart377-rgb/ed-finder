@@ -11,6 +11,19 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-03 — Tenth F2d release `96644cad` accepted: map review fixes, design kit and Plan review live
+
+Records the tenth accepted F2d release. Release run 41606910682 built source
+`96644cad`; preflight run 41607843491 passed; promotion run 41617007185 was
+accepted at 2026-11-03T10:11:14Z to slot blue with `9ff456e0` as the recorded
+rollback artifact. App-only, no migration, no database writes, installed schema
+through-023 unchanged. An earlier candidate from `108aed71` (run 41596390207)
+was refused by the deployer's exact-main check after further merges and never
+reached the host. The public Ratings V4 smoke passed 8/8
+(`docs/operations/evidence/2026-11-03-v3-ratings-v4-public-smoke-96644cad.json`).
+Updates the target authority, `CLAUDE.md`, the roadmap and the release runbook;
+receipts under `docs/operations/evidence/2026-11-03-v3-production-*`.
+
 ## 2026-11-03 — UI redesign P3: Finder control polish
 
 Finder archetype choices, ranking facts and the Body filters tool now use the
