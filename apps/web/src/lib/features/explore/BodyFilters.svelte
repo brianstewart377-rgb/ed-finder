@@ -27,7 +27,8 @@
   } = $props();
 
   const id = $props.id();
-  const explanation = 'Body filters work when you search near a system.';
+  const explanation =
+    'Body filters work when you search near a system with Any selected.';
   let open = $state(false);
   let draft = $state<BodyFilterValues>({});
   let activeTab = $state(0);
@@ -222,6 +223,7 @@
   <button
     bind:this={trigger}
     type="button"
+    class="kit-pill"
     {disabled}
     aria-haspopup="dialog"
     aria-expanded={open}
@@ -232,15 +234,18 @@
   {#if disabled}<p id={`${id}-disabled`} class="hint">{explanation}</p>{/if}
   {#if applied.length}
     <div
-      class="applied-filters"
+      class="applied-filters kit-chip-row"
       class:paused
       role="group"
-      aria-label="Applied body filters"
+      aria-label={paused ? 'Paused body filters' : 'Applied body filters'}
+      aria-describedby={paused && disabled ? `${id}-disabled` : undefined}
     >
       {#each applied as option (option.key)}
-        <span class="filter-chip">
+        <span class="filter-chip kit-chip">
           <span>{bodyFilterLabel(option.key, value[option.key]!)}</span>
-          {#if paused}<span class="paused-label">Paused</span>{/if}
+          <span class="chip-state" class:paused-label={paused}
+            >{paused ? 'Paused' : 'Applied'}</span
+          >
           <button
             type="button"
             aria-label={`Remove ${option.label} filter`}
@@ -248,7 +253,7 @@
           >
         </span>
       {/each}
-      <button type="button" class="clear-all" onclick={() => onclear()}
+      <button type="button" class="clear-all kit-pill" onclick={() => onclear()}
         >Clear all</button
       >
     </div>
@@ -275,7 +280,7 @@
   >
     <header>
       <h2 id={`${id}-title`}>Body filters</h2>
-      <button type="button" onclick={close}>Close</button>
+      <button type="button" class="kit-pill" onclick={close}>Close</button>
     </header>
     <p id={`${id}-help`} class="hint panel-help">
       Choose whole counts. Type up to 999; Any removes the maximum.
@@ -391,11 +396,13 @@
     <footer>
       <span aria-live="polite">{draftCount} filters selected</span>
       <div class="footer-actions">
-        <button type="button" onclick={() => (draft = {})}>Reset</button>
-        <button type="button" onclick={close}>Cancel</button>
+        <button type="button" class="kit-pill" onclick={() => (draft = {})}
+          >Reset</button
+        >
+        <button type="button" class="kit-pill" onclick={close}>Cancel</button>
         <button
           type="button"
-          class="apply"
+          class="apply kit-pill"
           onclick={() => {
             onapply(normalizeBodyFilters(effective(draft)));
             close();
@@ -441,19 +448,32 @@
   .filter-chip {
     display: inline-flex;
     align-items: center;
-    gap: 0.4rem;
-    padding: 0.2rem 0.25rem 0.2rem 0.65rem;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    max-width: 100%;
+    padding: 0.25rem 0.25rem 0.25rem 0.65rem;
     font-size: 0.85rem;
+    line-height: 1.4;
+  }
+  .filter-chip > span:first-child {
+    overflow-wrap: anywhere;
   }
   .filter-chip button {
+    flex-shrink: 0;
+    min-width: 1.75rem;
+    min-height: 1.75rem;
     border: 0;
     padding: 0.1rem 0.4rem;
   }
   .paused .filter-chip {
     border-style: dashed;
   }
-  .paused-label {
+  .chip-state {
+    color: var(--text-muted);
     font-size: 0.75rem;
+  }
+  .paused-label {
+    padding: 0.1rem 0.35rem;
   }
   .clear-all {
     font-size: 0.85rem;
@@ -489,6 +509,7 @@
     flex-shrink: 0;
     gap: 0.35rem;
     padding: 0 1rem 0.75rem;
+    margin-bottom: 0.75rem;
   }
   .tabs button {
     flex: 1;
@@ -518,6 +539,7 @@
     padding: 0.6rem;
     border: 1px solid var(--line);
     border-radius: var(--radius-sm);
+    background: var(--panel-sunken);
   }
   legend {
     padding-inline: 0.3rem;
@@ -547,10 +569,12 @@
   }
   input[type='range'] {
     width: 100%;
+    min-height: 1.5rem;
     margin: 0;
   }
   input[type='number'] {
     width: 100%;
+    min-height: 2.25rem;
     padding: 0.35rem;
     border: 1px solid var(--line);
     border-radius: var(--radius-sm);
@@ -570,6 +594,7 @@
     flex-wrap: wrap;
     border-top: 1px solid var(--line);
     font-size: 0.85rem;
+    background: var(--panel-sunken);
   }
   .footer-actions {
     display: flex;

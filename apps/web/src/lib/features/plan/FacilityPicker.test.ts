@@ -497,6 +497,37 @@ describe('Facility picker server previews', () => {
 });
 
 describe('explicit facility addition', () => {
+  it('explains known plan-check reasons and preserves unknown codes without adding a facility', async () => {
+    const props = pickerProps(true);
+    vi.mocked(evaluatePlanPreview).mockImplementation(async (request) => {
+      const result = evaluation(request);
+      const step = result.steps.at(-1)!;
+      step.result = 'NEEDS_INFO';
+      step.reasons = ['SLOTS_UNKNOWN', 'LANDABLE_UNKNOWN', 'FUTURE_REASON'];
+      return result;
+    });
+    render(FacilityPicker, props);
+    await fireEvent.click(screen.getByRole('button', { name: 'Coriolis' }));
+    await advance();
+    const preview = screen.getByRole('region', { name: 'Preview: Coriolis' });
+    expect(within(preview).getByText('Plan check: Needs info')).toBeVisible();
+    expect(
+      within(preview).getByText(
+        'Enter the available slot count for this location.',
+      ),
+    ).toBeVisible();
+    expect(
+      within(preview).getByText(
+        'It is not yet known whether this body is landable.',
+      ),
+    ).toBeVisible();
+    expect(within(preview).getByText('FUTURE_REASON')).toBeVisible();
+    expect(
+      within(preview).queryByText(/SLOTS_UNKNOWN|LANDABLE_UNKNOWN/),
+    ).not.toBeInTheDocument();
+    expect(props.onadd).not.toHaveBeenCalled();
+  });
+
   it('previews catalogue details without changing the plan, preserves list scroll and search, and returns focus on close', async () => {
     const props = pickerProps(true);
     props.facilities = facilities.map((item) =>

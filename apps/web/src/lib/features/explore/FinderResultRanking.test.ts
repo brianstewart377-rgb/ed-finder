@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from '@testing-library/svelte';
+import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ExploreSystem, FinderPageEnvelope } from '$lib/api/client';
 import { parseId64 } from '$lib/domain/id64';
@@ -172,6 +173,30 @@ describe('ranked card facts', () => {
       archetype: 'manufacturing_hub',
     });
     expect(screen.getByText('Clear fit')).toBeInTheDocument();
+  });
+
+  it('keeps kit badges textual and evidence descriptions linked in both modes', async () => {
+    const { container, rerender } = render(FinderResultRanking, {
+      variant: 'row',
+      system: { ...system, best_tier: 'S' },
+      archetype: 'manufacturing_hub',
+    });
+    expect(screen.getByText('Tier S')).toHaveClass('kit-chip');
+    expect(screen.getByText('Tier A')).toHaveClass('kit-chip');
+    expect(screen.getByText('Close fit · Megacomplex 79')).toHaveClass(
+      'kit-chip',
+    );
+    for (const archetype of ['manufacturing_hub', 'any'] as const) {
+      await rerender({ archetype });
+      expect(screen.getByText(/confidence: moderate/)).toHaveClass('kit-chip');
+      expect(
+        (
+          await axe.run(container, {
+            rules: { 'color-contrast': { enabled: false } },
+          })
+        ).violations,
+      ).toEqual([]);
+    }
   });
 });
 

@@ -12,7 +12,7 @@
   import { toPlanRequest, MAX_SITES, type PlannerModel } from './model';
   import { evaluatePlanPreview } from './preview';
   import { CONTRIBUTION_LABELS, economyPercent } from './economy-presentation';
-  import { resultLabel } from './presentation';
+  import { previewReasonLabel, resultLabel } from './presentation';
 
   let {
     location,
@@ -553,7 +553,7 @@
           {#if preview}
             <p>Plan check: {resultLabel[preview.result]}</p>
             {#each preview.reasons as reason, index (index)}<p>
-                {reason}
+                {previewReasonLabel(reason)}
               </p>{/each}
           {/if}
           <h5>Economy and links after adding</h5>

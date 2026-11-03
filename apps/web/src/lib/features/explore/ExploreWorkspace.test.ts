@@ -4138,6 +4138,31 @@ describe.each([false, true])(
       vi.unstubAllGlobals();
     });
 
+    it.each([
+      ['G', 'G star'],
+      ['G (White-Yellow) Star', 'G (White-Yellow) Star'],
+    ])(
+      'renders catalogue star class %s once in the result card',
+      async (value, label) => {
+        vi.mocked(api.searchExploreSystems).mockResolvedValue({
+          ...finderPage(0, 1),
+          results: [{ ...finderPage(0, 1).results[0], main_star_type: value }],
+        });
+        renderEnabled(`near=${anchorA.id64}`, { anchor: anchorA });
+        await screen.findByText('Ranked 1');
+        const row = within(
+          screen.getByRole('list', { name: 'System results' }),
+        ).getByRole('listitem');
+        expect(
+          within(row).getByText(label, { exact: true }),
+        ).toBeInTheDocument();
+        expect(row).not.toHaveTextContent(/Star star/i);
+        expect(
+          within(row).getByRole('link', { name: 'Inspect Ranked 1' }),
+        ).toBeInTheDocument();
+      },
+    );
+
     it('describes the anchored search scope, bounds the radius choices and includes the radius with card distances', async () => {
       const anchor = { ...anchorA, name: 'Achenar' };
       vi.mocked(api.searchExploreSystems).mockImplementation(
@@ -4596,12 +4621,79 @@ describe.each([false, true])(
       expect(trigger).toHaveFocus();
     });
 
+    it('keeps tab keys, draft edits, Reset and Cancel local until Apply', async () => {
+      renderEnabled(`near=${anchorA.id64}&bodies=elw_count:1-`, {
+        anchor: anchorA,
+      });
+      await screen.findByText('Ranked 1');
+      const trigger = screen.getByRole('button', { name: 'Body filters' });
+      const applied = screen.getByRole('group', {
+        name: 'Applied body filters',
+      });
+      expect(applied.querySelector('.kit-chip')).toHaveTextContent('Applied');
+      expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+      await fireEvent.click(trigger);
+      let dialog = screen.getByRole('dialog', { name: 'Body filters' });
+      const planets = within(dialog).getByRole('tab', { name: /^Planets\b/ });
+      expect(planets).toHaveFocus();
+      await fireEvent.keyDown(planets, { key: 'ArrowRight' });
+      expect(
+        within(dialog).getByRole('tab', { name: /^Stars\b/ }),
+      ).toHaveFocus();
+      await fireEvent.input(
+        within(dialog).getByRole('spinbutton', {
+          name: 'Neutron stars minimum',
+        }),
+        { target: { value: '2' } },
+      );
+      await fireEvent.keyDown(
+        within(dialog).getByRole('tab', { name: /^Stars\b/ }),
+        { key: 'Home' },
+      );
+      await fireEvent.click(
+        within(dialog).getByRole('button', { name: 'Reset' }),
+      );
+      await fireEvent.click(
+        within(dialog).getByRole('button', { name: 'Cancel' }),
+      );
+      expect(trigger).toHaveFocus();
+      expect(screen.getByText('Earth-like ≥ 1')).toBeInTheDocument();
+      expect(mockedPage.url.searchParams.get('bodies')).toBe('elw_count:1-');
+      expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
+      await fireEvent.click(trigger);
+      dialog = screen.getByRole('dialog', { name: 'Body filters' });
+      expect(
+        within(dialog).getByRole('spinbutton', { name: 'Earth-like minimum' }),
+      ).toHaveValue(1);
+      await fireEvent.input(
+        within(dialog).getByRole('spinbutton', { name: 'Earth-like minimum' }),
+        { target: { value: '2' } },
+      );
+      expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
+      await fireEvent.click(
+        within(dialog).getByRole('button', { name: 'Apply' }),
+      );
+      await waitFor(() =>
+        expect(api.searchExploreSystems).toHaveBeenCalledTimes(2),
+      );
+      expect(trigger).toHaveFocus();
+      expect(
+        screen.queryByRole('dialog', { name: 'Body filters' }),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByRole('slider')).not.toBeInTheDocument();
+      expect(
+        screen
+          .getByRole('group', { name: 'Applied body filters' })
+          .querySelector('.kit-chip'),
+      ).toHaveTextContent('Earth-like ≥ 2');
+    });
+
     it('keeps body-only links paused with no request, and preserves filters when clearing the anchor', async () => {
       const history = renderEnabled('bodies=elw_count:1-');
       const trigger = screen.getByRole('button', { name: 'Body filters' });
       expect(trigger).toBeDisabled();
       expect(trigger).toHaveAccessibleDescription(
-        'Body filters work when you search near a system.',
+        'Body filters work when you search near a system with Any selected.',
       );
       expect(api.searchExploreSystems).not.toHaveBeenCalled();
       history.restore(`near=${anchorA.id64}&bodies=elw_count:1-`, {
@@ -4702,10 +4794,15 @@ describe('Explore body filters in archetype mode', () => {
     const trigger = screen.getByRole('button', { name: 'Body filters' });
     expect(trigger).toBeDisabled();
     expect(trigger).toHaveAccessibleDescription(
-      'Body filters work when you search near a system.',
+      'Body filters work when you search near a system with Any selected.',
     );
     expect(screen.getByText('Earth-like ≥ 1')).toBeInTheDocument();
     expect(screen.getByText('Paused')).toBeInTheDocument();
+    expect(
+      screen
+        .getByRole('group', { name: 'Paused body filters' })
+        .querySelector('.kit-chip'),
+    ).toHaveTextContent('Paused');
     expect(api.searchExploreSystems).not.toHaveBeenCalled();
     expect(
       vi.mocked(api.getArchetypeRankings).mock.calls[0][0],
@@ -4720,6 +4817,11 @@ describe('Explore body filters in archetype mode', () => {
     expect(mockedPage.url.searchParams.get('bodies')).toBe('elw_count:1-');
     expect(trigger).toBeEnabled();
     expect(screen.queryByText('Paused')).not.toBeInTheDocument();
+    expect(
+      screen
+        .getByRole('group', { name: 'Applied body filters' })
+        .querySelector('.kit-chip'),
+    ).toHaveTextContent('Applied');
   });
 });
 

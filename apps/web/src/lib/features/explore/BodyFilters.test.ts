@@ -44,6 +44,7 @@ async function number(label: string, value: string) {
 describe('body filter pop-out', () => {
   it('opens a named non-modal dialog and gives all 19 filters accessible controls across three tabs', async () => {
     filters();
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
     const trigger = await open();
     const dialog = screen.getByRole('dialog', { name: 'Body filters' });
     expect(dialog).toHaveAttribute('aria-modal', 'false');
@@ -64,6 +65,7 @@ describe('body filter pop-out', () => {
         const fieldset = screen.getByRole('group', { name: option.label });
         expect(fieldset).toBeVisible();
         const controls = within(fieldset);
+        expect(fieldset.querySelectorAll('input')).toHaveLength(5);
         expect(
           controls.getByRole('slider', {
             name: `${option.label} minimum slider`,
@@ -116,6 +118,58 @@ describe('body filter pop-out', () => {
       key: 'Home',
     });
     expect(screen.getByRole('tab', { name: 'Planets 0' })).toHaveFocus();
+  });
+
+  it('preserves typed drafts across keyboard tab changes without committing or exposing hidden controls', async () => {
+    const { onapply, onremove, onclear } = filters();
+    await open();
+    const minimum = screen.getByRole('spinbutton', {
+      name: 'Rocky ice minimum',
+    });
+    minimum.focus();
+    const nativeKey = new KeyboardEvent('keydown', {
+      key: 'ArrowUp',
+      bubbles: true,
+      cancelable: true,
+    });
+    minimum.dispatchEvent(nativeKey);
+    expect(nativeKey.defaultPrevented).toBe(false);
+    await number('Rocky ice minimum', '2');
+    expect(minimum).toHaveFocus();
+    expect(
+      screen.getByRole('slider', { name: 'Rocky ice minimum slider' }),
+    ).toHaveAttribute('aria-valuetext', '2');
+
+    const planets = screen.getByRole('tab', { name: 'Planets 1' });
+    planets.focus();
+    await fireEvent.keyDown(planets, { key: 'ArrowRight' });
+    const stars = screen.getByRole('tab', { name: 'Stars 0' });
+    expect(stars).toHaveFocus();
+    expect(stars).toHaveAttribute('tabindex', '0');
+    expect(planets).toHaveAttribute('tabindex', '-1');
+    expect(
+      document.getElementById(planets.getAttribute('aria-controls')!),
+    ).not.toBeVisible();
+    expect(
+      screen.queryByRole('spinbutton', { name: 'Rocky ice minimum' }),
+    ).not.toBeInTheDocument();
+    await number('Black holes maximum', '0');
+    await fireEvent.keyDown(screen.getByRole('tab', { name: 'Stars 1' }), {
+      key: 'Home',
+    });
+    expect(minimum).toHaveValue(2);
+    expect(planets).toHaveFocus();
+    expect(screen.getByText('2 filters selected')).toBeVisible();
+    expect(onapply).not.toHaveBeenCalled();
+    expect(onremove).not.toHaveBeenCalled();
+    expect(onclear).not.toHaveBeenCalled();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(onapply).toHaveBeenCalledExactlyOnceWith({
+      rocky_ice_count: { min: 2 },
+      black_hole_count: { max: 0 },
+    });
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
   });
 
   it('keeps slider and number changes in the draft, updates badges, and commits once on Apply', async () => {
@@ -364,6 +418,12 @@ describe('applied body filters', () => {
     expect(screen.getByText('Earth-like ≥ 1')).toBeVisible();
     expect(screen.getByText('Landable 2–5')).toBeVisible();
     expect(screen.getByText('Rings ≤ 3')).toBeVisible();
+    const chips = screen.getByRole('group', { name: 'Applied body filters' });
+    expect(chips).toHaveClass('kit-chip-row');
+    expect(within(chips).getAllByText('Applied')).toHaveLength(3);
+    expect(chips.querySelectorAll('.kit-chip')).toHaveLength(3);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument();
     const accessibility = await axe.run(
       screen.getByRole('group', { name: 'Applied body filters' }),
       {
@@ -388,8 +448,13 @@ describe('applied body filters', () => {
     const trigger = screen.getByRole('button', { name: 'Body filters' });
     expect(trigger).toBeDisabled();
     expect(trigger).toHaveAccessibleDescription(
-      'Body filters work when you search near a system.',
+      'Body filters work when you search near a system with Any selected.',
     );
+    const chips = screen.getByRole('group', { name: 'Paused body filters' });
+    expect(chips).toHaveAccessibleDescription(
+      'Body filters work when you search near a system with Any selected.',
+    );
+    expect(within(chips).queryByText('Applied')).not.toBeInTheDocument();
     expect(screen.getByText('Paused')).toBeVisible();
     await fireEvent.click(trigger);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -400,6 +465,19 @@ describe('applied body filters', () => {
     await rerender({ disabled: false, paused: false });
     expect(trigger).toBeEnabled();
     expect(screen.queryByText('Paused')).not.toBeInTheDocument();
+    expect(
+      within(
+        screen.getByRole('group', { name: 'Applied body filters' }),
+      ).getByText('Applied'),
+    ).toBeVisible();
+    await open();
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).not.toContainElement(chips);
+    await number('Earth-like minimum', '7');
+    expect(within(chips).getByText('Earth-like ≥ 1')).toBeVisible();
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(chips).toBeVisible();
+    expect(within(chips).getByText('Applied')).toBeVisible();
     await open();
     await rerender({ disabled: true });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
