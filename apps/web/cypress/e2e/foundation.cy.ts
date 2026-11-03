@@ -28,7 +28,10 @@ describe('ED-Finder V3 foundation', () => {
       cy.get('.upcoming-tools p')
         .should('have.length', 1)
         .and('contain.text', 'Review & export');
-      cy.get('.upcoming-tools p > span').should('have.text', 'Coming later');
+      cy.get('.upcoming-tools p > span').should(
+        'have.text',
+        'Available in Plan',
+      );
       cy.get('.tool-card').should(($cards) => {
         const cards = $cards.toArray();
         const bounds = cards.map((card) => card.getBoundingClientRect());

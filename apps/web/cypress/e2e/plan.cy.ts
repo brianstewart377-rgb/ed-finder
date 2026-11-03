@@ -21,6 +21,7 @@ const payerId = 'mining-installation';
 const systemTab = '[role="tab"][aria-controls="plan-system-layout"]';
 const orderTab = '[role="tab"][aria-controls="plan-build-order"]';
 const planStorageKey = 'ed_colony_projects_v1';
+const reviewDialog = '[data-review-export]';
 
 function facility(
   id: string,
@@ -753,6 +754,24 @@ describe('Colony planner browser-kept main path', () => {
       cy.get('[role="dialog"]').should('not.exist');
       cy.focused().should('contain.text', 'Why?');
 
+      cy.contains('button', /^Review & export$/)
+        .focus()
+        .click();
+      cy.get(reviewDialog)
+        .should('have.attr', 'aria-modal', 'false')
+        .find('[data-review-kind="build"]')
+        .contains('Industrial Installation')
+        .click();
+      cy.get(orderTab).should('have.attr', 'aria-selected', 'true');
+      cy.get('[data-plan-build-order] [data-plan-site]')
+        .eq(1)
+        .should('be.focused');
+      cy.get(reviewDialog).should('be.visible');
+      cy.get(reviewDialog)
+        .contains('button', /^Close$/)
+        .click();
+      cy.contains('button', /^Review & export$/).should('be.focused');
+
       cy.get('[data-plan-build-order] [data-plan-site]')
         .eq(2)
         .find('button[aria-label^="Move up"]')
@@ -822,6 +841,100 @@ describe('Colony planner browser-kept main path', () => {
         overwrite: true,
       });
 
+      cy.contains('button', /^Review & export$/)
+        .focus()
+        .click();
+      cy.get(reviewDialog)
+        .should('be.visible')
+        .and('contain.text', systemName)
+        .and('not.contain.text', 'ready to build');
+      cy.checkA11y(reviewDialog);
+      cy.screenshot(`plan/review-${Cypress.browser.name}-${width}x${height}`, {
+        capture: 'viewport',
+        overwrite: true,
+      });
+      cy.get(
+        `${reviewDialog} [data-review-kind="unknown-slot"][data-body-ref="star-a"][data-slot-kind="orbital"]`,
+      ).click();
+      cy.get(systemTab).should('have.attr', 'aria-selected', 'true');
+      cy.get(
+        '[data-plan-body="star-a"] button[aria-label^="Orbital slots on"]',
+      ).should('be.focused');
+      cy.get(reviewDialog).should('be.visible');
+      cy.get(
+        `${reviewDialog} [data-review-kind="prediction"][data-body-ref="planet-1"]`,
+      )
+        .parent()
+        .should('contain.text', 'predicted')
+        .find('button')
+        .click();
+      cy.get(
+        '[data-plan-body="planet-1"] button[aria-label^="Surface slots on"]',
+      ).should('be.focused');
+
+      // Await the real download before importing it. Comparing site IDs rules
+      // out a stale download from the previous viewport's journey.
+      const draftPath = `${Cypress.config('downloadsFolder')}/colony-plan-DRAFT-${systemId}.json`;
+      // Firefox preserves existing downloads by adding a filename suffix.
+      // Remove only this fixture's prior export so its exact name is tested.
+      cy.exec(
+        `node -e 'require("node:fs").rmSync(process.env.PLAN_DRAFT_PATH, { force: true })'`,
+        { env: { PLAN_DRAFT_PATH: draftPath } },
+      );
+      let draftFilename = '';
+      let exportedSiteIds: string[] = [];
+      cy.get('[data-plan-build-order] [data-plan-site]').then(($sites) => {
+        exportedSiteIds = [...$sites].map((site) => site.dataset.planSite!);
+      });
+      cy.window().then((window) => {
+        const click = window.HTMLAnchorElement.prototype.click;
+        cy.stub(window.HTMLAnchorElement.prototype, 'click').callsFake(
+          function (this: HTMLAnchorElement) {
+            draftFilename = this.download;
+            click.call(this);
+          },
+        );
+      });
+      cy.get(reviewDialog)
+        .contains('button', /^Export DRAFT plan$/)
+        .should('have.attr', 'aria-label', 'Export DRAFT plan')
+        .click();
+      cy.then(() => {
+        expect(draftFilename).to.equal(`colony-plan-DRAFT-${systemId}.json`);
+        expect(draftFilename).to.contain('DRAFT');
+      });
+      cy.readFile(draftPath, null).should((contents) => {
+        expect(contents.length, 'completed draft download').to.be.greaterThan(
+          0,
+        );
+        const exported = JSON.parse(contents.toString());
+        expect(exported.schema).to.equal('cpe_plan_export_v1');
+        expect(exported.system_id64).to.equal(systemId);
+        expect(
+          exported.sites.map((site: { site_id: string }) => site.site_id),
+        ).to.deep.equal(exportedSiteIds);
+      });
+      cy.get(reviewDialog)
+        .contains('button', /^Close$/)
+        .click();
+      cy.contains('button', /^Review & export$/).should('be.focused');
+      cy.get(orderTab).click();
+      cy.location('search').should('include', 'tab=build-order');
+      cy.window().then((window) => {
+        cy.stub(window, 'confirm').as('confirmPlan').returns(true);
+      });
+      cy.contains('button', /^Abandon plan$/).click();
+      cy.get('[data-plan-build-order] [data-plan-site]').should('not.exist');
+      cy.contains('button', /^Import plan$/).click();
+      cy.get('input[aria-label="Import plan file"]').selectFile(draftPath, {
+        force: true,
+      });
+      cy.get('@confirmPlan').should('have.been.calledTwice');
+      cy.get('[data-plan-build-order] [data-plan-site]').should(($sites) => {
+        expect([...$sites].map((site) => site.dataset.planSite)).to.deep.equal(
+          exportedSiteIds,
+        );
+      });
       cy.reload();
       cy.get(orderTab).should('have.attr', 'aria-selected', 'true').focus();
       cy.press(Cypress.Keyboard.Keys.HOME);
@@ -926,7 +1039,7 @@ describe(
       );
     });
 
-    it('keeps keyboard tabs and explicit Add usable with motion disabled', () => {
+    it('keeps keyboard tabs, explicit Add and Review usable with motion disabled', () => {
       cy.then(() =>
         Cypress.automation('remote:debugger:protocol', {
           command: 'Emulation.setEmulatedMedia',
@@ -966,6 +1079,24 @@ describe(
         capture: 'viewport',
         overwrite: true,
       });
+      cy.contains('button', /^Review & export$/)
+        .focus()
+        .click();
+      cy.get(reviewDialog).should(($dialog) => {
+        const style = getComputedStyle($dialog[0]);
+        expect(style.animationName).to.equal('none');
+        expect(style.transitionDuration).to.equal('0s');
+      });
+      cy.checkA11y(reviewDialog);
+      cy.get(
+        `${reviewDialog} [data-review-kind="unknown-slot"][data-body-ref="star-a"][data-slot-kind="orbital"]`,
+      ).click();
+      cy.get(
+        '[data-plan-body="star-a"] button[aria-label^="Orbital slots on"]',
+      ).should('be.focused');
+      cy.press(Cypress.Keyboard.Keys.ESC);
+      cy.get(reviewDialog).should('not.exist');
+      cy.contains('button', /^Review & export$/).should('be.focused');
     });
   },
 );

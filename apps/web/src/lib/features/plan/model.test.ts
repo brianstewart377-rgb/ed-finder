@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { PlanBodiesV1, PlanFacilityV1, PlanSystemBodyV1 } from '$lib/api';
 import { colonyProjectsCodec } from '$lib/persistence/storage';
 import { resolvePlanLocations } from './locations';
+import preP5bExport from './__fixtures__/pre-p5b-plan-export.json';
 import {
   MAX_IMPORT_BYTES,
   PRIMARY_PORT_PROTECTION,
@@ -1139,6 +1140,33 @@ describe('Primary Port locks', () => {
 });
 
 describe('plan JSON exchange', () => {
+  it('imports a pre-P5b export unchanged through re-export and the browser persistence codec', () => {
+    const original = {
+      system_id64: preP5bExport.system_id64,
+      sites: preP5bExport.sites,
+      slots: preP5bExport.slots,
+    };
+    const imported = importPlan(JSON.stringify(preP5bExport), '42');
+    expect(imported).toEqual(original);
+    const exported = exportPlan(imported);
+    // DRAFT belongs to the download action/filename; the V1 payload stays exact.
+    expect(JSON.parse(exported)).toEqual(preP5bExport);
+    expect(importPlan(exported, '42')).toEqual(original);
+
+    const record = plannerToRecord(imported);
+    const restored = colonyProjectsCodec.decode(
+      colonyProjectsCodec.encode({
+        version: 3,
+        state: { projects: { [record.id]: record } },
+      }),
+    );
+    expect(restored.ok).toBe(true);
+    if (!restored.ok) throw new Error('Expected imported plan to hydrate');
+    expect(recordToPlanner(restored.value.state.projects[record.id])).toEqual(
+      original,
+    );
+  });
+
   it('exports the versioned planner-only shape and imports it without loss', () => {
     const original = setSlotCount(plan(site('primary')), '1', 'orbital', 3);
     const text = exportPlan(original);

@@ -4,10 +4,11 @@
 
 **2026-11-02 — implementation plan; no deployment authority.** Phase 1 is
 **done-pending-merge in [PR #998](../../../../../pull/998)**. Phase 4 is
-**implemented (#1002)** and P5a is **implemented in this PR**, each pending
-Product E2E/visual acceptance before promotion; neither is deployed. The other
+**implemented (#1002)**, P5a is **implemented (#1003)** and P5b is
+**implemented in this PR**, each pending
+Product E2E/visual acceptance before promotion; none is deployed. The other
 phases below retain their recorded status; implementation is not a claim of
-shipped behaviour. P5b Review/export remains a separate later PR.
+shipped behaviour.
 
 The approved 1 November 2026 concept pack is not in this repository. This plan
 records the owner's supplied direction; it does not reconstruct unseen images
@@ -146,9 +147,9 @@ No slice needs a SQL migration or new backend contract.
 | P2c | Explore main-task tabs and shared movable/dockable tool behaviour; keep Layers and map controls accessible in the window | No | Yes |
 | P3 | Finder control polish: archetype/results priority, existing count-group tabs, persistent chips and truthful scope gaps; no missing count fields to add today | No | Yes |
 | P4 | Inspect **Overview / Bodies / Stations** tabs; evidence explanation pop-out and retained Sources & freshness; **implemented (#1002)** | No | Yes |
-| P5a | Plan **System layout / Build order** tabs; facility preview pop-out with explicit **Add to plan**; **implemented in this PR** | No | Yes |
-| P5b | Review/export pop-out over the plan, per-item unresolved-information links and explicit **DRAFT** export | No | Yes |
-| P6a | Home polish: existing hero actions and three tool cards adopt the kit; truthful Review/export entry wording | No | Yes |
+| P5a | Plan **System layout / Build order** tabs; facility preview pop-out with explicit **Add to plan**; **implemented (#1003)** | No | Yes |
+| P5b | Review/export pop-out over the plan, per-item unresolved-information links and explicit **DRAFT** export; **implemented in this PR** | No | Yes |
+| P6a | Home polish: existing hero actions and three tool cards adopt the kit; truthful Review/export entry wording completed in P5b | No | Yes |
 | P6b | Final visual sweep across the complete journey, responsive layouts and all tool states | No | Yes |
 
 ### Phase 1 — shared design kit
@@ -250,16 +251,19 @@ Touch `routes/plan/+page.svelte`, `lib/features/plan/PlanWorkspace.svelte`,
 Both / Orbital / Surface tabs, but make facility selection a preview; only
 **Add to plan** mutates the plan. Closing a preview adds nothing.
 
-Review/export opens over the current plan. Each unresolved item links to the
+Review/export is **implemented in this PR** and opens over the current plan.
+Each unknown slot, body with missing data, prediction-only surface slot and
+blocked/invalid build-order item reported by the existing evaluation links to the
 relevant body/slot editor or build, activates its task tab and moves focus there.
 Existing first-blocked/first-unknown shortcuts are not a complete per-item
 review. Keep Tier 2 and Tier 3 balances separate in Now and After the plan.
 Unknown slots stay unknown; surface predictions retain their source label and
 orbital slots remain entered/imported. Review never implies build eligibility.
 
-Existing Export plan downloads JSON without a DRAFT marker. Make the action
-and artifact explicitly **DRAFT** (including the filename), preserving the
-`cpe_plan_export_v1` import/export roundtrip and avoiding eligibility claims.
+The **Export DRAFT plan** action downloads
+`colony-plan-DRAFT-<systemId>.json` from Review/export. It preserves the existing
+`cpe_plan_export_v1` schema and import/export roundtrip, including pre-P5b files,
+without eligibility claims or additional calculations/API calls.
 Retain CPE checks/rules, browser-kept plans, Raven import, plan ownership and
 existing routes/API. No new account storage or export format is implied.
 
@@ -276,8 +280,9 @@ it does not duplicate the normal plan journey. Apply §5 to P5a and P5b.
 [`routes/+page.svelte`](../../../apps/web/src/routes/+page.svelte) already has
 the hero's primary **Explore the galaxy**, secondary **Inspect a system** and
 three **Explore / Inspect / Plan** tool cards. Retain those routes and actions.
-Remaining work is kit/typography/spacing polish and replacing “Review & export —
-Coming later” once P5b is available; do not invent a fourth tool or new route.
+P5b replaces “Review & export — Coming later” with “Review & export — Available
+in Plan”. Remaining P6a work is kit/typography/spacing polish; do not invent a
+fourth tool or new route.
 Touch `app.css`, shared `WorkspaceHeader`/shell styles and affected components
 only for inconsistencies found during the final sweep. Data and renderer remain
 unchanged; decorative home art must not masquerade as factual map content.
