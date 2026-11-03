@@ -212,9 +212,9 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     padding: 0.9rem;
-    border: 1px solid var(--neon, #7dd3fc);
+    border: 1px solid var(--neon);
     border-radius: var(--radius, 0.7rem);
-    background: var(--panel, hsl(218 11% 10%));
+    background: var(--panel);
     box-shadow: 0 0.6rem 2rem #0008;
     font-size: 0.85rem;
     font-weight: normal;
@@ -236,7 +236,7 @@
     gap: 0.75rem;
     margin-bottom: 0.65rem;
     padding-block: 0.3rem;
-    background: var(--panel, hsl(218 11% 10%));
+    background: var(--panel);
   }
   h2 {
     margin: 0;
@@ -245,16 +245,16 @@
   }
   button {
     padding: 0.35rem 0.55rem;
-    border: 1px solid var(--line, hsl(216 10% 24%));
+    border: 1px solid var(--line);
     border-radius: var(--radius, 0.4rem);
-    background: var(--panel-raised, hsl(216 10% 14%));
+    background: var(--panel-raised);
     color: inherit;
     font: inherit;
     cursor: pointer;
   }
   button:focus-visible,
   .inspect-popout:focus-visible {
-    outline: 2px solid var(--accent, #ff7a14);
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
 </style>
