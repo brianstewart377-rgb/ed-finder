@@ -92,6 +92,55 @@ def test_f4_product_journey_covers_fixture_ranking_and_url_owned_selection():
 
 
 @pytest.mark.unit
+def test_explore_map_window_product_coverage_keeps_state_and_single_runtime():
+    journey = PRODUCT_SPECS[-1].read_text(encoding='utf-8')
+    spatial = PRODUCT_SPECS[1].read_text(encoding='utf-8')
+    lab = (WEB / 'cypress' / 'e2e' / 'review-lab.cy.ts').read_text(encoding='utf-8')
+
+    for contract in (
+        'const openExploreMap = () => {',
+        'const closeExploreMap = () => {',
+        '[data-explore-map-open]',
+        '[data-map-window-expand]',
+        "cy.get(mapWindowSelector).should('not.exist')",
+        "cy.get('[data-explore-map-open]').should('be.focused')",
+        "cy.get('@search.all').should('have.length', 4)",
+        "cy.location('search').should('eq', retainedSearch)",
+    ):
+        assert contract in journey
+    for contract in (
+        '[1280, 800]',
+        '[390, 844]',
+        '[data-explore-map-window]',
+        '[data-result-map-open]',
+        "'aria-modal', 'false'",
+        "'data-expanded', 'true'",
+        'expect(canvas).to.equal(initialCanvas)',
+        'expect(canvas).not.to.equal(initialCanvas)',
+        'expect($list[0].scrollTop).to.equal(resultScrollTop)',
+        "cy.get('@windowRankings.all').should('have.length', 1)",
+        "cy.get('@windowSearch.all').should('have.length', 0)",
+        'const suspendedCounts = new Map<string, number>();',
+        "'@windowDensity.all'",
+        "'@windowCatalogue.all'",
+        "'@windowNebulae.all'",
+        "cy.get(alias).should('have.length', count)",
+        "'data-camera-bearing', bearing",
+        "'data-camera-pitch', pitch",
+        "'(prefers-reduced-motion: reduce)'",
+        "expect(cameraTransitions).not.to.include('true')",
+        'cy.press(Cypress.Keyboard.Keys.ESC)',
+        'cy.checkA11y(mapWindow)',
+        'data-resize-revision',
+    ):
+        assert contract in spatial
+    assert 'const openReviewMap = () => {' in lab
+    assert 'openReviewMap();' in lab
+    assert 'WEBGL_lose_context' in lab
+    assert "'data-scene-target-count', '0'" in lab
+
+
+@pytest.mark.unit
 def test_plan_product_journey_covers_review_focus_and_draft_export_import_reload():
     journey = PLAN_SPEC.read_text(encoding='utf-8')
 

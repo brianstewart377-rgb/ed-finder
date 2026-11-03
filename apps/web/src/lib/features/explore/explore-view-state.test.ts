@@ -124,6 +124,14 @@ describe('Explore view lifetime', () => {
       starViewportSize: null,
       layerToggleRevision: 0,
       showNebulae: true,
+      mapOpen: false,
+      mapExpanded: false,
+      mapFocusedSystemId: null,
+      mapReturnScroll: null,
+      reservedPoints: [],
+      renderedNebulaReceipt: null,
+      appliedCataloguePacket: null,
+      lastGoodDensity: null,
       retainedSelectedSystem: null,
       displayedResultsKey: null,
       initialGalaxyViewRequested: false,
@@ -199,6 +207,17 @@ describe('Explore view lifetime', () => {
       starViewportSize: { width: 1200, height: 800 },
       layerToggleRevision: 12,
       showNebulae: false,
+      mapOpen: true,
+      mapExpanded: true,
+      mapFocusedSystemId: anchor.id64,
+      mapReturnScroll: { x: 0, y: 250 },
+      reservedPoints: [
+        {
+          systemId64: anchor.id64,
+          name: anchor.name,
+          positionLy: camera.focusLy,
+        },
+      ],
       retainedSelectedSystem: selected,
       displayedResultsKey,
       initialGalaxyViewRequested: true,
@@ -224,10 +243,22 @@ describe('Explore view lifetime', () => {
       completedFocusRevision: 0,
       appliedCameraRequestRevision: 0,
       showNebulae: true,
+      mapOpen: false,
+      mapExpanded: false,
+      reservedPoints: [],
       resultScrollTop: 0,
       initialGalaxyViewRequested: false,
     });
     expect(other.layerPreferences).not.toBe(view.layerPreferences);
+    // Window visibility and renderer receipts never become URL/storage keys.
+    const beforeClose = view.serialize().toString();
+    view.mapOpen = false;
+    view.mapExpanded = false;
+    expect(view.serialize().toString()).toBe(beforeClose);
+    expect(view.retainedCamera?.camera).toEqual(camera);
+    expect(view.reservedPoints).toEqual(changed.reservedPoints);
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
   });
 
   it('restores the scroll of a replacement result list, including both bounds', () => {

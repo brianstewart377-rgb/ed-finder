@@ -263,25 +263,26 @@ describe('Explore load and interaction work budget', () => {
       const { createBabylonSession } = await vi.importActual<
         typeof import('$lib/spatial/babylon/adapter')
       >('$lib/spatial/babylon/adapter');
-      const engine = createHeadlessEngine();
       let animationTime = 0;
-      const session = createBabylonSession(
-        engine,
-        'WEBGL2',
-        () => animationTime,
-      );
       const rendererScenes = vi.fn();
-      engine.onNewSceneAddedObservable.add((scene) => {
-        rendererScenes();
-        vi.spyOn(scene, 'render').mockImplementation(() => undefined);
-        vi.spyOn(scene, 'isReady').mockReturnValue(true);
-      });
       const frames = new Map<number, () => void>();
       let nextFrame = 0;
       const commands: RuntimeCommand[] = [];
       const disposals = vi.fn();
       adapter.mockImplementation(
         (_canvas, onStatus: (status: SpatialRuntimeStatus) => void) => {
+          const engine = createHeadlessEngine();
+          const engineDispose = vi.spyOn(engine, 'dispose');
+          const session = createBabylonSession(
+            engine,
+            'WEBGL2',
+            () => animationTime,
+          );
+          engine.onNewSceneAddedObservable.add((scene) => {
+            rendererScenes();
+            vi.spyOn(scene, 'render').mockImplementation(() => undefined);
+            vi.spyOn(scene, 'isReady').mockReturnValue(true);
+          });
           const runtime = createManagedSpatialRuntime(
             { createWebGpu: async () => null, createWebGl2: () => session },
             onStatus,
@@ -302,8 +303,12 @@ describe('Explore load and interaction work budget', () => {
           });
           const dispose = runtime.dispose.bind(runtime);
           vi.spyOn(runtime, 'dispose').mockImplementation(() => {
+            const liveScenes = [...engine.scenes];
             disposals();
             dispose();
+            expect(engineDispose).toHaveBeenCalledTimes(1);
+            expect(engine.scenes).toHaveLength(0);
+            expect(liveScenes.every((scene) => scene.isDisposed)).toBe(true);
           });
           return runtime;
         },
@@ -358,6 +363,9 @@ describe('Explore load and interaction work budget', () => {
         enabled,
         applicationStores,
       );
+      // Keep the pre-M09 visible-map workload directly comparable. Separate
+      // closed-default tests assert that no map work starts before Show on map.
+      viewState.mapOpen = true;
       const mounted = render(ExploreWorkloadTestHost, {
         viewState,
         installPage(model) {
@@ -508,7 +516,9 @@ describe('Explore load and interaction work budget', () => {
       // immediate; empty/equal samples retain their contribution identities.
       // Pending/equal responses below must still avoid scene reconstruction.
       expect(interacted).toEqual({
-        builds: enabled ? 7 : 35,
+        // Window presentation reads the non-F4 scene once more; GPU scene
+        // loads and all request counts retain the measured main budget.
+        builds: enabled ? 7 : 36,
         rendererScenes: enabled ? 6 : 7,
         loads: enabled ? 7 : 12,
         patches: enabled ? 1 : 0,
@@ -525,14 +535,59 @@ describe('Explore load and interaction work budget', () => {
         },
       });
       const assertCleanup = async () => {
+        // Open explicitly on the selected result before measuring M09's
+        // presentation-only lifecycle. This first focus may stream its visible
+        // viewport; subsequent Expand/Close/reopen must reuse that context.
+        const layersClose = screen.queryByRole('button', {
+          name: 'Close map layers',
+        });
+        if (layersClose) await fireEvent.click(layersClose);
+        const opener = document.querySelector<HTMLButtonElement>(
+          '[data-explore-map-open]',
+        )!;
+        await fireEvent.click(opener);
+        await settle();
+        const visibleApi = work().api;
+        const camera = viewState.retainedCamera?.camera;
+        await fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
+        await settle();
+        expect(work().api).toEqual(visibleApi);
+        expect(adapter).toHaveBeenCalledTimes(1);
+        expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(
+          1,
+        );
+        await fireEvent.click(
+          screen.getByRole('button', { name: 'Close map' }),
+        );
+        await settle();
+        expect(opener).toHaveFocus();
+        expect(disposals).toHaveBeenCalledTimes(1);
+        expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(
+          0,
+        );
+        expect(work().api).toEqual(visibleApi);
+        expect(frames.size).toBe(0);
+        // Advancing a closed workspace cannot revive viewport streaming.
+        await settle();
+        expect(work().api).toEqual(visibleApi);
+        await fireEvent.click(opener);
+        await settle();
+        expect(adapter).toHaveBeenCalledTimes(2);
+        expect(disposals).toHaveBeenCalledTimes(1);
+        expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(
+          1,
+        );
+        expect(viewState.retainedCamera?.camera).toEqual(camera);
+        expect(viewState.showNebulae).toBe(false);
+        expect(work().api).toEqual(visibleApi);
         const requestsBeforeUnmount = work().api;
         mounted.unmount();
         await settle();
         expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(
           0,
         );
-        expect(adapter).toHaveBeenCalledTimes(1);
-        expect(disposals).toHaveBeenCalledTimes(1);
+        expect(adapter).toHaveBeenCalledTimes(2);
+        expect(disposals).toHaveBeenCalledTimes(2);
         expect(work().activeQueries).toBe(0);
         expect(work().api).toEqual(requestsBeforeUnmount);
         expect(frames.size).toBe(0);
