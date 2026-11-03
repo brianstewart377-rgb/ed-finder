@@ -39,8 +39,10 @@
 - **Live EDDN listener and Spansh nightly refresh remain follow-ups:** the
   [2026-10-21 worker is code only](../CHANGES.md#2026-10-21--v3-eddn-station-sighting-worker-and-v3_observe-proposal-code-only), and refresh has
   [measurement tooling](development/spansh-delta-measurement.md); a broader owner enablement decision is not recorded here.
-- **Planner next:** requested S5c economy bars fall under the [S5 economies-and-links scope](superpowers/specs/2026-10-30-v3-colony-planner-design.md#7-slices);
-  the S5c split is not yet documented in that design.
+- **Planner next:** S5c economy bars are implemented and the
+  [S5a/S5b/S5c split is documented](superpowers/specs/2026-10-30-v3-colony-planner-design.md#7-slices).
+  This visual change needs Product E2E/visual acceptance before promotion; it
+  is not deployed.
 - **Open owner decisions:** [Any-mode tier semantics](superpowers/specs/2026-10-10-v3-finder-f4-archetype-ui-design.md#owner-questions)
   (custom weights were answered URL-only on 2026-11-01), the V2 route retirement above,
   plus Spansh's [change-admission policy (D3)](development/spansh-delta-measurement.md#the-overlap-from-the-second-night)

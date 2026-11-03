@@ -120,11 +120,15 @@ export type {
   V3JournalImportRequest,
   V3VerifiedImportReceipt,
   ContributionRow,
+  EconomyItemV1,
+  EconomyNoteV1,
+  EconomyV1,
   GalaxyImpactSummary,
   PlanBodiesV1,
   PlanBodyV1,
   PlanCatalogueV1,
   PlanCheckV1,
+  PlanEconomiesV1,
   PlanEvaluationV1,
   PlanFacilityV1,
   PlanInvalidV1,
@@ -137,6 +141,7 @@ export type {
   PlanSystemBeltV1,
   PlanSystemBodyV1,
   PlanTotalsV1,
+  PortEconomyV1,
 } from './generated';
 
 export const getV3PlanCatalogue = async (signal?: AbortSignal) =>
