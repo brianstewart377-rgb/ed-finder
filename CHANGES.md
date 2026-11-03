@@ -11,6 +11,22 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-03 — UI redesign P4: Inspect tabs and evidence pop-out
+
+Inspect now groups system facts and the seven independent economy potentials
+under Overview, the System Map and body selection under Bodies, and ports and
+their economies under Stations. Keyboard-accessible tabs preserve mounted
+queries, body selection, scroll positions and open tool state; bounded `tab=`
+URL state restores the chosen task on links and reloads. Why explanations use
+a closable, non-modal evidence pop-out sharing Sources & freshness behaviour,
+with Escape dismissal and focus return. Existing evidence and availability
+wording, routes, APIs and ratings mechanics are unchanged.
+
+Component tests and Product journey coverage exercise tabs, query counts,
+retained state, URL round-trips, evidence, keyboard access and accessibility.
+This visual change needs Product E2E/visual validation before promotion; it is
+not deployed.
+
 ## 2026-11-02 — Colony Planner S5c: economy bars
 
 `/plan` compares Now and After plan economies for every port, Primary Port
