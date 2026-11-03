@@ -1,7 +1,7 @@
 {
   "$schema": "./PROVENANCE.schema.json",
   "schema_version": 1,
-  "audit_date": "2026-10-31",
+  "audit_date": "2026-11-03",
   "policy": "assets/README.md",
   "entries": [
     {
@@ -57,6 +57,42 @@
       "commercial_use_approved": false,
       "notice_reference": "apps/importer/src/region_map.py",
       "notes": "The adaptation is MIT-compatible, but its normal use depends on Frontier-derived region data whose project approval is noncommercial only."
+    },
+    {
+      "filename": "apps/web/static/assets/home-hero-black-hole-1920.webp",
+      "asset_type": "image",
+      "distribution": "bundled_public",
+      "source_kind": "frontier_game",
+      "source_url": "https://customersupport.frontier.co.uk/hc/en-us/articles/4404292442642-How-can-I-use-Elite-Dangerous-media",
+      "license": "Creator's permission for ED-Finder use (the ED-Finder owner took the screenshot, recorded 2026-11-03), within Frontier Developments plc's Elite Dangerous media guidance (community fan use, noncommercial only)",
+      "creator": "The ED-Finder owner (repository owner brianstewart377-rgb), who took the in-game screenshot; Frontier Developments plc for the Elite Dangerous game imagery",
+      "frontier_derived": true,
+      "attribution_text": "ED-Finder was created using assets and imagery from Elite Dangerous, with the permission of Frontier Developments plc, for non-commercial purposes. It is not endorsed by nor reflects the views or opinions of Frontier Developments and no employee of Frontier Developments was involved in the making of it.",
+      "approval_date": "2026-11-03",
+      "verification_method": "On 2026-11-03 the ED-Finder owner stated in chat that they took this 1920x1080 in-game Elite Dangerous screenshot themselves, gave permission for ED-Finder to use it as the home page background, and directed that use. This file is a resized WebP derivative of it. Recorded from the owner's own statement; the original capture file was not inspected.",
+      "sha256": "b3b8959fa5e6af6e17a41c4ebea2a58202c3f29afebbf0e6c8103ca1ab3af4da",
+      "rights_status": "noncommercial_only",
+      "commercial_use_approved": false,
+      "notice_reference": "apps/web/static/assets/home-hero-black-hole-1920.webp",
+      "notes": "Shows a player ship's cockpit edge with its ship ident in one corner. Creator permission is the owner's own. Frontier-derived, so it stays noncommercial-only: do not use for promotional or commercial purposes without a separate written Frontier grant."
+    },
+    {
+      "filename": "apps/web/static/assets/home-hero-black-hole-960.webp",
+      "asset_type": "image",
+      "distribution": "bundled_public",
+      "source_kind": "frontier_game",
+      "source_url": "https://customersupport.frontier.co.uk/hc/en-us/articles/4404292442642-How-can-I-use-Elite-Dangerous-media",
+      "license": "Creator's permission for ED-Finder use (the ED-Finder owner took the screenshot, recorded 2026-11-03), within Frontier Developments plc's Elite Dangerous media guidance (community fan use, noncommercial only)",
+      "creator": "The ED-Finder owner (repository owner brianstewart377-rgb), who took the in-game screenshot; Frontier Developments plc for the Elite Dangerous game imagery",
+      "frontier_derived": true,
+      "attribution_text": "ED-Finder was created using assets and imagery from Elite Dangerous, with the permission of Frontier Developments plc, for non-commercial purposes. It is not endorsed by nor reflects the views or opinions of Frontier Developments and no employee of Frontier Developments was involved in the making of it.",
+      "approval_date": "2026-11-03",
+      "verification_method": "On 2026-11-03 the ED-Finder owner stated in chat that they took this 1920x1080 in-game Elite Dangerous screenshot themselves, gave permission for ED-Finder to use it as the home page background, and directed that use. This file is a resized WebP derivative of it. Recorded from the owner's own statement; the original capture file was not inspected.",
+      "sha256": "9aab1e8a965e5051bf6c7970efa581acc38e78b4c30271215a423b7a6d60b7ad",
+      "rights_status": "noncommercial_only",
+      "commercial_use_approved": false,
+      "notice_reference": "apps/web/static/assets/home-hero-black-hole-960.webp",
+      "notes": "Shows a player ship's cockpit edge with its ship ident in one corner. Creator permission is the owner's own. Frontier-derived, so it stays noncommercial-only: do not use for promotional or commercial purposes without a separate written Frontier grant."
     },
     {
       "filename": "docs/reference/colonisation/cre-rulebook/rulebook.json",

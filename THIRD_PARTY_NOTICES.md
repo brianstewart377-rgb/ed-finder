@@ -167,3 +167,25 @@ SOFTWARE.
 This notice records the upstream software license. It does not make a claim
 about separate rights that may apply to Elite Dangerous names or game-derived
 geometry.
+
+## Home page background (Elite Dangerous screenshot)
+
+The home page background uses two resized WebP derivatives of an Elite Dangerous
+in-game screenshot of a black hole, taken by the ED-Finder owner, who has given
+permission for ED-Finder to use it:
+
+- `apps/web/static/assets/home-hero-black-hole-1920.webp`
+- `apps/web/static/assets/home-hero-black-hole-960.webp`
+
+Required credit:
+
+> ED-Finder was created using assets and imagery from Elite Dangerous, with the
+> permission of Frontier Developments plc, for non-commercial purposes. It is not
+> endorsed by nor reflects the views or opinions of Frontier Developments and no
+> employee of Frontier Developments was involved in the making of it.
+
+Frontier's [Elite Dangerous media guidance](https://customersupport.frontier.co.uk/hc/en-us/articles/4404292442642-How-can-I-use-Elite-Dangerous-media)
+permits community fan use for noncommercial purposes only. The owner's
+permission covers ED-Finder's use of the screenshot; because it shows Elite
+Dangerous imagery, these files stay recorded as noncommercial-only and are not
+approved for promotional or commercial use.
