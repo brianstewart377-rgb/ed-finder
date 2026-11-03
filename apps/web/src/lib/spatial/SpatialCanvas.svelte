@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick, untrack } from 'svelte';
+  import { onMount, tick, untrack, type Snippet } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
   import { resolve } from '$app/paths';
   import { FINDER_F4_ENABLED } from '$lib/config';
@@ -65,7 +65,12 @@
     onSystemSelect,
     systemInspectHref,
     onSystemInspect,
+    controlsBelow = false,
+    cameraActions,
   } = $props<{
+    /** Presentation only: Explore gives the canvas the remaining window height. */
+    controlsBelow?: boolean;
+    cameraActions?: Snippet<[Snippet]>;
     scene?: SpatialSceneContract;
     focusTarget?: SpatialTarget | null;
     focusRevision?: number;
@@ -1294,14 +1299,51 @@
   });
 </script>
 
-{#if canGalaxyNavigate}
-  <div class="camera-toolbar" role="group" aria-label="Galaxy camera controls">
+{#snippet galaxyCameraHelp()}
+  <p class="camera-help">
+    Drag to pan · Shift-drag to orbit · Alt/Option-drag to move up/down · Scroll
+    or pinch to zoom · Two-finger drag to pan · Arrow keys to pan · Q/E to
+    rotate
+  </p>
+{/snippet}
+
+{#snippet galaxyCameraControls()}
+  <div
+    class="camera-toolbar"
+    class:camera-toolbar--below={controlsBelow}
+    role="group"
+    aria-label="Galaxy camera controls"
+  >
     <button type="button" aria-label="Zoom in" onclick={() => zoom(-240)}
       >+</button
     >
     <button type="button" aria-label="Zoom out" onclick={() => zoom(240)}
       >−</button
     >
+    <div class="camera-angle" role="group" aria-label="Camera angle">
+      <button
+        type="button"
+        aria-pressed={currentCamera?.pitchRad === Math.PI / 2}
+        onclick={() =>
+          currentCamera && setCamera(topDownGalaxyCamera(currentCamera), true)}
+        >Top down</button
+      >
+      <button
+        type="button"
+        aria-pressed={currentCamera?.pitchRad === 0.55}
+        onclick={() =>
+          currentCamera &&
+          setCamera(
+            {
+              ...currentCamera,
+              pitchRad: 0.55,
+              revision: currentCamera.revision + 1,
+            },
+            true,
+          )}>Tilted</button
+      >
+    </div>
+    <button type="button" onclick={resetCamera}>Reset view</button>
     <button type="button" aria-label="Rotate left" onclick={() => orbit(-0.25)}
       >↶</button
     >
@@ -1314,26 +1356,7 @@
     <button type="button" aria-label="Move down" onclick={() => elevate(-1)}
       >Down</button
     >
-    <button
-      type="button"
-      onclick={() =>
-        currentCamera && setCamera(topDownGalaxyCamera(currentCamera), true)}
-      >Top down</button
-    >
-    <button
-      type="button"
-      onclick={() =>
-        currentCamera &&
-        setCamera(
-          {
-            ...currentCamera,
-            pitchRad: 0.55,
-            revision: currentCamera.revision + 1,
-          },
-          true,
-        )}>Tilted</button
-    >
-    <button type="button" onclick={resetCamera}>Reset view</button>
+    {@render cameraActions?.(galaxyCameraHelp)}
     <span
       class="camera-distance"
       data-camera-distance={currentCamera?.distanceLy}
@@ -1352,11 +1375,13 @@
       >
     </span>
   </div>
-  <p class="camera-help">
-    Drag to pan · Shift-drag to orbit · Alt/Option-drag to move up/down · Scroll
-    or pinch to zoom · Two-finger drag to pan · Arrow keys to pan · Q/E to
-    rotate
-  </p>
+{/snippet}
+
+{#if canGalaxyNavigate}
+  {#if !controlsBelow}
+    {@render galaxyCameraControls()}
+    {@render galaxyCameraHelp()}
+  {/if}
 {:else if canSystemNavigate}
   <div class="camera-toolbar" role="group" aria-label="System camera controls">
     <button type="button" aria-label="Zoom in" onclick={() => zoomSystem(-220)}
@@ -1592,6 +1617,14 @@
     </div>
   {/if}
 </div>
+{#if canGalaxyNavigate && controlsBelow}
+  {@render galaxyCameraControls()}
+  {#if !cameraActions}
+    <details class="camera-help">
+      <summary>Map controls</summary>{@render galaxyCameraHelp()}
+    </details>
+  {/if}
+{/if}
 {#if scene?.kind === 'system'}
   <SystemBodyLegend bodies={scene.bodies} />
 {/if}
@@ -1715,6 +1748,37 @@
     padding: 0.45rem 0.75rem;
     color: var(--text);
     cursor: pointer;
+  }
+  .camera-angle {
+    display: inline-flex;
+  }
+  .camera-angle button {
+    border-radius: 0;
+  }
+  .camera-angle button:first-child {
+    border-radius: var(--radius-pill) 0 0 var(--radius-pill);
+  }
+  .camera-angle button:last-child {
+    border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+  }
+  .camera-angle button[aria-pressed='true'] {
+    border-color: var(--neon);
+    background: var(--neon-soft);
+  }
+  .camera-toolbar--below {
+    flex-shrink: 0;
+    gap: 0.2rem;
+  }
+  .camera-toolbar--below button {
+    min-height: 2rem;
+    padding: 0.3rem 0.4rem;
+    font-size: 0.75rem;
+  }
+  .camera-toolbar--below .camera-distance {
+    flex-basis: 100%;
+    justify-content: flex-start;
+    font-size: 0.7rem;
+    gap: 0.2rem 0.6rem;
   }
   .camera-toolbar button:hover:not(:disabled) {
     background: var(--panel-raised);

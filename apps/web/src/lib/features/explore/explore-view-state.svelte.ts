@@ -107,6 +107,8 @@ export class ExploreViewState {
   // The map window is route-local presentation, never URL or storage state.
   mapOpen = $state(false);
   mapExpanded = $state(false);
+  mapCameraPreset = $state<'local' | 'galaxy' | null>(null);
+  mapWindowViewportSize = $state<GalaxyCameraViewport | null>(null);
   mapFocusedSystemId = $state<string | null>(null);
   mapResetCamera = $state<CameraState | null>(null);
   mapReturnScroll = $state<{ x: number; y: number } | null>(null);

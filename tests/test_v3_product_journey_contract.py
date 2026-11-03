@@ -141,6 +141,65 @@ def test_explore_map_window_product_coverage_keeps_state_and_single_runtime():
 
 
 @pytest.mark.unit
+def test_explore_map_concept_has_measured_product_layout_and_popout_evidence():
+    def normalized(source):
+        return re.sub(r',(?=\))', '', re.sub(r'\s+', '', source))
+
+    spatial = PRODUCT_SPECS[1].read_text(encoding='utf-8')
+    journey = PRODUCT_SPECS[-1].read_text(encoding='utf-8')
+    compact = normalized(spatial)
+
+    for contract in (
+        'const assertMapWindowLayout = (width: number, height: number) => {',
+        "expect(window.scrollHeight, 'window has no inner scrollbar').to.be.at.most( window.clientHeight, );",
+        "expect(content.scrollHeight, 'map content has no inner scrollbar').to.be.at.most(content.clientHeight)",
+        "expect(bounds.bottom, 'window bottom fits viewport').to.be.at.most(height + 1)",
+        'width < 700 ? height * 0.55 : bounds.height * 0.6',
+        "expect(controls.top, 'camera controls sit below canvas').to.be.at.least(canvas.bottom)",
+        "expect(document.documentElement.scrollWidth, 'page has no horizontal overflow') .to.be.at.most(document.documentElement.clientWidth)",
+        'cy.viewport(768, 800)',
+        'product/explore-map-window-open-${Cypress.browser.name}-${width}x${height}',
+        'product/explore-map-expanded-${Cypress.browser.name}-${width}x${height}',
+        "'Achenar · Galaxy map'",
+        "cy.contains(`${mapWindow} button`, /^Galaxy$/).click(",
+        "cy.contains(`${mapWindow} button`, /^Local$/).click(",
+        'Centre on Achenar',
+        "cy.get('[data-galaxy-region-option]').should('have.length', 42)",
+        "cy.get('#explore-region-picker').select('18'",
+        "cy.get('[data-map-regions-trigger]').should('be.focused')",
+        "cy.get('[data-map-sources-trigger]').should('be.focused')",
+        "'contain.text', 'exact catalogue coordinates'",
+        "'contain.text', 'pinned in-game source'",
+        "cy.contains(`${mapWindow} button`, 'Back to results').click(",
+        'const layoutRequestCounts = new Map<string, number>();',
+        'layoutRequestCounts.set(alias, requests.length)',
+        'for (const [alias, count] of layoutRequestCounts)',
+        "cy.get(alias).should('have.length', count)",
+    ):
+        assert normalized(contract) in compact
+
+    # The same numerical layout contract applies before and after expansion.
+    assert spatial.count('assertMapWindowLayout(width, height);') >= 2
+    for tool in ('regions', 'sources'):
+        assert f"cy.get('[data-map-{tool}-panel]')" in spatial
+        assert f"cy.get('[data-map-{tool}-panel]').should('not.exist')" in spatial
+
+    compact_journey = normalized(journey)
+    for contract in (
+        'const openMapRegions = () => {',
+        'const closeMapRegions = () => {',
+        "cy.get(`${mapWindowSelector} h2`).should('have.text', 'Galaxy map')",
+        "cy.contains(`${mapWindowSelector} button`, /^Local$/) .should('be.disabled') .and('have.attr', 'aria-describedby')",
+        'Select a system to use the Local camera preset.',
+        "cy.contains(`${mapWindowSelector} a`, 'Inspect Achenar') .should('have.attr', 'href') .and('include', 'system=10477373803000')",
+        "cy.contains(`${mapWindowSelector} a`, 'Inspect Achenar').click(",
+        "cy.contains(`${mapWindowSelector} a`, 'Plan here').should('be.visible')",
+        "'contain.text', 'EDAstro / CMDR Orvidius'",
+    ):
+        assert normalized(contract) in compact_journey
+
+
+@pytest.mark.unit
 def test_plan_product_journey_covers_review_focus_and_draft_export_import_reload():
     journey = PLAN_SPEC.read_text(encoding='utf-8')
 

@@ -11,6 +11,26 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-03 — UI redesign P2d: map window to concept
+
+Explore's map window follows the owner's concept pack for placement and styling:
+the selected-system title and Local / Galaxy, Regions and Layers controls sit
+above a flexible, prominent canvas; camera controls and range/grid readout sit
+below it. Local / Galaxy reuse existing camera requests. Regions and Sources
+open non-modal tools with topmost Escape and focus return. Region/catalogue
+provenance stays reachable and Layers keeps the nebula/EDAstro attribution and
+rights text unchanged. Compact selection/status and Back to results, Inspect
+and Plan here actions preserve space for the map.
+
+The window fits desktop open/expanded and fills the phone workspace, with
+browser assertions for scrollbar/height budgets and horizontal overflow plus
+open/expanded comparison screenshots. P2b state, focus, single-canvas lifecycle,
+disposal, reduced motion and request budgets are retained. The renderer, real
+coordinates/regions, routes and API/scene contracts stay unchanged. Explore task
+tabs remain P2c. The concept's drawn galaxy is illustrative; no pixel fidelity
+is claimed. Product E2E/visual acceptance remains required before promotion;
+this change is not deployed.
+
 ## 2026-11-03 — UI redesign P2b: on-demand map window (M09)
 
 Explore starts with search, archetypes and results using the workspace. **Show

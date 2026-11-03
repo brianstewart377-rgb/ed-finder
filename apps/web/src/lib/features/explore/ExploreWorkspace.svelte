@@ -3,8 +3,8 @@
   import { fromStore } from 'svelte/store';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
-  import { onMount, tick, untrack } from 'svelte';
-  import { ArrowRight, LocateFixed, Search, Sparkles } from '@lucide/svelte';
+  import { onMount, tick, untrack, type Snippet } from 'svelte';
+  import { ArrowRight, Search, Sparkles } from '@lucide/svelte';
   import {
     ApiError,
     autocompleteSystems,
@@ -61,6 +61,7 @@
   import type { ExploreResultCache } from './explore-result-cache';
   import type { ExploreViewState } from './explore-view-state.svelte.ts';
   import MapLayers from './MapLayers.svelte';
+  import MapToolPopout from './MapToolPopout.svelte';
   import ExploreMapWindow from './ExploreMapWindow.svelte';
   import type {
     CameraState,
@@ -1107,6 +1108,11 @@
         ? viewState.retainedSelectedSystem
         : null;
   });
+  const selectedMapName = $derived(
+    selectedMapSystem
+      ? (selectedMapSystem.name ?? `System ${selectedMapSystem.id64}`)
+      : null,
+  );
   const selectedPoint = $derived(
     FINDER_F4_ENABLED && selectedMapSystem
       ? (mapExploreSelectedSystemPoint(selectedMapSystem) ??
@@ -1128,6 +1134,13 @@
         : null)
     );
   });
+  const localCameraUnavailable = $derived(
+    !selectedMapSystem
+      ? 'Select a system to use the Local camera preset.'
+      : !selectedWindowPoint
+        ? 'Coordinates are unavailable for the selected system.'
+        : null,
+  );
   const reservedPoints = $derived(
     reservedExploreGalaxyPoints({
       selected:
@@ -1419,6 +1432,7 @@
       updateStreamCamera(camera);
       requestView(camera);
       viewState.mapFocusedSystemId = point.systemId64;
+      viewState.mapCameraPreset = 'local';
     }
     viewState.mapResetCamera ??=
       viewState.retainedCamera?.camera ?? scene.camera;
@@ -1431,31 +1445,52 @@
         ?.querySelector('[data-map-window-close]')
         ?.getBoundingClientRect();
       if (
-        window.matchMedia('(max-width: 700px)').matches ||
+        window.matchMedia('(max-width: 900px)').matches ||
         (closeBounds &&
-          (closeBounds.top < 0 || closeBounds.bottom > window.innerHeight))
+          (closeBounds.top < 0 ||
+            (mapSection?.getBoundingClientRect().bottom ?? 0) >
+              window.innerHeight))
       )
         mapSection?.scrollIntoView?.({ behavior: 'instant', block: 'start' });
     });
   }
 
   function expandMap(): void {
+    if (!viewState.mapExpanded && !viewState.mapWindowViewportSize) {
+      // The header can be used before the lazy renderer reports its first
+      // viewport. Keep the normal window's real geometry in that case too.
+      const canvasHost =
+        mapSection?.querySelector<HTMLElement>('.spatial-canvas');
+      if (canvasHost?.clientWidth && canvasHost.clientHeight)
+        viewState.mapWindowViewportSize = {
+          width: canvasHost.clientWidth,
+          height: canvasHost.clientHeight,
+        };
+    }
     if (
       resultList &&
       !viewState.mapExpanded &&
-      !window.matchMedia('(max-width: 700px)').matches
+      !window.matchMedia('(max-width: 900px)').matches
     )
       viewState.captureResultScroll(resultList.scrollTop);
     viewState.mapExpanded = !viewState.mapExpanded;
-    if (!viewState.mapExpanded)
-      void tick().then(() => {
-        if (resultList) viewState.restoreResultScroll(resultList);
-      });
+    void tick().then(() => {
+      if (!viewState.mapExpanded && resultList)
+        viewState.restoreResultScroll(resultList);
+      // Hiding/restoring the results rail can move the grid through browser
+      // scroll anchoring. Keep both window edges reachable after that layout.
+      const bounds = mapSection?.getBoundingClientRect();
+      if (bounds && (bounds.top < 0 || bounds.bottom > window.innerHeight))
+        mapSection?.scrollIntoView?.({ behavior: 'instant', block: 'start' });
+    });
   }
 
   function closeMap(): void {
     viewState.mapOpen = false;
     viewState.mapExpanded = false;
+    // Reopening restores the normal window. Retain its last measured geometry
+    // rather than briefly using the disposed expanded canvas's dimensions.
+    viewState.starViewportSize = viewState.mapWindowViewportSize;
     spatialCameraTransitionActive = false;
     void tick().then(() => {
       if (resultList) viewState.restoreResultScroll(resultList);
@@ -1475,7 +1510,7 @@
   function captureResultScroll(event: Event): void {
     if (
       viewState.mapOpen &&
-      (viewState.mapExpanded || window.matchMedia('(max-width: 700px)').matches)
+      (viewState.mapExpanded || window.matchMedia('(max-width: 900px)').matches)
     )
       return;
     viewState.captureResultScroll(
@@ -1674,8 +1709,22 @@
     }
   }
 
+  function centreSelectedSystem(): void {
+    if (!selectedMapSystem || !selectedWindowPoint) return;
+    viewState.initialGalaxyViewRequested = true;
+    viewState.mapCameraPreset = 'local';
+    requestView(
+      focusGalaxyCamera(
+        viewState.retainedCamera?.camera ?? scene.camera,
+        selectedWindowPoint.positionLy,
+        400,
+      ),
+    );
+  }
+
   function overview(): void {
     if (!viewState.regions) return;
+    viewState.mapCameraPreset = 'galaxy';
     const { origin, pixel_scale } = viewState.regions.lookup;
     const canvas = mapSection?.querySelector('canvas');
     requestView(
@@ -1708,7 +1757,8 @@
       (candidate: GalaxyRegionsPayload['regions'][number]) =>
         String(candidate.id) === viewState.selectedRegionId,
     );
-    if (region)
+    if (region) {
+      viewState.mapCameraPreset = null;
       requestView(
         focusGalaxyCamera(
           FINDER_F4_ENABLED
@@ -1718,6 +1768,7 @@
           18_000,
         ),
       );
+    }
   }
 
   async function loadRegions(): Promise<void> {
@@ -2303,8 +2354,32 @@
     </section>
 
     {#if viewState.mapOpen}
+      {#snippet mapCameraActions(cameraHelp: Snippet)}
+        {#if selectedMapSystem}
+          <button
+            type="button"
+            class="centre-system"
+            disabled={!selectedWindowPoint}
+            onclick={centreSelectedSystem}>Centre on {selectedMapName}</button
+          >
+        {/if}
+        <MapToolPopout
+          kind="sources"
+          label="Sources"
+          title="Map sources and controls"
+        >
+          <p class="map-note">
+            Stars use exact catalogue coordinates and class-specific
+            presentation. Amber marks active selections. Region geometry is the
+            pinned in-game source; no synthetic geography, stars, or density are
+            substituted.
+          </p>
+          {@render cameraHelp()}
+        </MapToolPopout>
+      {/snippet}
       <ExploreMapWindow
         bind:element={mapSection}
+        selectedSystemName={selectedMapName}
         expanded={viewState.mapExpanded}
         onExpand={expandMap}
         onClose={closeMap}
@@ -2313,6 +2388,7 @@
         hoveredSystemId={viewState.hoveredSystemId}
         canvasProps={{
           scene,
+          cameraActions: mapCameraActions,
           resetCamera: viewState.mapResetCamera,
           anchorPoint: mapAnchorPoint,
           onSystemSelect: selectMapSystem,
@@ -2325,6 +2401,8 @@
                 followInspect(event, parseId64(point.systemId64))
             : undefined,
           onViewportChange: (viewport) => {
+            if (!viewState.mapExpanded)
+              viewState.mapWindowViewportSize = viewport;
             if (
               viewState.starViewportSize?.width !== viewport.width ||
               viewState.starViewportSize?.height !== viewport.height
@@ -2355,6 +2433,110 @@
       >
         {#snippet beforeCanvas()}
           <div class="map-layer-toolbar">
+            <div
+              class="map-camera-presets"
+              role="group"
+              aria-label="Camera presets"
+            >
+              <button
+                type="button"
+                data-map-camera-preset="local"
+                aria-pressed={viewState.mapCameraPreset === 'local'}
+                disabled={localCameraUnavailable !== null}
+                aria-describedby={localCameraUnavailable
+                  ? 'local-camera-reason'
+                  : undefined}
+                title={localCameraUnavailable ?? 'Focus on the selected system'}
+                onclick={centreSelectedSystem}>Local</button
+              >
+              <button
+                type="button"
+                data-map-camera-preset="galaxy"
+                aria-pressed={viewState.mapCameraPreset === 'galaxy'}
+                disabled={!viewState.regions}
+                onclick={overview}>Galaxy</button
+              >
+            </div>
+            {#if localCameraUnavailable}<span
+                id="local-camera-reason"
+                class="sr-only">{localCameraUnavailable}</span
+              >{/if}
+            <MapToolPopout
+              kind="regions"
+              label="Regions 42"
+              title="Galactic regions"
+            >
+              <p data-region-resource-state={viewState.regionState}>
+                {viewState.regionState === 'ready'
+                  ? '42/42 regions'
+                  : 'canonical ly'}
+              </p>
+              {#if viewState.regionState === 'loading'}
+                <p class="region-load-state" role="status">
+                  Loading all 42 authoritative regions…
+                </p>
+              {:else if viewState.regionState === 'failed'}
+                <div class="region-load-state error" role="alert">
+                  <span
+                    >The authoritative region resource failed validation.</span
+                  >
+                  <button type="button" onclick={loadRegions}
+                    >Retry regions</button
+                  >
+                </div>
+              {:else if viewState.regions}
+                <div class="product-region-controls">
+                  <label for="explore-region-picker">
+                    <span>Galactic region</span>
+                    <select
+                      id="explore-region-picker"
+                      value={viewState.selectedRegionId ?? ''}
+                      onchange={(event) =>
+                        selectRegion(event.currentTarget.value || null)}
+                    >
+                      <option value="">No region selected</option>
+                      {#each viewState.regions.regions as region (region.id)}
+                        <option
+                          value={String(region.id)}
+                          data-galaxy-region-option={region.id}
+                        >
+                          {region.id}. {region.name}
+                        </option>
+                      {/each}
+                    </select>
+                  </label>
+                  <div
+                    class="product-region-actions"
+                    role="group"
+                    aria-label="Map views"
+                  >
+                    <button type="button" onclick={overview}
+                      >All 42 regions</button
+                    >
+                    <button
+                      type="button"
+                      disabled={!viewState.selectedRegionId}
+                      onclick={viewSelectedRegion}>View selected</button
+                    >
+                  </div>
+                  <div class="product-region-status" aria-live="polite">
+                    <span
+                      >Selected: <strong
+                        data-selected-region-id={viewState.selectedRegionId ??
+                          ''}>{regionName(viewState.selectedRegionId)}</strong
+                      ></span
+                    >
+                    <span
+                      >Hovered: <strong
+                        data-hovered-region-id={viewState.hoveredRegionId ?? ''}
+                        >{regionName(viewState.hoveredRegionId)}</strong
+                      ></span
+                    >
+                  </div>
+                </div>
+              {/if}
+            </MapToolPopout>
+
             <MapLayers
               densityEnabled={showDensity}
               journeysEnabled={showTravelHeatmap}
@@ -2506,7 +2688,92 @@
                 </span>
               {/snippet}
             </MapLayers>
+          </div>
+        {/snippet}
+        {#snippet afterCanvas()}
+          {#if selectedMapSystem}
+            <article
+              class="map-system-card"
+              aria-labelledby="map-system-card-title"
+              data-selected-system-card={selectedMapSystem.id64}
+            >
+              <div class="map-system-card__identity">
+                <span
+                  class="stellar-glyph"
+                  data-stellar-glyph={selectedStarPresentation.glyph}
+                  style:--stellar-core={`rgb(${selectedStarPresentation.coreRgb.map((channel) => Math.round(channel * 255)).join(', ')})`}
+                  style:--stellar-halo={`rgb(${selectedStarPresentation.haloRgb.map((channel) => Math.round(channel * 255)).join(', ')})`}
+                  aria-hidden="true"
+                ></span>
+                <div>
+                  <h3 id="map-system-card-title">
+                    {selectedMapSystem.name ??
+                      `System ${selectedMapSystem.id64}`}
+                  </h3>
+                </div>
+              </div>
+              <MapToolPopout
+                kind="selection"
+                label="Details"
+                title="Selected system details"
+              >
+                <p>System ID <code>{selectedMapSystem.id64}</code></p>
+                <dl class="map-system-card__facts">
+                  <div>
+                    <dt>Primary star</dt>
+                    <dd>
+                      {selectedMapSystem.main_star_type ??
+                        'Unknown'}{selectedMapSystem.main_star_subtype
+                        ? ` · ${selectedMapSystem.main_star_subtype}`
+                        : ''}
+                    </dd>
+                  </div>
+                  {#if selectedMapSystem.distance != null}<div>
+                      <dt>Distance</dt>
+                      <dd>{selectedMapSystem.distance.toFixed(1)} ly</dd>
+                    </div>{/if}
+                  {#if selectedMapSystem.population != null}<div>
+                      <dt>Population</dt>
+                      <dd>{population(selectedMapSystem.population) ?? '0'}</dd>
+                    </div>{/if}
+                  {#if selectedMapSystem.primaryEconomy}<div>
+                      <dt>Economy</dt>
+                      <dd>{selectedMapSystem.primaryEconomy}</dd>
+                    </div>{/if}
+                  {#if selectedMapSystem.allegiance}<div>
+                      <dt>Allegiance</dt>
+                      <dd>{selectedMapSystem.allegiance}</dd>
+                    </div>{/if}
+                  {#if selectedMapSystem.security}<div>
+                      <dt>Security</dt>
+                      <dd>{selectedMapSystem.security}</dd>
+                    </div>{/if}
+                </dl>
+              </MapToolPopout>
+            </article>
+            <nav
+              class="map-system-card__actions"
+              aria-label="Selected system actions"
+            >
+              <!-- eslint-disable svelte/no-navigation-without-resolve -- inspectHref resolves the Inspect route -->
+              <a
+                class="inspect-map-action"
+                href={FINDER_F4_ENABLED
+                  ? inspectHref(selectedMapSystem.id64, page.url)
+                  : resolve(`/inspect?system=${selectedMapSystem.id64}`)}
+                onclick={FINDER_F4_ENABLED
+                  ? (event) => followInspect(event, selectedMapSystem!.id64)
+                  : undefined}><span>Inspect {selectedMapName}</span></a
+              >
+              <!-- eslint-enable svelte/no-navigation-without-resolve -->
+              <a href={resolve(`/plan?system=${selectedMapSystem.id64}`)}
+                >Plan here <ArrowRight aria-hidden="true" size={15} /></a
+              >
+            </nav>
+          {/if}
+          <div class="map-window-status">
             <span
+              class="map-catalogue-status"
               data-catalogue-star-count={catalogueStarsContribution?.layers[0]
                 ?.targetCount ?? 0}
             >
@@ -2525,170 +2792,19 @@
                   : ''}
               {/if}
             </span>
-          </div>
-        {/snippet}
-        {#snippet afterCanvas()}
-          <div class="panel-heading">
-            <div>
-              <p class="eyebrow">Galaxy presentation</p>
-              <h2 id="map-title">Spatial results</h2>
-            </div>
-            <span data-region-resource-state={viewState.regionState}
-              ><LocateFixed aria-hidden="true" size={15} />
-              {viewState.regionState === 'ready'
-                ? '42/42 regions'
-                : 'canonical ly'}</span
+
+            <p
+              class="selection-status"
+              aria-live="polite"
+              data-last-picked-id64={viewState.lastPickedId64}
             >
-          </div>
-          <p class="map-note">
-            Stars use exact catalogue coordinates and class-specific
-            presentation. Amber marks active selections. Region geometry is the
-            pinned in-game source; no synthetic geography, stars, or density are
-            substituted.
-          </p>
-          {#if viewState.regionState === 'loading'}
-            <p class="region-load-state" role="status">
-              Loading all 42 authoritative regions…
+              {#if viewState.lastPickedId64}Spatial pick selected <code
+                  >{viewState.lastPickedId64}</code
+                >.{:else if $selectedSystem.value}Active system <code
+                  >{$selectedSystem.value}</code
+                >.{:else}Select a result to focus the map.{/if}
             </p>
-          {:else if viewState.regionState === 'failed'}
-            <div class="region-load-state error" role="alert">
-              <span>The authoritative region resource failed validation.</span>
-              <button type="button" onclick={loadRegions}>Retry regions</button>
-            </div>
-          {:else if viewState.regions}
-            <div class="product-region-controls">
-              <label for="explore-region-picker">
-                <span>Galactic region</span>
-                <select
-                  id="explore-region-picker"
-                  value={viewState.selectedRegionId ?? ''}
-                  onchange={(event) =>
-                    selectRegion(event.currentTarget.value || null)}
-                >
-                  <option value="">No region selected</option>
-                  {#each viewState.regions.regions as region (region.id)}
-                    <option
-                      value={String(region.id)}
-                      data-galaxy-region-option={region.id}
-                    >
-                      {region.id}. {region.name}
-                    </option>
-                  {/each}
-                </select>
-              </label>
-              <div
-                class="product-region-actions"
-                role="group"
-                aria-label="Map views"
-              >
-                <button type="button" onclick={overview}>All 42 regions</button>
-                <button
-                  type="button"
-                  disabled={!viewState.selectedRegionId}
-                  onclick={viewSelectedRegion}>View selected</button
-                >
-              </div>
-              <div class="product-region-status" aria-live="polite">
-                <span
-                  >Selected: <strong
-                    data-selected-region-id={viewState.selectedRegionId ?? ''}
-                    >{regionName(viewState.selectedRegionId)}</strong
-                  ></span
-                >
-                <span
-                  >Hovered: <strong
-                    data-hovered-region-id={viewState.hoveredRegionId ?? ''}
-                    >{regionName(viewState.hoveredRegionId)}</strong
-                  ></span
-                >
-              </div>
-            </div>
-          {/if}
-          {#if selectedMapSystem}
-            <article
-              class="map-system-card"
-              aria-labelledby="map-system-card-title"
-              data-selected-system-card={selectedMapSystem.id64}
-            >
-              <div class="map-system-card__identity">
-                <span
-                  class="stellar-glyph"
-                  data-stellar-glyph={selectedStarPresentation.glyph}
-                  style:--stellar-core={`rgb(${selectedStarPresentation.coreRgb.map((channel) => Math.round(channel * 255)).join(', ')})`}
-                  style:--stellar-halo={`rgb(${selectedStarPresentation.haloRgb.map((channel) => Math.round(channel * 255)).join(', ')})`}
-                  aria-hidden="true"
-                ></span>
-                <div>
-                  <p class="eyebrow">Selected system</p>
-                  <h3 id="map-system-card-title">
-                    {selectedMapSystem.name ??
-                      `System ${selectedMapSystem.id64}`}
-                  </h3>
-                  <code>{selectedMapSystem.id64}</code>
-                </div>
-              </div>
-              <dl class="map-system-card__facts">
-                <div>
-                  <dt>Primary star</dt>
-                  <dd>
-                    {selectedMapSystem.main_star_type ??
-                      'Unknown'}{selectedMapSystem.main_star_subtype
-                      ? ` · ${selectedMapSystem.main_star_subtype}`
-                      : ''}
-                  </dd>
-                </div>
-                {#if selectedMapSystem.distance != null}<div>
-                    <dt>Distance</dt>
-                    <dd>{selectedMapSystem.distance.toFixed(1)} ly</dd>
-                  </div>{/if}
-                {#if selectedMapSystem.population != null}<div>
-                    <dt>Population</dt>
-                    <dd>{population(selectedMapSystem.population) ?? '0'}</dd>
-                  </div>{/if}
-                {#if selectedMapSystem.primaryEconomy}<div>
-                    <dt>Economy</dt>
-                    <dd>{selectedMapSystem.primaryEconomy}</dd>
-                  </div>{/if}
-                {#if selectedMapSystem.allegiance}<div>
-                    <dt>Allegiance</dt>
-                    <dd>{selectedMapSystem.allegiance}</dd>
-                  </div>{/if}
-                {#if selectedMapSystem.security}<div>
-                    <dt>Security</dt>
-                    <dd>{selectedMapSystem.security}</dd>
-                  </div>{/if}
-              </dl>
-              <nav
-                class="map-system-card__actions"
-                aria-label="Selected system actions"
-              >
-                <!-- eslint-disable svelte/no-navigation-without-resolve -- inspectHref resolves the Inspect route -->
-                <a
-                  href={FINDER_F4_ENABLED
-                    ? inspectHref(selectedMapSystem.id64, page.url)
-                    : resolve(`/inspect?system=${selectedMapSystem.id64}`)}
-                  onclick={FINDER_F4_ENABLED
-                    ? (event) => followInspect(event, selectedMapSystem!.id64)
-                    : undefined}>Open System Map</a
-                >
-                <!-- eslint-enable svelte/no-navigation-without-resolve -->
-                <a href={resolve(`/plan?system=${selectedMapSystem.id64}`)}
-                  >Plan here <ArrowRight aria-hidden="true" size={15} /></a
-                >
-              </nav>
-            </article>
-          {/if}
-          <p
-            class="selection-status"
-            aria-live="polite"
-            data-last-picked-id64={viewState.lastPickedId64}
-          >
-            {#if viewState.lastPickedId64}Spatial pick selected <code
-                >{viewState.lastPickedId64}</code
-              >.{:else if $selectedSystem.value}Active system <code
-                >{$selectedSystem.value}</code
-              >.{:else}Select a result to focus the map.{/if}
-          </p>
+          </div>
         {/snippet}
       </ExploreMapWindow>
     {/if}
@@ -2698,6 +2814,148 @@
 </main>
 
 <style>
+  .map-layer-toolbar {
+    flex-shrink: 0;
+    gap: 0.4rem;
+    padding: 0 0 0.4rem;
+    background: transparent;
+  }
+  .map-camera-presets {
+    display: inline-flex;
+  }
+  .map-camera-presets button,
+  .centre-system {
+    padding-inline: 0.35rem;
+    min-height: 2rem;
+    padding: 0.3rem 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-pill);
+    background: var(--panel);
+    background-image: var(--panel-gloss);
+    color: var(--text);
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+  .centre-system {
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .map-camera-presets button:first-child {
+    border-radius: var(--radius-pill) 0 0 var(--radius-pill);
+  }
+  .map-camera-presets button:last-child {
+    border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+  }
+  .map-camera-presets button[aria-pressed='true'] {
+    border-color: var(--accent);
+    background-color: var(--accent);
+    color: var(--accent-text);
+  }
+  .map-camera-presets button:disabled,
+  .centre-system:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .map-camera-presets button:focus-visible,
+  .centre-system:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  .product-region-controls {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  .map-system-card {
+    display: flex;
+    gap: 0.35rem;
+    min-width: 0;
+    max-width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  .map-system-card__identity {
+    gap: 0.3rem;
+    min-width: 0;
+  }
+  .map-system-card__identity > div {
+    min-width: 0;
+  }
+  .map-system-card__identity h3 {
+    margin: 0;
+    max-width: 12rem;
+    font-size: 0.8rem;
+  }
+  .map-system-card .stellar-glyph {
+    width: 1.25rem;
+    height: 1.25rem;
+    flex-basis: 1.25rem;
+  }
+  .map-system-card__facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .map-system-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    margin-left: auto;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .map-system-card__actions a {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    border-radius: var(--radius-pill);
+  }
+  .map-system-card__actions .inspect-map-action {
+    max-width: min(16rem, 100%);
+    border-color: var(--accent);
+    background: var(--accent);
+    background-image: var(--panel-gloss);
+    color: var(--accent-text);
+    font-weight: 700;
+  }
+  .inspect-map-action span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .map-window-status {
+    display: flex;
+    flex-basis: 100%;
+    gap: 0.5rem;
+    min-width: 0;
+    color: var(--text-muted);
+    font-size: 0.65rem;
+  }
+  .map-window-status > * {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .selection-status {
+    margin: 0 0 0 auto;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    font: inherit;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
   .explore-grid {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -2716,6 +2974,14 @@
     margin: 0.25rem 1.15rem;
   }
   @media (max-width: 700px) {
+    .map-system-card__actions .inspect-map-action {
+      max-width: min(12rem, 100%);
+    }
+    .map-system-card__identity h3 {
+      max-width: 7rem;
+    }
+  }
+  @media (max-width: 900px) {
     .explore-grid.is-map-open {
       grid-template-columns: minmax(0, 1fr);
     }
