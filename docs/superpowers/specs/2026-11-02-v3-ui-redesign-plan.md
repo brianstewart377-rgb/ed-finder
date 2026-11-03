@@ -3,8 +3,10 @@
 ## 1. Status and authority
 
 **2026-11-02 — implementation plan; no deployment authority.** Phase 1 is
-**done-pending-merge in [PR #998](../../../../../pull/998)**. Phases 2–6 below
-are proposed implementation slices, not claims of shipped behaviour.
+**done-pending-merge in [PR #998](../../../../../pull/998)**. P5a is implemented
+in this PR, pending Product E2E/visual acceptance before promotion; it is not
+deployed. Other Phases 2–6 rows remain proposed implementation slices, not
+claims of shipped behaviour. P5b Review/export remains a separate later PR.
 
 The approved 1 November 2026 concept pack is not in this repository. This plan
 records the owner's supplied direction; it does not reconstruct unseen images
@@ -143,7 +145,7 @@ No slice needs a SQL migration or new backend contract.
 | P2c | Explore main-task tabs and shared movable/dockable tool behaviour; keep Layers and map controls accessible in the window | No | Yes |
 | P3 | Finder control polish: archetype/results priority, existing count-group tabs, persistent chips and truthful scope gaps; no missing count fields to add today | No | Yes |
 | P4 | Inspect **Overview / Bodies / Stations** tabs; evidence explanation pop-out and retained Sources & freshness | No | Yes |
-| P5a | Plan **System layout / Build order** tabs; facility preview pop-out with explicit **Add to plan** | No | Yes |
+| P5a | Plan **System layout / Build order** tabs; facility preview pop-out with explicit **Add to plan**; **implemented in this PR** | No | Yes |
 | P5b | Review/export pop-out over the plan, per-item unresolved-information links and explicit **DRAFT** export | No | Yes |
 | P6a | Home polish: existing hero actions and three tool cards adopt the kit; truthful Review/export entry wording | No | Yes |
 | P6b | Final visual sweep across the complete journey, responsive layouts and all tool states | No | Yes |

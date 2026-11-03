@@ -94,7 +94,6 @@ const nonPort: PlanFacilityV1 = {
 };
 const catalogue = { rulebook_release: 'test', facilities: [port, nonPort] };
 const system = v3System({ id64: '42', name: 'Test System' });
-const BUILD_ORDER_KEY = 'ed-finder.plan.buildOrderOpen';
 
 function evaluated(t2: number, blocked = 0): PlanEvaluationV1 {
   return {
@@ -148,12 +147,16 @@ function mockWidth(wide: boolean) {
   return { media, matchMedia };
 }
 
-function buildOrderToggle() {
-  return screen.getByRole('button', { name: /^Build order \(/ });
+function buildOrderTab() {
+  return screen.getByRole('tab', { name: 'Build order' });
+}
+
+function systemLayoutTab() {
+  return screen.getByRole('tab', { name: 'System layout' });
 }
 
 async function openBuildOrder() {
-  await fireEvent.click(buildOrderToggle());
+  await fireEvent.click(buildOrderTab());
   await tick();
 }
 
@@ -373,7 +376,7 @@ describe('Raven layout import', () => {
     expect(notes).toHaveTextContent('Test System Lost Moon');
 
     await openBuildOrder();
-    const order = screen.getByRole('region', { name: 'Build order' });
+    const order = screen.getByRole('tabpanel', { name: 'Build order' });
     expect(
       within(order)
         .getAllByRole('heading', { level: 3 })
@@ -387,7 +390,8 @@ describe('Raven layout import', () => {
       within(notes).getByRole('button', { name: 'Dismiss' }),
     );
     expect(screen.queryByText('Import notes (1)')).not.toBeInTheDocument();
-    expect(buildOrderToggle()).toHaveAccessibleName('Build order (3)');
+    expect(buildOrderTab()).toHaveAccessibleName('Build order');
+    expect(buildOrderTab()).toHaveTextContent('(3)');
   });
 
   it('refuses a different system before confirmation and preserves the current plan', async () => {
@@ -519,9 +523,9 @@ describe('Raven layout import', () => {
   });
 });
 
-describe('build order panel', () => {
+describe('Plan task tabs', () => {
   it.each(['bodies', 'catalogue'] as const)(
-    'disables the toggle while %s are loading and enables it when the pane is available',
+    'waits for %s to load before exposing task tabs and their panels',
     async (resource) => {
       const bodyRequest = deferred<PlanBodiesV1>();
       const catalogueRequest = deferred<typeof catalogue>();
@@ -538,27 +542,26 @@ describe('build order panel', () => {
       }
       render(PlanWorkspaceTestHost);
       await advance(0);
-      expect(buildOrderToggle()).toBeDisabled();
-      expect(buildOrderToggle()).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('tablist', { name: 'Plan tasks' })).toBeNull();
       expect(screen.getByRole('status')).toHaveTextContent(
         'Loading planner catalogue and system bodies',
       );
-      expect(screen.queryByRole('region', { name: 'Build order' })).toBeNull();
+      expect(screen.queryByRole('tabpanel')).toBeNull();
 
       bodyRequest.resolve(bodyData);
       catalogueRequest.resolve(catalogue);
       await advance(0);
-      expect(buildOrderToggle()).toBeEnabled();
+      expect(buildOrderTab()).toBeEnabled();
       await openBuildOrder();
-      expect(buildOrderToggle()).toHaveAttribute('aria-expanded', 'true');
+      expect(buildOrderTab()).toHaveAttribute('aria-selected', 'true');
       expect(
-        screen.getByRole('heading', { name: 'Build order' }),
-      ).toHaveFocus();
+        screen.getByRole('tabpanel', { name: 'Build order' }),
+      ).toBeVisible();
     },
   );
 
   it.each(['bodies', 'catalogue'] as const)(
-    'keeps the toggle disabled when %s fail and no Build order pane is available',
+    'keeps unavailable task panels out of navigation when %s fail',
     async (resource) => {
       if (resource === 'bodies') {
         queryClient.removeQueries({
@@ -578,228 +581,125 @@ describe('build order panel', () => {
       expect(screen.getByRole('alert')).toHaveTextContent(
         'The catalogue or system bodies could not be loaded.',
       );
-      expect(buildOrderToggle()).toBeDisabled();
-      expect(buildOrderToggle()).toHaveAttribute('aria-expanded', 'false');
-      expect(screen.queryByRole('region', { name: 'Build order' })).toBeNull();
-      expect(document.getElementById('plan-build-order')).toBeNull();
+      expect(screen.queryByRole('tablist', { name: 'Plan tasks' })).toBeNull();
+      expect(screen.queryByRole('tabpanel')).toBeNull();
     },
   );
 
-  it('shows the site and blocked counts and announces opening and closing with focus restored', async () => {
-    seedPrimary();
-    vi.mocked(evaluateV3Plan).mockResolvedValue(blockedPrimary());
-    render(PlanWorkspaceTestHost);
-    expect(buildOrderToggle()).toHaveAccessibleName('Build order (1)');
-    await advance(250);
-    const toggle = buildOrderToggle();
-    expect(toggle).toHaveAccessibleName('Build order (1) · 1 blocked');
-    expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    const order = document.getElementById(
-      toggle.getAttribute('aria-controls')!,
-    )!;
-    expect(order).toHaveAttribute('hidden');
-    expect(screen.queryByRole('region', { name: 'Build order' })).toBeNull();
-
-    toggle.focus();
-    await openBuildOrder();
-    expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(order).not.toHaveAttribute('hidden');
-    const heading = within(order).getByRole('heading', { name: 'Build order' });
-    expect(heading).toHaveAttribute('tabindex', '-1');
-    expect(heading).toHaveFocus();
-    expect(screen.getByText('Build order opened')).toHaveAttribute(
-      'aria-live',
-      'polite',
-    );
-
-    await fireEvent.click(within(order).getByRole('button', { name: 'Close' }));
-    expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    expect(order).toHaveAttribute('hidden');
-    expect(toggle).toHaveFocus();
-    expect(screen.getByText('Build order closed')).toHaveAttribute(
-      'aria-live',
-      'polite',
-    );
-  });
-
-  it('closes from the header toggle and handles an empty order count', async () => {
-    render(PlanWorkspaceTestHost);
-    expect(buildOrderToggle()).toHaveAccessibleName('Build order (0)');
-    await openBuildOrder();
-    await fireEvent.click(buildOrderToggle());
-    expect(buildOrderToggle()).toHaveAttribute('aria-expanded', 'false');
-    expect(buildOrderToggle()).toHaveFocus();
-    expect(screen.getByText('Build order closed')).toHaveAttribute(
-      'aria-live',
-      'polite',
-    );
-  });
-
-  it('closes on Escape within the pane and returns focus to the toggle', async () => {
-    seedPrimary();
-    render(PlanWorkspaceTestHost);
-    await openBuildOrder();
-    const order = screen.getByRole('region', { name: 'Build order' });
-    await fireEvent.keyDown(
-      within(order).getByRole('heading', { name: 'Build order' }),
-      { key: 'Escape' },
-    );
-    expect(order).toHaveAttribute('hidden');
-    expect(buildOrderToggle()).toHaveAttribute('aria-expanded', 'false');
-    expect(buildOrderToggle()).toHaveFocus();
-    expect(screen.getByText('Build order closed')).toHaveAttribute(
-      'aria-live',
-      'polite',
-    );
-  });
-
-  it('lets the Why drawer handle Escape without closing the Build order pane', async () => {
+  it('labels the tablist and links one selected tab to each retained, inert hidden panel', async () => {
     seedPrimary();
     vi.mocked(evaluateV3Plan).mockResolvedValue(blockedPrimary());
     render(PlanWorkspaceTestHost);
     await advance(250);
-    await openBuildOrder();
-    const order = screen.getByRole('region', { name: 'Build order' });
-    const why = within(order).getByRole('button', {
-      name: 'Why? Primary port',
-    });
-    why.focus();
-    await fireEvent.click(why);
-    expect(screen.getByRole('dialog')).toHaveFocus();
-
-    // Even a pane-originated event belongs to the drawer while it is open.
-    await fireEvent.keyDown(why, { key: 'Escape' });
-    expect(screen.queryByRole('dialog')).toBeNull();
-    expect(order).not.toHaveAttribute('hidden');
-    expect(buildOrderToggle()).toHaveAttribute('aria-expanded', 'true');
-    expect(why).toHaveFocus();
-
-    await fireEvent.keyDown(why, { key: 'Escape' });
-    expect(order).toHaveAttribute('hidden');
-    expect(buildOrderToggle()).toHaveFocus();
-  });
-
-  it('restores the viewer preference on remount and remembers closing', async () => {
-    const first = render(PlanWorkspaceTestHost);
-    await openBuildOrder();
-    expect(localStorage.getItem(BUILD_ORDER_KEY)).toBe('true');
-    first.unmount();
-
-    const second = render(PlanWorkspaceTestHost);
-    await tick();
-    expect(buildOrderToggle()).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('region', { name: 'Build order' })).toBeVisible();
-    await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(localStorage.getItem(BUILD_ORDER_KEY)).toBe('false');
-    second.unmount();
-
-    render(PlanWorkspaceTestHost);
-    await tick();
-    expect(buildOrderToggle()).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByRole('region', { name: 'Build order' })).toBeNull();
-  });
-
-  it('falls back to closed when localStorage throws and remains usable when saving throws', async () => {
-    localStorage.setItem(BUILD_ORDER_KEY, 'true');
-    const getItem = vi
-      .spyOn(Storage.prototype, 'getItem')
-      .mockImplementation(() => {
-        throw new Error('Storage unavailable');
-      });
-    const setItem = vi
-      .spyOn(Storage.prototype, 'setItem')
-      .mockImplementation(() => {
-        throw new Error('Storage unavailable');
-      });
-    render(PlanWorkspaceTestHost);
-    await tick();
-    expect(getItem).toHaveBeenCalledWith(BUILD_ORDER_KEY);
-    expect(buildOrderToggle()).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByRole('region', { name: 'System' })).toBeVisible();
-    await openBuildOrder();
-    expect(setItem).toHaveBeenCalledWith(BUILD_ORDER_KEY, 'true');
-    expect(buildOrderToggle()).toHaveAttribute('aria-expanded', 'true');
-    await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(setItem).toHaveBeenCalledWith(BUILD_ORDER_KEY, 'false');
-    expect(buildOrderToggle()).toHaveAttribute('aria-expanded', 'false');
-  });
-
-  it.each(['narrow', 'missing'] as const)(
-    'replaces System with Build order when matchMedia is %s and keeps Summary visible',
-    async (mode) => {
-      if (mode === 'narrow') mockWidth(false);
-      else vi.stubGlobal('matchMedia', undefined);
-      render(PlanWorkspaceTestHost);
-      const systemPane = screen.getByRole('region', { name: 'System' });
-      const order = document.getElementById(
-        buildOrderToggle().getAttribute('aria-controls')!,
-      )!;
-      const summary = screen.getByRole('complementary', { name: 'Summary' });
-      expect(systemPane).not.toHaveAttribute('hidden');
-      expect(order).toHaveAttribute('hidden');
-      expect(summary).toBeVisible();
-
-      await openBuildOrder();
-      expect(systemPane).toHaveAttribute('hidden');
-      expect(screen.queryByRole('region', { name: 'System' })).toBeNull();
-      expect(order).not.toHaveAttribute('hidden');
-      expect(summary).toBeVisible();
-
-      await fireEvent.click(
-        within(order).getByRole('button', { name: 'Close' }),
-      );
-      expect(systemPane).not.toHaveAttribute('hidden');
-      expect(order).toHaveAttribute('hidden');
-      expect(summary).toBeVisible();
-    },
-  );
-
-  it('keeps System and Build order visible together at the wide breakpoint', async () => {
-    const { matchMedia } = mockWidth(true);
-    render(PlanWorkspaceTestHost);
-    await openBuildOrder();
-    expect(matchMedia).toHaveBeenCalledWith('(min-width: 1400px)');
-    for (const name of ['System', 'Build order']) {
-      const pane = screen.getByRole('region', { name });
-      expect(pane).not.toHaveAttribute('hidden');
-      expect(pane).toBeVisible();
+    const list = screen.getByRole('tablist', { name: 'Plan tasks' });
+    expect(within(list).getAllByRole('tab')).toHaveLength(2);
+    const layout = systemLayoutTab();
+    const order = buildOrderTab();
+    const layoutPanel = document.getElementById('plan-system-layout')!;
+    const orderPanel = document.getElementById('plan-build-order')!;
+    for (const [tab, panel] of [
+      [layout, layoutPanel],
+      [order, orderPanel],
+    ]) {
+      expect(tab).toHaveAttribute('aria-controls', panel.id);
+      expect(panel).toHaveAttribute('role', 'tabpanel');
+      expect(panel).toHaveAttribute('aria-labelledby', tab.id);
     }
+    expect(layout).toHaveAttribute('aria-selected', 'true');
+    expect(layout).toHaveAttribute('tabindex', '0');
+    expect(order).toHaveAttribute('aria-selected', 'false');
+    expect(order).toHaveAttribute('tabindex', '-1');
+    expect(order).toHaveAccessibleName('Build order');
+    expect(order).toHaveTextContent('1 blocked');
+    expect(orderPanel).toHaveAttribute('hidden');
+    expect(orderPanel).toHaveProperty('inert', true);
+    expect(layoutPanel).not.toHaveAttribute('hidden');
+    expect(layoutPanel).toHaveProperty('inert', false);
+
+    await openBuildOrder();
+    expect(order).toHaveFocus();
+    expect(order).toHaveAttribute('aria-selected', 'true');
+    expect(order).toHaveAttribute('tabindex', '0');
+    expect(layout).toHaveAttribute('aria-selected', 'false');
+    expect(layout).toHaveAttribute('tabindex', '-1');
+    expect(layoutPanel).toHaveAttribute('hidden');
+    expect(layoutPanel).toHaveProperty('inert', true);
+    expect(orderPanel).not.toHaveAttribute('hidden');
+    expect(orderPanel).toHaveProperty('inert', false);
     expect(
       screen.getByRole('complementary', { name: 'Summary' }),
     ).toBeVisible();
   });
 
-  it('moves focus out of System when resizing an open panel below the wide breakpoint', async () => {
-    const { media } = mockWidth(true);
-    render(PlanWorkspaceTestHost);
-    await openBuildOrder();
-    const systemPane = screen.getByRole('region', { name: 'System' });
-    within(systemPane).getByRole('button', { name: 'Names and types' }).focus();
-    const order = screen.getByRole('region', { name: 'Build order' });
-
-    media.matches = false;
-    media.dispatchEvent(Object.assign(new Event('change'), { matches: false }));
-    await advance(0);
-    expect(systemPane).toHaveAttribute('hidden');
-    expect(
-      within(order).getByRole('heading', { name: 'Build order' }),
-    ).toHaveFocus();
-    expect(order).not.toHaveAttribute('hidden');
-
-    media.matches = true;
-    media.dispatchEvent(Object.assign(new Event('change'), { matches: true }));
-    await advance(0);
-    expect(systemPane).not.toHaveAttribute('hidden');
-    expect(order).not.toHaveAttribute('hidden');
-    expect(
-      within(order).getByRole('heading', { name: 'Build order' }),
-    ).toHaveFocus();
+  it('uses Arrow keys, Home and End for automatic activation and roving focus', async () => {
+    const ontabchange = vi.fn();
+    render(PlanWorkspaceTestHost, { ontabchange });
+    const layout = systemLayoutTab();
+    const order = buildOrderTab();
+    layout.focus();
+    for (const [key, tab, value] of [
+      ['ArrowRight', order, 'build-order'],
+      ['ArrowRight', layout, 'system-layout'],
+      ['ArrowLeft', order, 'build-order'],
+      ['Home', layout, 'system-layout'],
+      ['End', order, 'build-order'],
+    ] as const) {
+      await fireEvent.keyDown(document.activeElement!, { key });
+      expect(tab).toHaveFocus();
+      expect(tab).toHaveAttribute('aria-selected', 'true');
+      expect(tab).toHaveAttribute('tabindex', '0');
+      expect(ontabchange).toHaveBeenLastCalledWith(value);
+      expect(
+        screen.getAllByRole('tab').filter((item) => item.tabIndex === 0),
+      ).toEqual([tab]);
+    }
+    const tab = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+      cancelable: true,
+    });
+    order.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(false);
+    expect(order).toHaveFocus();
   });
 
-  it('removes the System slot editor and its keyboard trap when resizing narrow, retaining saved slot counts', async () => {
-    const { media } = mockWidth(true);
-    render(PlanWorkspaceTestHost);
+  it('restores the supplied task on remount without consulting the retired toggle preference', async () => {
+    localStorage.setItem('ed-finder.plan.buildOrderOpen', 'true');
+    const first = render(PlanWorkspaceTestHost);
+    expect(systemLayoutTab()).toHaveAttribute('aria-selected', 'true');
     await openBuildOrder();
+    first.unmount();
+    const second = render(PlanWorkspaceTestHost, { activeTab: 'build-order' });
+    expect(buildOrderTab()).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel', { name: 'Build order' })).toBeVisible();
+    second.unmount();
+    render(PlanWorkspaceTestHost, { activeTab: 'system-layout' });
+    expect(systemLayoutTab()).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it.each([false, true])(
+    'shows only the selected main task at wide layout=%s',
+    async (wide) => {
+      mockWidth(wide);
+      render(PlanWorkspaceTestHost);
+      const layout = screen.getByRole('tabpanel', { name: 'System layout' });
+      await openBuildOrder();
+      expect(layout).toHaveAttribute('hidden');
+      expect(layout).toHaveProperty('inert', true);
+      expect(
+        screen.queryByRole('tabpanel', { name: 'System layout' }),
+      ).toBeNull();
+      expect(
+        screen.getByRole('tabpanel', { name: 'Build order' }),
+      ).toBeVisible();
+      expect(
+        screen.getByRole('complementary', { name: 'Summary' }),
+      ).toBeVisible();
+    },
+  );
+
+  it('retains an open slot editor and its value while suspending its keyboard trap on the hidden tab', async () => {
+    render(PlanWorkspaceTestHost);
     await fireEvent.click(
       screen.getByRole('button', {
         name: 'Orbital slots on Test System A: 0 used, unknown total',
@@ -811,59 +711,153 @@ describe('build order panel', () => {
     await fireEvent.click(
       within(editor).getByRole('button', { name: 'Increase orbital slots' }),
     );
+    const stored = localStorage.getItem(PERSISTENCE_KEYS.colonyProjects);
     editor.focus();
-
-    media.matches = false;
-    media.dispatchEvent(Object.assign(new Event('change'), { matches: false }));
-    await advance(0);
-    expect(editor).not.toBeInTheDocument();
-    expect(screen.queryByRole('dialog', { hidden: true })).toBeNull();
-    const heading = screen.getByRole('heading', { name: 'Build order' });
-    expect(heading).toHaveFocus();
+    await fireEvent.pointerDown(buildOrderTab());
+    await openBuildOrder();
+    expect(editor).toBeInTheDocument();
+    expect(editor).not.toBeVisible();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(buildOrderTab()).toHaveFocus();
     const tab = new KeyboardEvent('keydown', {
       key: 'Tab',
       bubbles: true,
       cancelable: true,
     });
-    heading.dispatchEvent(tab);
+    buildOrderTab().dispatchEvent(tab);
     expect(tab.defaultPrevented).toBe(false);
-    expect(heading).toHaveFocus();
+    expect(buildOrderTab()).toHaveFocus();
+    expect(localStorage.getItem(PERSISTENCE_KEYS.colonyProjects)).toBe(stored);
 
-    media.matches = true;
-    media.dispatchEvent(Object.assign(new Event('change'), { matches: true }));
-    await advance(0);
-    const slots = screen.getByRole('button', {
-      name: 'Orbital slots on Test System A: 0 used, 1 total',
+    await fireEvent.click(systemLayoutTab());
+    expect(
+      screen.getByRole('dialog', { name: 'Orbital slots on Test System A' }),
+    ).toBe(editor);
+    expect(
+      within(editor).getByLabelText('Orbital slot total'),
+    ).toHaveTextContent('1');
+    expect(
+      screen.getByRole('button', {
+        name: 'Orbital slots on Test System A: 0 used, 1 total',
+      }),
+    ).toHaveAttribute('aria-expanded', 'true');
+    await fireEvent.click(within(editor).getByRole('button', { name: 'Done' }));
+  });
+
+  it('retains selected body/site, build filter, expanded editor and scroll without mutating or refetching', async () => {
+    const record = seedPrimary();
+    vi.mocked(evaluateV3Plan).mockResolvedValue(blockedPrimary());
+    render(PlanWorkspaceTestHost);
+    await advance(300);
+    const layout = screen.getByRole('tabpanel', { name: 'System layout' });
+    const body = layout.querySelector<HTMLElement>('[data-plan-body="1"]')!;
+    await fireEvent.click(body.querySelector('.body-name')!);
+    const chip = within(body).getByRole('button', { name: /^Step 1,/ });
+    expect(chip).toHaveAccessibleName(/Primary Port/);
+    expect(within(chip).getByText('★')).toHaveAttribute('aria-hidden', 'true');
+    expect(chip.querySelector('.tile-number')).toHaveTextContent(/^★\s*1$/);
+    await fireEvent.click(chip);
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    layout.scrollTop = 91;
+    await openBuildOrder();
+    const order = screen.getByRole('tabpanel', { name: 'Build order' });
+    const step = order.querySelector<HTMLElement>(
+      '[data-plan-site="imported-port"]',
+    )!;
+    await fireEvent.click(
+      within(order).getByRole('button', { name: 'Blocked' }),
+    );
+    const editor = within(order)
+      .getByLabelText('Edit Primary port')
+      .closest('details')!;
+    await fireEvent.click(within(order).getByLabelText('Edit Primary port'));
+    expect(editor).toHaveAttribute('open');
+    order.scrollTop = 173;
+    const stored = localStorage.getItem(PERSISTENCE_KEYS.colonyProjects);
+    const before = get(colonyProjects).value.state.projects[record.id];
+    const reads = [
+      getV3PlanCatalogue,
+      listV3PlanBodies,
+      getPlanSystem,
+      evaluateV3Plan,
+    ].map((fn) => vi.mocked(fn).mock.calls.length);
+
+    await fireEvent.click(systemLayoutTab());
+    await openBuildOrder();
+    await advance(1000);
+    expect(document.getElementById('plan-system-layout')).toBe(layout);
+    expect(document.getElementById('plan-build-order')).toBe(order);
+    expect(document.getElementById('plan-step-imported-port')).toBe(step);
+    expect(body).toHaveClass('selected');
+    expect(step).toHaveClass('selected');
+    expect(
+      within(order).getByRole('button', { name: 'Blocked' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    expect(editor).toHaveAttribute('open');
+    expect(layout.scrollTop).toBe(91);
+    expect(order.scrollTop).toBe(173);
+    expect(get(colonyProjects).value.state.projects[record.id]).toEqual(before);
+    expect(localStorage.getItem(PERSISTENCE_KEYS.colonyProjects)).toBe(stored);
+    expect(
+      [getV3PlanCatalogue, listV3PlanBodies, getPlanSystem, evaluateV3Plan].map(
+        (fn) => vi.mocked(fn).mock.calls.length,
+      ),
+    ).toEqual(reads);
+  });
+
+  it('moves focus out of a hidden panel when the active tab changes externally', async () => {
+    seedPrimary();
+    const view = render(PlanWorkspaceTestHost, { activeTab: 'build-order' });
+    const order = screen.getByRole('tabpanel', { name: 'Build order' });
+    within(order).getByLabelText('Edit Primary port').focus();
+    await view.rerender({ activeTab: 'system-layout' });
+    await tick();
+    expect(order).toHaveAttribute('hidden');
+    expect(order).toHaveProperty('inert', true);
+    expect(systemLayoutTab()).toHaveFocus();
+    expect(document.activeElement?.closest('[hidden], [inert]')).toBeNull();
+  });
+
+  it('keeps the active task when Escape closes Why and returns to its visible opener', async () => {
+    seedPrimary();
+    vi.mocked(evaluateV3Plan).mockResolvedValue(blockedPrimary());
+    render(PlanWorkspaceTestHost);
+    await advance(250);
+    await openBuildOrder();
+    const order = screen.getByRole('tabpanel', { name: 'Build order' });
+    const why = within(order).getByRole('button', {
+      name: 'Why? Primary port',
     });
-    expect(slots).toHaveAttribute('aria-expanded', 'false');
-    expect(slots).toHaveTextContent('0/1');
-    expect(screen.queryByRole('dialog', { hidden: true })).toBeNull();
+    why.focus();
+    await fireEvent.click(why);
+    expect(screen.getByRole('dialog')).toHaveFocus();
+    await fireEvent.keyDown(why, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(order).not.toHaveAttribute('hidden');
+    expect(buildOrderTab()).toHaveAttribute('aria-selected', 'true');
+    expect(why).toHaveFocus();
+    await fireEvent.keyDown(why, { key: 'Escape' });
+    expect(order).not.toHaveAttribute('hidden');
+    expect(why).toHaveFocus();
   });
 
   it.each(['Close', 'Escape'] as const)(
-    'returns focus to Build order when %s closes Why after resizing hides the System chip',
+    'returns focus to the active task when %s closes Why after its opener becomes hidden',
     async (action) => {
-      const { media } = mockWidth(true);
       seedPrimary();
       vi.mocked(evaluateV3Plan).mockResolvedValue(blockedPrimary());
-      render(PlanWorkspaceTestHost);
+      const view = render(PlanWorkspaceTestHost, {
+        activeTab: 'system-layout',
+      });
       await advance(250);
-      await openBuildOrder();
-      const systemPane = screen.getByRole('region', { name: 'System' });
-      const chip = within(systemPane).getByRole('button', { name: /^Step 1,/ });
+      const chip = screen.getByRole('button', { name: /^Step 1,/ });
       chip.focus();
       await fireEvent.click(chip);
       const drawer = screen.getByRole('dialog', {
         name: 'Step 1: Primary port',
       });
       expect(drawer).toHaveFocus();
-
-      media.matches = false;
-      media.dispatchEvent(
-        Object.assign(new Event('change'), { matches: false }),
-      );
-      await advance(0);
-      expect(systemPane).toHaveAttribute('hidden');
+      await view.rerender({ activeTab: 'build-order' });
       expect(drawer).toHaveFocus();
       if (action === 'Close') {
         await fireEvent.click(
@@ -873,43 +867,35 @@ describe('build order panel', () => {
         await fireEvent.keyDown(drawer, { key: 'Escape' });
       }
       await advance(0);
-
       expect(screen.queryByRole('dialog')).toBeNull();
-      expect(buildOrderToggle()).toHaveAttribute('aria-expanded', 'true');
-      const order = screen.getByRole('region', { name: 'Build order' });
-      expect(
-        within(order).getByRole('heading', { name: 'Build order' }),
-      ).toHaveFocus();
+      expect(buildOrderTab()).toHaveAttribute('aria-selected', 'true');
+      expect(buildOrderTab()).toHaveFocus();
       expect(chip).not.toHaveFocus();
+      expect(document.activeElement?.closest('[hidden], [inert]')).toBeNull();
     },
   );
 
-  it('opens a closed panel from a Summary step link and focuses the selected step', async () => {
+  it('opens Build order from a Summary step link and focuses the selected step', async () => {
     seedPrimary();
     vi.mocked(evaluateV3Plan).mockResolvedValue(blockedPrimary());
     render(PlanWorkspaceTestHost);
     await advance(250);
-    expect(buildOrderToggle()).toHaveAttribute('aria-expanded', 'false');
     const step = document.getElementById('plan-step-imported-port')!;
     const scrollIntoView = vi.fn();
     Object.defineProperty(step, 'scrollIntoView', { value: scrollIntoView });
     await fireEvent.click(
       screen.getByRole('button', { name: 'First blocked step: Primary port' }),
     );
-    const order = screen.getByRole('region', { name: 'Build order' });
-    expect(order).toContainElement(step);
-    expect(buildOrderToggle()).toHaveAttribute('aria-expanded', 'true');
+    expect(
+      screen.getByRole('tabpanel', { name: 'Build order' }),
+    ).toContainElement(step);
+    expect(buildOrderTab()).toHaveAttribute('aria-selected', 'true');
     expect(step).toHaveFocus();
     expect(step).toHaveClass('selected');
     expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
-    expect(screen.getByText('Build order opened')).toHaveAttribute(
-      'aria-live',
-      'polite',
-    );
   });
 
-  it('reveals and focuses the System body from Summary while Build order replaces it', async () => {
-    mockWidth(false);
+  it('opens System layout and focuses its selected body from Summary', async () => {
     seedPrimary();
     render(PlanWorkspaceTestHost);
     await openBuildOrder();
@@ -918,46 +904,73 @@ describe('build order panel', () => {
         name: '1 body has builds with unknown slot counts',
       }),
     );
-    const systemPane = screen.getByRole('region', { name: 'System' });
-    expect(buildOrderToggle()).toHaveAttribute('aria-expanded', 'false');
-    const body = systemPane.querySelector('[data-plan-body="1"]')!;
+    expect(systemLayoutTab()).toHaveAttribute('aria-selected', 'true');
+    const body = screen
+      .getByRole('tabpanel', { name: 'System layout' })
+      .querySelector('[data-plan-body="1"]')!;
     expect(body).toHaveClass('selected');
     expect(body.querySelector('.body-name')).toHaveFocus();
-  });
-
-  it('keeps the selected body and step highlighted when the wide panel opens', async () => {
-    mockWidth(true);
-    seedPrimary();
-    vi.mocked(evaluateV3Plan).mockResolvedValue(blockedPrimary());
-    render(PlanWorkspaceTestHost);
-    await advance(250);
-    const body = screen
-      .getByRole('region', { name: 'System' })
-      .querySelector('[data-plan-body="1"]')!;
-    await fireEvent.click(body.querySelector('.body-name')!);
-    const chip = within(body as HTMLElement).getByRole('button', {
-      name: /^Step 1,/,
-    });
-    expect(chip).toHaveAccessibleName(/Primary Port/);
-    expect(within(chip).getByText('★')).toHaveAttribute('aria-hidden', 'true');
-    expect(chip.querySelector('.tile-number')).toHaveTextContent(/^★\s*1$/);
-    chip.focus();
-    await fireEvent.click(chip);
-    expect(
-      screen.getByRole('dialog', { name: 'Step 1: Primary port' }),
-    ).toHaveFocus();
-    await fireEvent.keyDown(window, { key: 'Escape' });
-    expect(chip).toHaveFocus();
-    await openBuildOrder();
-    expect(body).toHaveClass('selected');
-    const step = screen
-      .getByRole('region', { name: 'Build order' })
-      .querySelector('[data-plan-site="imported-port"]')!;
-    expect(step).toHaveClass('selected');
   });
 });
 
 describe('planner workspace evaluation and browser state', () => {
+  it('keeps the browser plan unchanged through preview and dismissal, then adds only on explicit Add to plan', async () => {
+    render(PlanWorkspaceTestHost);
+    const add = screen.getByRole('button', {
+      name: 'Add a build on Test System A',
+    });
+    const before = localStorage.getItem(PERSISTENCE_KEYS.colonyProjects);
+    await fireEvent.click(add);
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Primary Outpost' }),
+    );
+    expect(
+      screen.getByRole('heading', { name: 'Preview: Primary Outpost' }),
+    ).toHaveFocus();
+    expect(get(colonyProjects).value.state.projects).toEqual({});
+    expect(localStorage.getItem(PERSISTENCE_KEYS.colonyProjects)).toBe(before);
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Close preview' }),
+    );
+    expect(
+      screen.getByRole('button', { name: 'Primary Outpost' }),
+    ).toHaveFocus();
+    expect(get(colonyProjects).value.state.projects).toEqual({});
+
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Primary Outpost' }),
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Close picker' }));
+    expect(screen.queryByRole('button', { name: 'Add to plan' })).toBeNull();
+    expect(add).toHaveFocus();
+    expect(localStorage.getItem(PERSISTENCE_KEYS.colonyProjects)).toBe(before);
+
+    await fireEvent.click(add);
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Primary Outpost' }),
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Add to plan' }));
+    await advance(0);
+    const records = Object.values(get(colonyProjects).value.state.projects);
+    expect(records).toHaveLength(1);
+    expect(recordToPlanner(records[0]).sites).toEqual([
+      expect.objectContaining({
+        facility_id: port.id,
+        body_ref: '1',
+        slot_kind: 'orbital',
+        status: 'planned',
+      }),
+    ]);
+    expect(add).toHaveFocus();
+    expect(screen.queryByRole('button', { name: 'Add to plan' })).toBeNull();
+    expect(
+      screen.getByText('Primary Outpost added to plan on Test System A.'),
+    ).toHaveAttribute('aria-live', 'polite');
+    expect(localStorage.getItem(PERSISTENCE_KEYS.colonyProjects)).not.toBe(
+      before,
+    );
+  });
+
   it('does not send an empty plan to the evaluation endpoint', async () => {
     render(PlanWorkspaceTestHost);
     await advance(1000);
@@ -1056,7 +1069,9 @@ describe('planner workspace evaluation and browser state', () => {
       state: { projects: { [record.id]: record } },
     });
     render(PlanWorkspaceTestHost);
-    const systemPane = within(screen.getByRole('region', { name: 'System' }));
+    const systemPane = within(
+      screen.getByRole('tabpanel', { name: 'System layout' }),
+    );
     const orbital = systemPane.getByRole('button', {
       name: 'Orbital slots on Test System A 1: 1 used, 0 total, over capacity',
     });
@@ -1268,14 +1283,14 @@ describe('planner workspace evaluation and browser state', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(PlanWorkspaceTestHost);
     await advance(250);
-    expect(buildOrderToggle()).toHaveAccessibleName(
-      'Build order (1) · 1 blocked',
-    );
+    expect(buildOrderTab()).toHaveAccessibleName('Build order');
+    expect(buildOrderTab()).toHaveTextContent('1 blocked');
     await fireEvent.click(screen.getByRole('button', { name: 'Abandon plan' }));
     await advance(1000);
     // The greyed last evaluation stays in the Summary, but the header must not
     // present its blocked count as current, least of all for an empty plan.
-    expect(buildOrderToggle()).toHaveAccessibleName('Build order (0)');
+    expect(buildOrderTab()).toHaveTextContent('(0)');
+    expect(buildOrderTab()).not.toHaveTextContent('blocked');
   });
 
   it('keeps the last evaluation greyed when the plan is abandoned', async () => {
@@ -1342,7 +1357,7 @@ describe('planner workspace evaluation and browser state', () => {
       expect(stored.state.projects[record.id]).toEqual(updated);
       expect(
         within(
-          screen.getByRole('region', { name: 'Build order' }),
+          screen.getByRole('tabpanel', { name: 'Build order' }),
         ).queryAllByRole('heading', { level: 3 }),
       ).toHaveLength(0);
       expect(screen.getByText('Plan abandoned.')).toHaveAttribute(
@@ -1470,7 +1485,7 @@ describe('planner workspace evaluation and browser state', () => {
           record.id
         ].build_plan_placements.map((site) => site.site_id),
       ).toEqual(['primary', 'third', 'second']);
-      const order = screen.getByRole('region', { name: 'Build order' });
+      const order = screen.getByRole('tabpanel', { name: 'Build order' });
       expect(
         within(order)
           .getAllByRole('heading', { level: 3 })

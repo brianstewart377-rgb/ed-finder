@@ -9,6 +9,7 @@
     source?: 'predicted' | 'entered by you';
     prediction?: number | null;
     disabled?: boolean;
+    hidden?: boolean;
     onchange: (value: number | null) => void;
   };
   let {
@@ -19,6 +20,7 @@
     source = 'entered by you',
     prediction = null,
     disabled = false,
+    hidden = false,
     onchange,
   }: Props = $props();
 
@@ -73,7 +75,7 @@
   }
 
   function keydown(event: KeyboardEvent) {
-    if (!open || !editor) return;
+    if (hidden || !open || !editor) return;
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
@@ -102,8 +104,15 @@
   function pointerdown(event: PointerEvent) {
     if (
       open &&
+      !hidden &&
       event.target instanceof Node &&
-      !container.contains(event.target)
+      !container.contains(event.target) &&
+      // Switching task tabs retains the editor and its draft. The hidden
+      // panel suspends these global handlers until System layout is shown.
+      !(
+        event.target instanceof Element &&
+        event.target.closest('[role="tablist"][aria-label="Plan tasks"]')
+      )
     ) {
       // Pointer users retain focus on the control they clicked outside.
       open = false;
@@ -113,7 +122,7 @@
 
 <svelte:window onkeydown={keydown} onpointerdown={pointerdown} />
 
-<div class="slot-container" bind:this={container}>
+<div class="slot-container" bind:this={container} {hidden} inert={hidden}>
   <button
     bind:this={trigger}
     type="button"

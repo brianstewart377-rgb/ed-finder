@@ -114,12 +114,15 @@
   }
 </script>
 
-<section
+<div
   id="plan-build-order"
   class="plan-pane build-order-pane"
-  aria-labelledby="plan-order-title"
+  role="tabpanel"
+  tabindex="-1"
+  aria-labelledby="plan-tab-build-order"
   data-plan-build-order
   {hidden}
+  inert={hidden}
 >
   <div class="pane-heading">
     <h2 id="plan-order-title" tabindex="-1">Build order</h2>
@@ -327,7 +330,7 @@
   {#if model.sites.length && !visible.length}<p>
       No builds match this filter.
     </p>{/if}
-</section>
+</div>
 
 <style>
   .build-order-list {

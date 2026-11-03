@@ -11,6 +11,23 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-03 — UI redesign P5a: Plan tabs and facility preview
+
+The Plan workspace now has accessible System layout / Build order tabs with
+keyboard navigation and bounded `tab=` URL state. Switching tasks keeps slot
+editors, selection and panel scroll without changing the plan. Facility choices
+open a preview of catalogue facts and existing evaluation economy/link data;
+only **Add to plan** adds the site, returns focus and announces the addition.
+Closing either preview or picker adds nothing. Tier 2 and Tier 3 balances and
+slot provenance stay separate and unchanged. Styles use design-kit tokens with
+fallbacks for the current theme. Pending and last-good evaluation text retains
+readable contrast instead of opacity dimming.
+
+Vitest and the Product planner journey cover tab/URL state, preview/Add,
+keyboard focus, separate balances, axe and reduced motion. P5b Review/export
+remains a separate PR; API, routes and export format are unchanged. This visual
+change needs Product E2E/visual validation before promotion; it is not deployed.
+
 ## 2026-11-02 — Viewport-aware Galaxy catalogue streaming (M08)
 
 The Galaxy star sample now follows the actual camera aspect, bearing and pitch:

@@ -561,7 +561,7 @@ describe('System pane facility popup', () => {
     expect(second).toHaveFocus();
   });
 
-  it('adds the selected facility to its body, closes, and restores the opener', async () => {
+  it('previews without adding, then explicitly adds to its body, announces, closes, and restores the opener', async () => {
     const fixture = compactPlanFixture(2, 0);
     const onadd = vi.fn();
     render(SystemPane, {
@@ -580,8 +580,93 @@ describe('System pane facility popup', () => {
     await fireEvent.click(
       screen.getByRole('button', { name: 'Primary Outpost' }),
     );
+    expect(onadd).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole('region', { name: 'Preview: Primary Outpost' }),
+    ).toBeVisible();
+    await fireEvent.click(screen.getByRole('button', { name: 'Add to plan' }));
     expect(onadd).toHaveBeenCalledExactlyOnceWith(fixture.facilities[0], '2');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(opener).toHaveFocus();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Primary Outpost added to plan on Compact Test System A 1.',
+    );
+  });
+
+  it('dismisses the preview before the picker with Escape and never adds', async () => {
+    const fixture = compactPlanFixture(2, 0);
+    const onadd = vi.fn();
+    const { rerender } = renderSystem(fixture);
+    await rerender({ onadd });
+    const opener = screen.getByRole('button', {
+      name: `Add a build on ${fixture.bodies.bodies[1].name}`,
+    });
+    await fireEvent.click(opener);
+    const choice = screen.getByRole('button', { name: 'Primary Outpost' });
+    await fireEvent.click(choice);
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(
+      screen.queryByRole('region', { name: 'Preview: Primary Outpost' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeVisible();
+    expect(choice).toHaveFocus();
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+    expect(onadd).not.toHaveBeenCalled();
+  });
+
+  it('keeps a rejected addition open without announcing success', async () => {
+    const fixture = compactPlanFixture(2, 0);
+    const { rerender } = renderSystem(fixture);
+    const onadd = vi.fn(() => false);
+    await rerender({ onadd });
+    await fireEvent.click(
+      screen.getByRole('button', {
+        name: `Add a build on ${fixture.bodies.bodies[1].name}`,
+      }),
+    );
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Primary Outpost' }),
+    );
+    const add = screen.getByRole('button', { name: 'Add to plan' });
+    add.focus();
+    await fireEvent.click(add);
+    expect(onadd).toHaveBeenCalledExactlyOnceWith(fixture.facilities[0], '2');
+    expect(
+      screen.getByRole('region', { name: 'Preview: Primary Outpost' }),
+    ).toBeVisible();
+    expect(add).toHaveFocus();
+    expect(screen.getByRole('status').textContent?.trim()).toBe('');
+  });
+
+  it('keeps a slot editor mounted while its task panel is hidden and suspends global keyboard handling', async () => {
+    const { rerender } = renderSystem(compactPlanFixture(2, 0));
+    const trigger = screen.getByRole('button', {
+      name: /^Orbital slots on Compact Test System A 1:/,
+    });
+    await fireEvent.click(trigger);
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Increase orbital slots' }),
+    );
+    const editor = screen.getByRole('dialog', {
+      name: 'Orbital slots on Compact Test System A 1',
+    });
+    expect(screen.getByLabelText('Orbital slot total')).toHaveTextContent('3');
+    await rerender({ hidden: true });
+    expect(editor).not.toBeVisible();
+    const tab = document.createElement('button');
+    document.body.append(tab);
+    tab.focus();
+    const key = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true });
+    window.dispatchEvent(key);
+    expect(key.defaultPrevented).toBe(false);
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    await fireEvent.pointerDown(tab);
+    expect(tab).toHaveFocus();
+    await rerender({ hidden: false });
+    expect(editor).toBeVisible();
+    expect(screen.getByLabelText('Orbital slot total')).toHaveTextContent('3');
+    tab.remove();
   });
 });
