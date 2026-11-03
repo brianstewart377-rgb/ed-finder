@@ -11,6 +11,18 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-03 — UI concept pack added to the repository (reference only)
+
+Adds the owner's 1 November concept mockups for Finder, map window, Inspect, Plan
+and Review, the live-map comparison capture, the owner's black hole homepage
+background candidate and the handoff notes under
+`docs/superpowers/specs/2026-11-01-ui-concept-pack/`, so implementers and
+visual acceptance can compare against the real images instead of a written
+summary. Reference only: illustrative data, no behaviour or contract change, and
+nothing here is a shippable asset. The Orbis homepage mockup is held back from
+the public repository pending a rights decision, because it is edited from a
+third-party artwork. Docs and images only; nothing deployed.
+
 ## 2026-11-03 — UI redesign P6a: home polish
 
 Home adopts the shared design kit's Saira headings, orange primary and blue
