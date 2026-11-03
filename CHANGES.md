@@ -11,6 +11,16 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-03 — Home page background image added (not yet used on the page)
+
+- Added two web-sized WebP copies of the owner's Elite Dangerous black hole screenshot
+  (1920 px wide for desktop, 960 px wide for phones) under `apps/web/static/assets/`.
+- Nothing displays them yet: the home page rework that uses them is a separate change.
+- Recorded where the image came from in `assets/PROVENANCE.json`,
+  `THIRD_PARTY_NOTICES.md` and `assets/README.md`. It is marked noncommercial-only
+  and Frontier-derived, and the screenshot's author was not independently verified.
+- The original concept-pack Orbis home mockup stays out of the repository.
+
 ## 2026-11-03 — UI concept pack added to the repository (reference only)
 
 Adds the owner's 1 November concept mockups for Finder, map window, Inspect, Plan

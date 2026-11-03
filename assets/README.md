@@ -113,6 +113,17 @@ approved by the owner on 2026-10-31. Its licence, rights status and attribution 
 manifest `audit_date` moved to 2026-10-31 so that this entry's approval date is
 valid. The other entries keep their earlier approval dates.
 
+## Addition 2026-11-03
+
+Two entries were added without a full re-audit:
+`apps/web/static/assets/home-hero-black-hole-1920.webp` and
+`apps/web/static/assets/home-hero-black-hole-960.webp`, resized derivatives of an
+Elite Dangerous in-game screenshot the owner supplied for the home page
+background. They are recorded as `noncommercial_only` and Frontier-derived; the
+screenshot's author was not independently verified. The manifest `audit_date`
+moved to 2026-11-03 so that these entries' approval date is valid. The other
+entries keep their earlier approval dates.
+
 See [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) for distributed
 credits and license notices. Re-run the audit when asset locations, build
 pipelines, remote font imports, or commercial posture changes.
