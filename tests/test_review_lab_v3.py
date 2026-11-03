@@ -103,7 +103,9 @@ def test_review_scenarios_are_only_lab_specific_states():
 def test_review_collector_does_not_duplicate_product_e2e_acceptance():
     collector = read('apps/web/cypress/e2e/review-lab.cy.ts')
     product = read('apps/web/cypress/e2e/product-journey.cy.ts')
-    assert 'SpatialCanvas' in read('apps/web/src/lib/features/explore/ExploreWorkspace.svelte')
+    assert 'ExploreMapWindow' in read('apps/web/src/lib/features/explore/ExploreWorkspace.svelte')
+    assert 'SpatialCanvas' in read('apps/web/src/lib/features/explore/ExploreMapWindow.svelte')
+    assert 'openReviewMap();' in collector
     assert 'createBabylonSpatialRuntime' in read('apps/web/src/lib/spatial/SpatialCanvas.svelte')
     for product_acceptance_marker in (
         '.inspect-link',

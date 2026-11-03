@@ -30,7 +30,16 @@ type ReviewSummary = {
 };
 
 const REVIEW_SYSTEM = { id64: '9100000000001', name: 'Review Wiring' };
-const readySelector = '[role="status"][data-renderer-state="ready"]';
+const mapWindowSelector = '[data-explore-map-window]';
+const readySelector = `${mapWindowSelector} [role="status"][data-renderer-state="ready"]`;
+const openReviewMap = () => {
+  cy.get('[data-explore-map-open]').click();
+  cy.get(mapWindowSelector).should('be.visible');
+  cy.get(`${mapWindowSelector} canvas[data-spatial-canvas]`).should(
+    'have.length',
+    1,
+  );
+};
 const selectedStorageKey = 'ed-finder:selected-system-context';
 const selectedMarkerSelector = `[data-map-label-key="system:${REVIEW_SYSTEM.id64}"][data-map-label-selected="true"]`;
 let currentFlow = '';
@@ -235,6 +244,7 @@ describe('isolated V3 Review Lab', () => {
     const remountExplore = () => {
       cy.visit('/explore', { onBeforeLoad: instrumentWindow });
       chooseReviewAnchor();
+      openReviewMap();
     };
 
     let selectionSearchCount = 0;
@@ -248,6 +258,7 @@ describe('isolated V3 Review Lab', () => {
       cy.wait(`@${selectionSearchAlias}`)
         .its('response.statusCode')
         .should('eq', 200);
+      openReviewMap();
       cy.get(readySelector, { timeout: 20_000 }).should('be.visible');
       assertSelectionPreserved();
     };
@@ -265,6 +276,7 @@ describe('isolated V3 Review Lab', () => {
         'contain.text',
         REVIEW_SYSTEM.name,
       );
+      openReviewMap();
       cy.get(readySelector, { timeout: 20_000 })
         .should('be.visible')
         .then(() =>
@@ -368,6 +380,7 @@ describe('isolated V3 Review Lab', () => {
         '.results-panel',
         'No systems meet minimum tier B for Flexible Multi-Role Colony.',
       ).should('be.visible');
+      openReviewMap();
       cy.get(readySelector, { timeout: 20_000 }).should('be.visible');
       cy.get('.spatial-canvas').should(
         'have.attr',
@@ -409,6 +422,7 @@ describe('isolated V3 Review Lab', () => {
       cy.visit('/explore?page_size=1', { onBeforeLoad: instrumentWindow });
       cy.wait('@emptySearch').its('response.statusCode').should('eq', 200);
       cy.contains('No systems match this discovery area.').should('be.visible');
+      openReviewMap();
       cy.get(readySelector, { timeout: 20_000 }).should('be.visible');
       cy.get('.spatial-canvas')
         .should('have.attr', 'data-scene-target-count', '0')
@@ -437,6 +451,7 @@ describe('isolated V3 Review Lab', () => {
         'contain.text',
         REVIEW_SYSTEM.name,
       );
+      openReviewMap();
       cy.get(readySelector, { timeout: 20_000 }).should('be.visible');
       cy.get('.spatial-canvas').should(($scene) => {
         expect(

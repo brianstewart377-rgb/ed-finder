@@ -1,7 +1,7 @@
 import {
   cleanup,
   fireEvent,
-  render,
+  render as renderComponent,
   screen,
   waitFor,
   within,
@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import axe from 'axe-core';
-import { tick } from 'svelte';
+import { tick, type ComponentProps } from 'svelte';
 import * as api from '$lib/api/client';
 import { queryClient, queryKeys } from '$lib/api/query';
 import { auth } from '$lib/auth/auth';
@@ -40,6 +40,24 @@ import { createManagedSpatialRuntime } from '$lib/spatial/lifecycle';
 import { COMMANDER_HISTORY_GALAXY_BOUNDS } from '$lib/spatial/commander-history-viewport';
 import ExploreWorkspaceTestHost from './ExploreWorkspaceTestHost.svelte';
 import { ExploreViewState } from './explore-view-state.svelte';
+
+// Existing map contracts explicitly begin with the map open. The M09 cases
+// below use renderComponent/the closed renderEnabled option to exercise the
+// product's default and real Show on map controls.
+function render(
+  component: typeof ExploreWorkspaceTestHost,
+  props: ComponentProps<typeof ExploreWorkspaceTestHost> = {},
+) {
+  const viewState =
+    props.viewState ??
+    new ExploreViewState(
+      () => mockedPage,
+      featureGate.enabled,
+      applicationStores,
+    );
+  viewState.mapOpen = true;
+  return renderComponent(component, { ...props, viewState });
+}
 
 const { mockedPage, mockedGoto, featureGate } = vi.hoisted(() => ({
   mockedPage: {
@@ -210,7 +228,9 @@ function stubRuntime(): void {
       unobserve = vi.fn();
     },
   );
-  vi.stubGlobal('matchMedia', () => ({ matches: true }));
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: query === '(prefers-reduced-motion: reduce)',
+  }));
   vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(640);
   vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(360);
   runtimeAdapter.create.mockImplementation(
@@ -1577,6 +1597,7 @@ function renderEnabled(
   query = 'page_size=1',
   state: App.PageState = {},
   viewState?: ExploreViewState,
+  mapOpen = true,
 ) {
   const entries = [
     { url: new URL(`http://localhost/explore?${query}`), state },
@@ -1598,8 +1619,16 @@ function renderEnabled(
       mockedPage.state = entry.state;
     },
   );
-  const component = render(ExploreWorkspaceTestHost, {
-    viewState,
+  const stateOwner =
+    viewState ??
+    new ExploreViewState(
+      () => mockedPage,
+      featureGate.enabled,
+      applicationStores,
+    );
+  stateOwner.mapOpen = mapOpen;
+  const component = renderComponent(ExploreWorkspaceTestHost, {
+    viewState: stateOwner,
     initialPage: entries[0],
     installPage(model) {
       Object.defineProperties(mockedPage, {
@@ -2808,9 +2837,10 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
     const tooltip = await screen.findByRole('tooltip', {
       name: `System ${star.name}`,
     });
-    expect(
-      screen.getByRole('region', { name: 'Spatial results' }),
-    ).toHaveAttribute('data-hovered-system-id', star.id64);
+    expect(screen.getByRole('dialog', { name: 'Map window' })).toHaveAttribute(
+      'data-hovered-system-id',
+      star.id64,
+    );
     expect(
       within(tooltip).getByText('G2', { exact: true }),
     ).toBeInTheDocument();
@@ -4611,9 +4641,12 @@ describe.each([false, true])(
       ).not.toHaveProperty('body_filters');
       await fireEvent.click(trigger);
       await fireEvent.click(
-        within(screen.getByRole('dialog')).getByRole('button', {
-          name: 'Apply',
-        }),
+        within(screen.getByRole('dialog', { name: 'Body filters' })).getByRole(
+          'button',
+          {
+            name: 'Apply',
+          },
+        ),
       );
       await waitFor(() =>
         expect(api.searchExploreSystems).toHaveBeenCalledTimes(5),
@@ -5323,3 +5356,246 @@ describe.each([false, true])(
     }
   },
 );
+
+describe.each([false, true])('M09 on-demand map with F4=%s', (enabled) => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    queryClient.clear();
+    localStorage.clear();
+    stubRuntime();
+    mockFacadeDefaults();
+    featureGate.enabled = enabled;
+    mockRankedPages();
+    vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
+    vi.mocked(api.getSystem).mockResolvedValue(anchorDetail(anchorA));
+    vi.spyOn(
+      galaxyRegions,
+      'fetchAuthoritativeGalaxyRegions',
+    ).mockRejectedValue(new Error('No region fixture'));
+    vi.spyOn(galaxyNebulae, 'fetchGalaxyNebulae').mockRejectedValue(
+      new Error('No nebula fixture'),
+    );
+  });
+
+  afterEach(() => {
+    cleanup();
+    queryClient.clear();
+    featureGate.enabled = false;
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('leaves Show on map unavailable when selected coordinates are missing', async () => {
+    vi.mocked(api.searchExploreSystems).mockResolvedValue({
+      ...finderPage(0, 3),
+      results: [{ ...rankedRows[0], coords: undefined }],
+    });
+    renderEnabled(
+      `${enabled ? 'page_size=3&' : ''}near=${anchorA.id64}`,
+      { anchor: anchorA },
+      undefined,
+      false,
+    );
+    const selection = await screen.findByRole('button', {
+      name: /Ranked 1.*9007199254741001/,
+    });
+    await fireEvent.click(selection);
+    for (const opener of screen.getAllByRole('button', { name: 'Show on map' }))
+      expect(opener).toBeDisabled();
+    expect(
+      screen.getByText('Map coordinates unavailable for the selected system.'),
+    ).toBeVisible();
+    expect(runtimeAdapter.create).not.toHaveBeenCalled();
+    expect(api.getCatalogueViewportSystems).not.toHaveBeenCalled();
+  });
+
+  it('starts closed and keeps map queries suspended until Show on map', async () => {
+    renderEnabled('', {}, undefined, false);
+    await tick();
+    expect(screen.getByRole('combobox', { name: 'System name' })).toBeVisible();
+    expect(
+      screen.queryByRole('dialog', { name: 'Map window' }),
+    ).not.toBeInTheDocument();
+    expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(0);
+    expect(runtimeAdapter.create).not.toHaveBeenCalled();
+    expect(api.searchExploreSystems).not.toHaveBeenCalled();
+    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+    expect(api.getCatalogueViewportSystems).not.toHaveBeenCalled();
+    expect(api.getMapHeatmap).not.toHaveBeenCalled();
+    expect(galaxyNebulae.fetchGalaxyNebulae).not.toHaveBeenCalled();
+
+    const opener = screen.getByRole('button', { name: 'Show on map' });
+    opener.focus();
+    await fireEvent.click(opener);
+    const map = await screen.findByRole('dialog', { name: 'Map window' });
+    expect(map).toHaveAttribute('aria-modal', 'false');
+    expect(document.querySelector('[inert]')).toBeNull();
+    await waitFor(() => expect(runtimeAdapter.create).toHaveBeenCalledTimes(1));
+    await fireEvent.click(
+      within(map).getByRole('button', { name: 'Close map' }),
+    );
+    expect(opener).toHaveFocus();
+    expect(
+      runtimeAdapter.create.mock.results[0].value.dispose,
+    ).toHaveBeenCalledTimes(1);
+    expect(api.searchExploreSystems).not.toHaveBeenCalled();
+    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+  });
+
+  it.each(['loading', 'empty'] as const)(
+    'dismisses %s autocomplete before closing the non-modal map on Escape',
+    async (state) => {
+      if (state === 'loading')
+        vi.mocked(api.autocompleteSystems).mockImplementation(
+          () => new Promise(() => {}),
+        );
+      else
+        vi.mocked(api.autocompleteSystems).mockResolvedValue({ results: [] });
+      renderEnabled('', {}, undefined, false);
+      const opener = screen.getByRole('button', { name: 'Show on map' });
+      await fireEvent.click(opener);
+      await screen.findByRole('dialog', { name: 'Map window' });
+      const input = screen.getByRole('combobox', { name: 'System name' });
+      input.focus();
+      await fireEvent.input(input, { target: { value: 'Qzz' } });
+      await screen.findByText(
+        state === 'loading' ? 'Searching catalogue…' : 'No matching systems.',
+      );
+      expect(input).toHaveAttribute('aria-expanded', 'true');
+      await fireEvent.keyDown(input, { key: 'Escape' });
+      expect(input).toHaveAttribute('aria-expanded', 'false');
+      expect(input).toHaveFocus();
+      expect(
+        screen.queryByRole('listbox', { name: 'System suggestions' }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByRole('dialog', { name: 'Map window' }),
+      ).toBeInTheDocument();
+      await fireEvent.keyDown(input, { key: 'Escape' });
+      expect(
+        screen.queryByRole('dialog', { name: 'Map window' }),
+      ).not.toBeInTheDocument();
+      expect(opener).toHaveFocus();
+      expect(input).toHaveValue('Qzz');
+      expect(api.searchExploreSystems).not.toHaveBeenCalled();
+      expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+    },
+  );
+
+  it('retains search, scroll, selection and camera through Show, Expand, topmost Escape and reopen', async () => {
+    const viewState = new ExploreViewState(
+      () => mockedPage,
+      enabled,
+      applicationStores,
+    );
+    renderEnabled(
+      `${enabled ? 'page_size=3&' : ''}near=${anchorA.id64}&radius=250&bodies=elw_count:1-`,
+      { anchor: anchorA },
+      viewState,
+      false,
+    );
+    const list = await screen.findByRole('list', { name: 'System results' });
+    await fireEvent.click(
+      await within(list).findByRole('button', {
+        name: /Ranked 2.*9007199254741002/,
+      }),
+    );
+    await fireEvent.input(
+      screen.getByRole('combobox', { name: 'System name' }),
+      { target: { value: 'Unsubmitted draft' } },
+    );
+    list.scrollTop = 256;
+    await fireEvent.scroll(list);
+    const committedUrl = mockedPage.url.href;
+    const beforeSearch = vi.mocked(api.searchExploreSystems).mock.calls.length;
+    const opener = within(list).getByRole('button', {
+      name: /Show .*on map|Show on map/,
+    });
+    opener.focus();
+    await fireEvent.click(opener);
+    await waitFor(() => expect(currentScene()).toBeDefined());
+    expect(viewState.mapOpen).toBe(true);
+    expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(1);
+    const first = runtimeAdapter.create.mock.results[0].value;
+    expect(first.subscribe).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(runtimeCommands()).toContainEqual(
+        expect.objectContaining({
+          type: 'SET_CAMERA',
+          transition: { durationMs: 650, reducedMotion: true },
+        }),
+      ),
+    );
+    expect(document.querySelector('.spatial-canvas')).toHaveAttribute(
+      'data-camera-transition-active',
+      'false',
+    );
+
+    const camera = {
+      ...currentScene().camera,
+      focusLy: { x: 100, y: 20, z: 300 },
+      distanceLy: 400,
+      bearingRad: 0.25,
+      pitchRad: 0.65,
+      revision: 17,
+    };
+    emitRuntime({ type: 'CAMERA_CHANGED', camera });
+    await waitFor(() => expect(viewState.streamCamera).toEqual(camera));
+    const layers = within(await openLayers());
+    await fireEvent.click(layers.getByRole('switch', { name: 'Nebulae' }));
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(
+      screen.queryByRole('dialog', { name: 'Map layers' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('dialog', { name: 'Map window' }),
+    ).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
+    expect(viewState.mapExpanded).toBe(true);
+    expect(runtimeAdapter.create).toHaveBeenCalledTimes(1);
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(viewState.mapOpen).toBe(false);
+    expect(viewState.mapExpanded).toBe(false);
+    expect(opener).toHaveFocus();
+    expect(list.scrollTop).toBe(256);
+    expect(first.dispose).toHaveBeenCalledTimes(1);
+    expect(first.subscribe.mock.results[0].value).toHaveBeenCalledTimes(1);
+    expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(0);
+    expect(mockedPage.url.href).toBe(committedUrl);
+    expect(screen.getByRole('combobox', { name: 'System name' })).toHaveValue(
+      'Unsubmitted draft',
+    );
+    expect(screen.getByRole('combobox', { name: 'Within' })).toHaveValue('250');
+    expect(screen.getByText('Earth-like ≥ 1')).toBeInTheDocument();
+    expect(
+      within(list).getByRole('button', { name: /Ranked 2.*9007199254741002/ }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    const catalogueCount = vi.mocked(api.getCatalogueViewportSystems).mock.calls
+      .length;
+    const densityCount = vi.mocked(api.getMapHeatmap).mock.calls.length;
+    await queryClient.invalidateQueries({ queryKey: ['map-heatmap'] });
+    await queryClient.invalidateQueries({
+      queryKey: [...queryKeys.all, 'map', 'catalogue-stars'],
+    });
+    await tick();
+    expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(
+      catalogueCount,
+    );
+    expect(api.getMapHeatmap).toHaveBeenCalledTimes(densityCount);
+
+    await fireEvent.click(opener);
+    await waitFor(() => expect(runtimeAdapter.create).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(currentScene().camera).toEqual(camera));
+    expect(viewState.showNebulae).toBe(false);
+    expect(viewState.starDetailMode).toBe('local');
+    expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(1);
+    expect(
+      runtimeAdapter.create.mock.results[1].value.subscribe,
+    ).toHaveBeenCalledTimes(1);
+    await fireEvent.click(screen.getByRole('button', { name: 'Close map' }));
+    expect(opener).toHaveFocus();
+    expect(api.searchExploreSystems).toHaveBeenCalledTimes(beforeSearch);
+    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+    expect(mockedPage.url.href).toBe(committedUrl);
+  });
+});

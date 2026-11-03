@@ -1,6 +1,10 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import {
+    isTopmostPopout,
+    registerPopout,
+  } from '$lib/components/popout-stack';
+  import {
     BODY_FILTER_GROUPS,
     BODY_FILTER_OPTIONS,
     HARD_BODY_COUNT_MAX,
@@ -34,6 +38,7 @@
   let activeTab = $state(0);
   let trigger = $state<HTMLButtonElement>();
   let panel = $state<HTMLDivElement>();
+  let layer = $state(30);
   let panelLeft = $state(8);
   let panelTop = $state(8);
   let panelMaxHeight = $state<number | null>(null);
@@ -167,9 +172,9 @@
   }
 
   function keydown(event: KeyboardEvent) {
-    if (open && event.key === 'Escape') {
+    if (open && event.key === 'Escape' && isTopmostPopout(panel)) {
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
       close();
     }
   }
@@ -177,6 +182,7 @@
   function outsideClick(event: MouseEvent) {
     if (
       open &&
+      isTopmostPopout(panel) &&
       event.target instanceof Node &&
       !panel?.contains(event.target) &&
       !trigger?.contains(event.target)
@@ -186,6 +192,17 @@
 
   $effect(() => {
     if (disabled && open) close();
+  });
+
+  $effect(() => {
+    const element = panel;
+    if (!element) return;
+    const unregister = registerPopout(element, (value) => (layer = value));
+    window.addEventListener('keydown', keydown, true);
+    return () => {
+      unregister();
+      window.removeEventListener('keydown', keydown, true);
+    };
   });
 
   $effect(() => {
@@ -217,7 +234,7 @@
   });
 </script>
 
-<svelte:window onkeydown={keydown} onclick={outsideClick} />
+<svelte:window onclick={outsideClick} />
 
 <div class="body-filters">
   <button
@@ -272,6 +289,7 @@
     aria-describedby={`${id}-help`}
     tabindex="-1"
     style:left={`${panelLeft}px`}
+    style:z-index={layer}
     style:top={`${panelTop}px`}
     style:max-height={panelMaxHeight === null
       ? undefined

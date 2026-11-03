@@ -11,6 +11,22 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-03 — UI redesign P2b: on-demand map window (M09)
+
+Explore starts with search, archetypes and results using the workspace. **Show
+on map** opens the existing Galaxy canvas in a non-modal kit window; **Expand**
+uses the full workspace and **Close** restores results, scroll and opener focus.
+The phone window fills the workspace and remains non-modal. Escape dismisses
+the topmost tool first, and reduced-motion camera behaviour is retained.
+
+One route-owned view state keeps camera, selection, layers and spatial CPU
+context through close/reopen. Closing disposes the canvas runtime and suspends
+viewport requests; window actions do not submit Finder searches. Existing
+URLs, storage keys, F4 recovery, API/scene contracts and map truth stay unchanged.
+Finder / Saved / Compare tabs remain P2c. Owner decisions are recorded in the
+redesign plan; no reference image was supplied and no pixel fidelity is claimed.
+Product E2E/visual acceptance remains required before promotion; not deployed.
+
 ## 2026-11-03 — UI redesign P3: Finder control polish
 
 Finder archetype choices, ranking facts and the Body filters tool now use the

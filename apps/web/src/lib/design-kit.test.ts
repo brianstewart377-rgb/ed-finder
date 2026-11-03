@@ -180,6 +180,7 @@ const adoptedComponents = [
   'lib/components/WorkspaceHeader.svelte',
   'routes/+page.svelte',
   'lib/features/explore/ExploreWorkspace.svelte',
+  'lib/features/explore/ExploreMapWindow.svelte',
   'lib/features/explore/BodyFilters.svelte',
   'lib/features/explore/ArchetypePicker.svelte',
   'lib/features/explore/FinderResultRanking.svelte',

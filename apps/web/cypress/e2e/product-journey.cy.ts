@@ -8,6 +8,7 @@ type ProductWindow = Window & { __productRuntimeFailures?: string[] };
 
 const readySelector = '[role="status"][data-renderer-state="ready"]';
 const canvasSelector = 'canvas[data-spatial-canvas]';
+const mapWindowSelector = '[data-explore-map-window]';
 const requestTimeout = 20_000;
 const ARCHETYPE_KEYS = [
   'paradise',
@@ -37,7 +38,25 @@ const visitExplore = (path = '/explore') => {
   });
 };
 
+const openExploreMap = () => {
+  cy.get('[data-explore-map-open]').then(($trigger) => {
+    if ($trigger.attr('aria-expanded') !== 'true') cy.wrap($trigger).click();
+  });
+  cy.get(mapWindowSelector)
+    .should('be.visible')
+    .and('have.attr', 'aria-modal', 'false');
+  cy.get(`${mapWindowSelector} ${canvasSelector}`).should('have.length', 1);
+};
+
+const closeExploreMap = () => {
+  cy.get('[data-map-window-close]').click();
+  cy.get(mapWindowSelector).should('not.exist');
+  cy.get(canvasSelector).should('not.exist');
+};
+
 const assertSpatialResultsReady = () => {
+  openExploreMap();
+  cy.get(canvasSelector).scrollIntoView();
   cy.get(readySelector, { timeout: 20_000 }).should('be.visible');
   cy.get('.spatial-canvas')
     .invoke('attr', 'data-scene-target-count')
@@ -52,14 +71,19 @@ const waitForExploreSettled = () => {
     'aria-busy',
     'false',
   );
-  cy.get(`.map-panel ${readySelector}`, { timeout: 20_000 }).should(
-    'be.visible',
-  );
-  cy.get('.map-panel .spatial-canvas', { timeout: 20_000 }).should(
-    'have.attr',
-    'data-camera-transition-active',
-    'false',
-  );
+  // Results are usable before a map is requested. If open, also wait for
+  // that one canvas to settle before browser automation reads the URL.
+  cy.get('body').then(($body) => {
+    if (!$body.find(mapWindowSelector).length) return;
+    cy.get(`${mapWindowSelector} ${readySelector}`, { timeout: 20_000 }).should(
+      'be.visible',
+    );
+    cy.get(`${mapWindowSelector} .spatial-canvas`, { timeout: 20_000 }).should(
+      'have.attr',
+      'data-camera-transition-active',
+      'false',
+    );
+  });
 };
 
 const waitForInspectSettled = () => {
@@ -346,6 +370,7 @@ const assertAnyPage = (selected: string | null) => {
 };
 
 const assertRetainedSelection = () => {
+  openExploreMap();
   const selected = FLEXIBLE_B_FIXTURE_ROWS[0];
   cy.get('[data-testid="selected-system-context"]').should(
     'contain.text',
@@ -354,11 +379,15 @@ const assertRetainedSelection = () => {
   cy.get(`[data-selected-system-card="${selected.id64}"]`)
     .should('have.length', 1)
     .and('contain.text', selected.name);
+  cy.get(canvasSelector).scrollIntoView();
   cy.get(`[data-map-label-key="system:${selected.id64}"]`, { timeout: 20_000 })
     .should('have.length', 1)
     .and('be.visible')
     .and('have.attr', 'data-map-label-selected', 'true')
     .and('contain.text', selected.name);
+  // Ranking/history steps use the results workspace. Suspend the GPU until
+  // the next explicit scene assertion instead of rendering through every URL read.
+  closeExploreMap();
 };
 
 const openMapLayers = () => {
@@ -378,16 +407,17 @@ const closeMapLayers = () => {
 };
 
 const captureFinder = (state: 'any' | 'flexible' | 'flexible-explanation') => {
-  cy.get('[data-region-resource-state="ready"]', { timeout: 20_000 }).should(
-    'contain.text',
-    '42/42 regions',
-  );
+  openExploreMap();
+  cy.get('[data-region-resource-state="ready"]', { timeout: 20_000 })
+    .scrollIntoView()
+    .should('contain.text', '42/42 regions');
   openMapLayers();
   cy.get('[data-nebula-resource-state="ready"]', { timeout: 20_000 }).should(
     'contain.text',
     '5,842 catalogue records',
   );
   closeMapLayers();
+  closeExploreMap();
   cy.document().then((document) => {
     const style = document.createElement('style');
     style.textContent =
@@ -400,11 +430,7 @@ const captureFinder = (state: 'any' | 'flexible' | 'flexible-explanation') => {
   ]) {
     cy.viewport(width, height);
     cy.get('.results-panel').scrollIntoView();
-    cy.get('.spatial-canvas', { timeout: 20_000 }).should(
-      'have.attr',
-      'data-camera-transition-active',
-      'false',
-    );
+    cy.get(canvasSelector).should('not.exist');
     cy.screenshot(
       `product/finder-${state}-${Cypress.browser.name}-${width}x${height}`,
       {
@@ -430,9 +456,10 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     // density pyramid to prove that camera navigation sends bounded coverage.
     cy.intercept('GET', '/api/map/heatmap*').as('density');
     visitExplore();
-    cy.get('[data-region-resource-state="ready"]', { timeout: 20_000 }).should(
-      'be.visible',
-    );
+    openExploreMap();
+    cy.get('[data-region-resource-state="ready"]', { timeout: 20_000 })
+      .scrollIntoView()
+      .should('be.visible');
     cy.get(readySelector, { timeout: 20_000 }).should('be.visible');
 
     let initialSpan = 0;
@@ -517,7 +544,7 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       'Within 500 LY of Achenar · sorted by distance',
     );
     cy.get('#search-radius').should('be.enabled').and('have.value', '500');
-    // At 1280px, card facts use the narrow results column's full width;
+    // At 1280px, card facts use the available results column's full width;
     // actions follow the identity without taking space away from its name.
     cy.get('[data-system-result]')
       .first()
@@ -695,6 +722,55 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     );
     cy.get('[aria-label="Remove Earth-like filter"]').should('be.visible');
     cy.contains('button', /^Clear all$/).should('be.visible');
+    // These are the existing Body filters tabs; Explore task tabs belong to
+    // P2c. Switching them and presenting the map never commits another search.
+    cy.contains('button', /^Body filters$/).click();
+    cy.contains(`${dialog} [role="tab"]`, 'Stars').click();
+    cy.contains(`${dialog} [role="tab"]`, 'Planets').click();
+    cy.get(`${dialog} [aria-label="Earth-like minimum"]`).should(
+      'have.value',
+      '1',
+    );
+    cy.get(dialog)
+      .contains('button', /^Cancel$/)
+      .click();
+    let retainedSearch = '';
+    cy.location('search').then((search) => {
+      retainedSearch = search;
+    });
+    for (const [width, height] of [
+      [1280, 800],
+      [390, 844],
+    ]) {
+      cy.viewport(width, height);
+      openExploreMap();
+      cy.get('[data-map-window-expand]').click();
+      cy.get(mapWindowSelector).should('have.attr', 'data-expanded', 'true');
+      closeExploreMap();
+      cy.get('[data-explore-map-open]').should('be.focused');
+      cy.get('#system-search').should('have.value', 'Achenar');
+      cy.get('#search-radius').should('have.value', '500');
+      cy.get('[data-result-select][aria-pressed="true"]')
+        .closest('[data-system-result]')
+        .should('have.attr', 'data-system-result', anchorId);
+      cy.contains('Earth-like ≥ 1').should('be.visible');
+      cy.then(() => cy.location('search').should('eq', retainedSearch));
+      cy.get('@search.all').should('have.length', 4);
+      cy.contains('button', /^Body filters$/).click();
+      cy.contains(`${dialog} [role="tab"]`, 'Planets').should(
+        'have.attr',
+        'aria-selected',
+        'true',
+      );
+      cy.get(`${dialog} [aria-label="Earth-like minimum"]`).should(
+        'have.value',
+        '1',
+      );
+      cy.get(dialog)
+        .contains('button', /^Cancel$/)
+        .click();
+    }
+    cy.viewport(1280, 800);
     cy.location('search', { timeout: 15_000 }).should((search) => {
       const params = new URLSearchParams(search);
       expect(params.getAll('near')).to.deep.equal([anchorId]);
@@ -834,6 +910,7 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.contains('[aria-label="Result pages"] button', 'Next').should(
       'be.disabled',
     );
+    openExploreMap();
     waitForExploreSettled();
     cy.location({ timeout: 15_000 }).then(({ pathname, search }) => {
       copiedExploreUrl = `${pathname}${search}`;
@@ -897,11 +974,11 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.contains('a', 'Open in Explore').click();
     assertRankingsRequest(2);
     assertFinderUrl('flexible', 2, selectedId, 'B', true);
-    assertFlexiblePage(2, 3, selectedId);
-    assertRetainedSelection();
     cy.get('[data-testid="system-detail-modal"]').should('be.visible');
     cy.get('[aria-label="Close system detail"]').click();
     assertFinderUrl('flexible', 2, selectedId);
+    assertFlexiblePage(2, 3, selectedId);
+    assertRetainedSelection();
     cy.get('[data-testid="system-detail-modal"]').should('not.exist');
     assertRetainedSelection();
     cy.injectAxe();
@@ -1027,10 +1104,9 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       0,
     );
     assertSpatialResultsReady();
-    cy.get('[data-region-resource-state="ready"]', { timeout: 20_000 }).should(
-      'contain.text',
-      '42/42 regions',
-    );
+    cy.get('[data-region-resource-state="ready"]', { timeout: 20_000 })
+      .scrollIntoView()
+      .should('contain.text', '42/42 regions');
     openMapLayers();
     cy.get('[data-nebula-resource-state="ready"]', { timeout: 20_000 })
       .should('contain.text', '5,842 catalogue records')
@@ -1047,6 +1123,7 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       .invoke('attr', 'data-system-target-count')
       .then((count) => expect(Number(count)).to.be.greaterThan(0));
     cy.contains('button', 'All 42 regions').click();
+    cy.get(canvasSelector).scrollIntoView();
     cy.get('[data-map-label-kind="region"]', { timeout: 20_000 })
       .should('have.length', 42)
       .then(($labels) => {
@@ -1122,6 +1199,7 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       );
     });
 
+    cy.get(canvasSelector).scrollIntoView();
     cy.get('[data-map-label-key="system:10477373803000"]', {
       timeout: 20_000,
     })
@@ -1151,6 +1229,7 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       1,
     );
     cy.get('[data-selected-system-card="10477373803000"]')
+      .scrollIntoView()
       .should('be.visible')
       .and('contain.text', 'Achenar')
       .and('contain.text', 'Primary star');

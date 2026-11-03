@@ -41,6 +41,8 @@ const adapter = vi.hoisted(() => ({
   runtimes: [] as Array<{
     dispatch: ReturnType<typeof vi.fn>;
     dispose: ReturnType<typeof vi.fn>;
+    subscribe: ReturnType<typeof vi.fn>;
+    unsubscribe: ReturnType<typeof vi.fn>;
     emit: (event: Parameters<RuntimeEventListener>[0]) => void;
   }>,
   create: vi.fn(),
@@ -184,6 +186,11 @@ describe('SpatialCanvas', () => {
       const record = {
         dispatch: vi.fn(() => ({ status: 'executed' as const })),
         dispose: vi.fn(),
+        subscribe: vi.fn((next: RuntimeEventListener) => {
+          listener = next;
+          return record.unsubscribe;
+        }),
+        unsubscribe: vi.fn(),
         emit: (event: Parameters<RuntimeEventListener>[0]) => listener(event),
       };
       adapter.runtimes.push(record);
@@ -196,10 +203,7 @@ describe('SpatialCanvas', () => {
           return ready;
         }),
         dispatch: record.dispatch,
-        subscribe: vi.fn((next: RuntimeEventListener) => {
-          listener = next;
-          return vi.fn();
-        }),
+        subscribe: record.subscribe,
         resize: vi.fn(),
         dispose: record.dispose,
       };
@@ -262,6 +266,8 @@ describe('SpatialCanvas', () => {
 
     expect(disconnect).toHaveBeenCalledOnce();
     expect(adapter.runtimes[0]?.dispose).toHaveBeenCalledOnce();
+    expect(adapter.runtimes[0]?.subscribe).toHaveBeenCalledOnce();
+    expect(adapter.runtimes[0]?.unsubscribe).toHaveBeenCalledOnce();
 
     const second = render(SpatialCanvas);
     await waitFor(() => expect(adapter.runtimes).toHaveLength(2));
@@ -269,6 +275,8 @@ describe('SpatialCanvas', () => {
 
     expect(disconnect).toHaveBeenCalledTimes(2);
     expect(adapter.runtimes[1]?.dispose).toHaveBeenCalledOnce();
+    expect(adapter.runtimes[1]?.subscribe).toHaveBeenCalledOnce();
+    expect(adapter.runtimes[1]?.unsubscribe).toHaveBeenCalledOnce();
   });
 
   it.each([false, true])(
