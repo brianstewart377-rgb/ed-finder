@@ -17,8 +17,9 @@ Pre-cutover history remains available in Git history and dated/archive documents
   (1920 px wide for desktop, 960 px wide for phones) under `apps/web/static/assets/`.
 - Nothing displays them yet: the home page rework that uses them is a separate change.
 - Recorded where the image came from in `assets/PROVENANCE.json`,
-  `THIRD_PARTY_NOTICES.md` and `assets/README.md`. It is marked noncommercial-only
-  and Frontier-derived, and the screenshot's author was not independently verified.
+  `THIRD_PARTY_NOTICES.md` and `assets/README.md`. The owner took the screenshot
+  and gave permission for its use, which is recorded as the creator's permission.
+  It is marked noncommercial-only and Frontier-derived.
 - The original concept-pack Orbis home mockup stays out of the repository.
 
 ## 2026-11-03 — UI concept pack added to the repository (reference only)

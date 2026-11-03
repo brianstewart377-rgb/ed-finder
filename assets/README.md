@@ -118,9 +118,10 @@ valid. The other entries keep their earlier approval dates.
 Two entries were added without a full re-audit:
 `apps/web/static/assets/home-hero-black-hole-1920.webp` and
 `apps/web/static/assets/home-hero-black-hole-960.webp`, resized derivatives of an
-Elite Dangerous in-game screenshot the owner supplied for the home page
-background. They are recorded as `noncommercial_only` and Frontier-derived; the
-screenshot's author was not independently verified. The manifest `audit_date`
+Elite Dangerous in-game screenshot the owner took themselves and approved for
+the home page background. The owner is recorded as the creator and their
+permission is recorded from their own statement on 2026-11-03. The files are
+recorded as `noncommercial_only` and Frontier-derived. The manifest `audit_date`
 moved to 2026-11-03 so that these entries' approval date is valid. The other
 entries keep their earlier approval dates.
 
