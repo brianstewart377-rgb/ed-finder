@@ -21,6 +21,7 @@ import {
   stripRankingSearchParams,
 } from './ranking-state';
 import { SEARCH_RADIUS_OPTIONS } from './search-state';
+import { BODY_FILTER_OPTIONS } from './body-filters';
 
 const params = (query: string) => new URLSearchParams(query);
 const parse = (query: string) => parseRankingSearchParams(params(query));
@@ -343,6 +344,45 @@ describe('ranking URL parsing', () => {
       { parameter: 'weight', reason: 'ignored', value: 'risk:100' },
     ]);
     expect(serialize(parsed.state)).toBe('');
+  });
+
+  it('never promotes supported body counts or economy names into ranking weights', () => {
+    const dimensions = [
+      ...BODY_FILTER_OPTIONS.map(({ key }) => key),
+      'agriculture',
+      'industrial',
+    ];
+    for (const archetype of ['any', 'paradise'] as const) {
+      const query = new URLSearchParams({ archetype });
+      for (const dimension of dimensions)
+        query.append('weight', `${dimension}:2500`);
+      const parsed = parseRankingSearchParams(query);
+      expect(parsed.state.weights).toEqual({});
+      expect(parsed.issues).toEqual(
+        dimensions.map((dimension) => ({
+          parameter: 'weight',
+          reason: 'ignored',
+          value: `${dimension}:2500`,
+        })),
+      );
+      expect(
+        serializeRankingSearchParams(parsed.state, query).has('weight'),
+      ).toBe(false);
+      for (const enabled of [false, true]) {
+        for (const anchor of [null, { x: 1, y: 2, z: 3 }]) {
+          const request = selectFinderRequest(parsed.state, anchor, {
+            enabled,
+          });
+          expect(request).toEqual(
+            selectFinderRequest(normalizeRankingState({ archetype }), anchor, {
+              enabled,
+            }),
+          );
+          expect(request.request).not.toHaveProperty('weights');
+          expect(request.request).not.toHaveProperty('weight');
+        }
+      }
+    }
   });
 
   it('parses basis-point weights only when the contract is explicitly enabled', () => {

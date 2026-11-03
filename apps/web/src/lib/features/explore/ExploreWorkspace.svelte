@@ -47,6 +47,7 @@
   import ArchetypeExplanation from './ArchetypeExplanation.svelte';
   import FinderResultRanking from './FinderResultRanking.svelte';
   import BodyFilters from './BodyFilters.svelte';
+  import { starClassLabel } from './star-label';
   import {
     normalizeBodyFilters,
     type BodyFilterKey,
@@ -1759,6 +1760,7 @@
       Search anchor: {anchor.name}
       <button
         type="button"
+        class="quiet-button"
         aria-label={`Clear anchor ${anchor.name}`}
         onclick={clearAnchor}>Clear</button
       >
@@ -2011,7 +2013,7 @@
                       >{population(system.population)} population</span
                     >{/if}
                   {#if system.main_star_type}<span
-                      >{system.main_star_type} star</span
+                      >{starClassLabel(system.main_star_type)}</span
                     >{/if}
                 </span>
               </button>
@@ -2453,8 +2455,16 @@
   .committed-anchor,
   .result-paging {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.75rem;
+  }
+  .committed-anchor {
+    color: var(--text-muted);
+  }
+  .committed-anchor button {
+    padding: 0.35rem 0.75rem;
+    font: inherit;
   }
   .page-size {
     display: flex;
@@ -2464,6 +2474,45 @@
   }
   .page-size input {
     width: 5rem;
+    padding: 0.4rem 0.6rem;
+  }
+  .results-panel .panel-heading {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.65rem;
+  }
+  /* The results column is narrow even on desktop. Give the identity and
+     facts the full row, with actions following in their existing focus order. */
+  .result-list li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+    padding-block: 0.25rem 0.75rem;
+  }
+  .result-select {
+    width: 100%;
+    padding: 0.9rem 1.15rem 0.65rem;
+  }
+  .result-title strong {
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    font-size: 1rem;
+    line-height: 1.45;
+  }
+  .result-title code {
+    overflow-wrap: anywhere;
+    color: var(--text-muted);
+  }
+  .result-facts {
+    display: grid;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+  .result-list .inspect-link {
+    justify-self: start;
+    margin: 0.25rem 1.15rem 0.5rem;
   }
   .search-scope {
     display: flex;
@@ -2471,8 +2520,10 @@
     align-items: center;
     gap: 0.6rem 1rem;
     padding: 0.75rem 1.15rem;
-    color: var(--muted);
+    background: var(--panel-sunken);
+    color: var(--text-muted);
     font-size: 0.85rem;
+    line-height: 1.5;
     border-bottom: 1px solid var(--line);
   }
   .search-scope p {
@@ -2486,7 +2537,7 @@
   .search-radius select {
     padding: 0.35rem 0.5rem;
     border: 1px solid var(--line);
-    border-radius: 0.4rem;
+    border-radius: var(--radius-sm);
     background: var(--panel-raised);
     color: inherit;
     font: inherit;
@@ -2496,7 +2547,7 @@
     opacity: 0.65;
   }
   .search-radius select:focus-visible {
-    outline: 2px solid var(--color-cyan);
+    outline: 2px solid var(--focus);
     outline-offset: 2px;
   }
   .radius-hint {
@@ -2521,7 +2572,7 @@
   }
   .finder-actions {
     grid-column: 1 / -1;
-    padding: 0 1rem 0.75rem;
+    padding: 0 1.15rem;
   }
   #saved-systems,
   #compare-systems {

@@ -11,6 +11,24 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-03 — UI redesign P3: Finder control polish
+
+Finder archetype choices, ranking facts and the Body filters tool now use the
+shared design kit consistently. All 19 count controls remain in the existing
+Planets / Stars / Features tabs, with Reset / Cancel / Apply and keyboard focus
+preserved. Chips remain outside the closed tool and explicitly say Applied or
+Paused; their explanation now states that filtering needs both a nearby anchor
+and Any mode. Existing scope, distance ordering and capped-radius wording stay
+unchanged.
+
+Catalogue cards give names, id64, distance/within text and star classes the full
+results-column width, with actions below. Star classes already ending in “Star”
+no longer gain a duplicate suffix. Plan facility previews use the existing
+readable evaluation-reason labels, retaining raw codes only for unknown reasons.
+Explore state ownership, map/layout, requests, URL roundtrips, ranking identities
+and feature gates are unchanged. Browser visual acceptance remains required
+before promotion; this change does not deploy anything.
+
 ## 2026-11-03 — UI redesign P5a: Plan tabs and facility preview
 
 The Plan workspace now has accessible System layout / Build order tabs with
