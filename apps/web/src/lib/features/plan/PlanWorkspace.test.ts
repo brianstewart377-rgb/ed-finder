@@ -249,6 +249,79 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+describe('economy explanations', () => {
+  it('opens the existing Why drawer from an economy and restores segment focus', async () => {
+    const economyBodies = { ...bodyData, economy_facts_generation_id: 'facts' };
+    vi.mocked(listV3PlanBodies).mockResolvedValue(economyBodies);
+    queryClient.setQueryData(['ed-finder', 'plan-bodies', '42'], economyBodies);
+    const result = evaluated(17);
+    result.economies.after_plan = [
+      {
+        site_id: 'imported-port',
+        body_ref: '1',
+        role: 'main',
+        supports: null,
+        economies: [
+          {
+            name: 'Extraction',
+            strength: 1.5,
+            items: [
+              {
+                kind: 'own',
+                base: 1.5,
+                modifiers: [],
+                floored: false,
+                value: 1.5,
+                source_site_ids: ['imported-port'],
+                via_site_id: null,
+                rule_ids: ['RB-0009'],
+                count: null,
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    const rule = {
+      id: 'RB-0009',
+      title: 'Economy calculation',
+      status: 'confirmed',
+      statement: 'Returned economy statement.',
+      quote: 'Returned economy quote.',
+      page: 9,
+    };
+    result.explanations = {
+      'RB-0009': rule,
+      'RB-0003': { ...rule, id: 'RB-0003', title: 'Unrelated budget rule' },
+    };
+    vi.mocked(evaluateV3Plan).mockResolvedValue(result);
+    seedPrimary();
+    render(PlanWorkspaceTestHost);
+    await advance(300);
+    const section = screen.getByRole('region', { name: 'Port economies' });
+    const segment = within(section).getAllByRole('button', {
+      name: /Extraction/,
+    })[0];
+    segment.focus();
+    await fireEvent.click(segment);
+    await advance(0);
+    const dialog = screen.getByRole('dialog', {
+      name: 'Primary port · Extraction',
+    });
+    expect(dialog).toHaveFocus();
+    expect(
+      within(dialog).getByText('RB-0009 · Economy calculation'),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).queryByText(/Unrelated budget rule/),
+    ).not.toBeInTheDocument();
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    await advance(0);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(segment).toHaveFocus();
+  });
+});
+
 describe('Raven layout import', () => {
   beforeEach(() => {
     const ravenCatalogue = {

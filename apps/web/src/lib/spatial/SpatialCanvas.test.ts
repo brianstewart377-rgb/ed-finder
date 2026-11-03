@@ -25,7 +25,10 @@ import * as galaxyLabels from './galaxy-labels';
 import { projectGalaxyLabel } from './galaxy-labels';
 import { systemDetailFromV3 } from '$lib/api/client';
 import { v3Body, v3System } from '$lib/api/v3-system-fixtures';
-import { buildSystemScene } from './system-scene';
+import {
+  buildSystemScene,
+  SYSTEM_OVERVIEW_REFERENCE_ASPECT,
+} from './system-scene';
 import type {
   CameraState,
   GalaxySceneContract,
@@ -746,6 +749,135 @@ describe('SpatialCanvas', () => {
       },
     });
     expect(validate).toHaveBeenCalledOnce();
+  });
+
+  it('widens a system overview for a narrow canvas and resets to that fit', async () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(600);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
+    const scene: SpatialSceneContract = {
+      kind: 'system',
+      revision: 4,
+      systemId64: '42',
+      fidelity: 'S1',
+      camera: {
+        systemId64: '42',
+        focus: { kind: 'system', systemId64: '42' },
+        semanticDistance: 153,
+        bearingRad: -0.85,
+        pitchRad: 0.58,
+        revision: 4,
+      },
+      bodies: [],
+      infrastructure: [],
+      contributions: [],
+    };
+    render(SpatialCanvas, { props: { scene } });
+    await waitFor(() => expect(adapter.runtimes).toHaveLength(1));
+    const runtime = adapter.runtimes[0]!;
+    const expected = Math.ceil(153 * SYSTEM_OVERVIEW_REFERENCE_ASPECT);
+    await waitFor(() => {
+      const fitted = runtime.dispatch.mock.calls.findLast(
+        ([command]) => command.type === 'SET_CAMERA',
+      )?.[0];
+      expect(fitted?.camera.semanticDistance).toBe(expected);
+    });
+    screen.getByRole('button', { name: 'Zoom in' }).click();
+    screen.getByRole('button', { name: 'Reset view' }).click();
+    const reset = runtime.dispatch.mock.calls.findLast(
+      ([command]) => command.type === 'SET_CAMERA',
+    )?.[0];
+    expect(reset.camera.semanticDistance).toBe(expected);
+  });
+
+  it('does not re-fit an already-fitted camera on F4 context recovery', async () => {
+    feature.finder = true;
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(600);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(684);
+    const scene: SpatialSceneContract = {
+      kind: 'system',
+      revision: 5,
+      systemId64: '42',
+      fidelity: 'S1',
+      camera: {
+        systemId64: '42',
+        focus: { kind: 'system', systemId64: '42' },
+        semanticDistance: 38,
+        bearingRad: -0.85,
+        pitchRad: 0.58,
+        revision: 5,
+      },
+      bodies: [],
+      infrastructure: [],
+      contributions: [],
+    };
+    render(SpatialCanvas, { props: { scene } });
+    await waitFor(() => expect(adapter.runtimes).toHaveLength(1));
+    const runtime = adapter.runtimes[0]!;
+    // 38 at the reference aspect widens to 76 on a 600 × 684 canvas.
+    const expected = Math.ceil(
+      38 * (SYSTEM_OVERVIEW_REFERENCE_ASPECT / (600 / 684)),
+    );
+    await waitFor(() => {
+      const fitted = runtime.dispatch.mock.calls.findLast(
+        ([command]) => command.type === 'SET_CAMERA',
+      )?.[0];
+      expect(fitted?.camera.semanticDistance).toBe(expected);
+    });
+    const loadsBefore = runtime.dispatch.mock.calls.filter(
+      ([command]) => command.type === 'LOAD_SCENE',
+    ).length;
+    runtime.emit({ type: 'RECOVERED', detail: 'Test context restored' });
+    await waitFor(() =>
+      expect(
+        runtime.dispatch.mock.calls.filter(
+          ([command]) => command.type === 'LOAD_SCENE',
+        ),
+      ).toHaveLength(loadsBefore + 1),
+    );
+    const recovered = runtime.dispatch.mock.calls.findLast(
+      ([command]) => command.type === 'LOAD_SCENE',
+    )?.[0];
+    // The recovery resumes the fitted camera without compounding the fit.
+    expect(recovered.scene.camera.semanticDistance).toBe(expected);
+    const lastSet = runtime.dispatch.mock.calls.findLast(
+      ([command]) => command.type === 'SET_CAMERA',
+    )?.[0];
+    expect(lastSet.camera.semanticDistance).toBe(expected);
+    screen.getByRole('button', { name: 'Reset view' }).click();
+    const reset = runtime.dispatch.mock.calls.findLast(
+      ([command]) => command.type === 'SET_CAMERA',
+    )?.[0];
+    expect(reset.camera.semanticDistance).toBe(expected);
+  });
+
+  it('lets a large system overview zoom back out past the default ceiling', async () => {
+    const scene: SpatialSceneContract = {
+      kind: 'system',
+      revision: 3,
+      systemId64: '42',
+      fidelity: 'S1',
+      camera: {
+        systemId64: '42',
+        focus: { kind: 'system', systemId64: '42' },
+        semanticDistance: 153,
+        bearingRad: -0.85,
+        pitchRad: 0.58,
+        revision: 3,
+      },
+      bodies: [],
+      infrastructure: [],
+      contributions: [],
+    };
+    render(SpatialCanvas, { props: { scene } });
+    await waitFor(() => expect(adapter.runtimes).toHaveLength(1));
+    const runtime = adapter.runtimes[0]!;
+    screen.getByRole('button', { name: 'Zoom out' }).click();
+    const zoomed = runtime.dispatch.mock.calls.findLast(
+      ([command]) => command.type === 'SET_CAMERA',
+    )?.[0];
+    // The old fixed 120 ceiling pulled the camera inward on zoom out.
+    expect(zoomed.camera.semanticDistance).toBeGreaterThan(153);
+    expect(zoomed.camera.semanticDistance).toBeLessThanOrEqual(153 * 1.5);
   });
 
   it('provides orbit, zoom and click controls for a system scene', async () => {

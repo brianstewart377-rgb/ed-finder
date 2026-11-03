@@ -16,6 +16,7 @@
     bodyTypeLabel,
     buildSystemScene,
     stellarClassification,
+    systemBodyLayout,
   } from '$lib/spatial/system-scene';
   import SystemRatings from './SystemRatings.svelte';
   import SourcesFreshness from './SourcesFreshness.svelte';
@@ -122,6 +123,18 @@
   );
   const selectedBody = $derived(
     detail.data?.bodies.find((body) => body.id === selectedBodyId) ?? null,
+  );
+  const unplacedBodies = $derived(
+    systemScene
+      ? systemBodyLayout(systemScene.bodies).filter(
+          (layout) => layout.placement === 'unplaced',
+        )
+      : [],
+  );
+  const unmappedBodies = $derived(
+    (detail.data?.bodies ?? []).filter(
+      (body) => typeof body.id !== 'number' || !Number.isSafeInteger(body.id),
+    ),
   );
   const selectedRings = $derived(
     selectedBody?.rings.filter((ring) => ring.kind === 'RING').length ?? 0,
@@ -393,22 +406,60 @@
             <p class="eyebrow">3D system map</p>
             <h2 id={`${headingId}-map`}>Explore {detail.data.name}</h2>
           </div>
-          <span>{systemScene.bodies.length} catalogue bodies</span>
+          <span>{systemScene.bodies.length} mapped catalogue bodies</span>
         </div>
         <p class="system-map-truth-note">
-          Planet classes come from the published Ratings V4 derived catalogue;
-          colours group those classes for display. Radii, arrival distances, and
-          known ring state come from the canonical catalogue. Orbit positions
-          and display sizes are schematic.
+          Layout: schematic; order by known orbital distance; moons grouped by
+          known parent. Planet classes come from the published Ratings V4
+          derived catalogue; colours group those classes for display. Radii,
+          parent links, arrival distances, and known ring state come from the
+          canonical catalogue. Display sizes and positions are schematic;
+          physical scale and present orbital phase are not shown.
         </p>
         <SpatialCanvas
           scene={systemScene}
           onRuntimeEvent={handleSystemMapEvent}
         />
+        <aside class="system-map-legend" aria-label="System map legend">
+          <p>
+            Faint circles guide known child orbits around each parent; unknown
+            distances have no circle. Crosses mark barycentres. Amber diamonds:
+            position unknown. Links appear for selected or hovered bodies.
+          </p>
+          {#if unplacedBodies.length > 0}
+            <h3>Unplaced bodies — position unknown</h3>
+            <p>
+              Position unknown markers identify gaps in parent links or
+              distances. The unattached group keeps unresolved parent links
+              visible.
+            </p>
+            <ul aria-label="Unplaced bodies">
+              {#each unplacedBodies as layout (layout.body.ref.bodyId)}
+                <li data-unplaced-body-id={layout.body.ref.bodyId}>
+                  <strong>{layout.body.name}</strong>
+                  — position unknown{#if layout.positionUnknownReason}: {layout.positionUnknownReason}{/if}{#if layout.group === 'unattached'}
+                    · Unattached group{/if}
+                </li>
+              {/each}
+            </ul>
+          {/if}
+          {#if unmappedBodies.length > 0}
+            <h3>Bodies without a map identity</h3>
+            <p>
+              These catalogue bodies have no usable Frontier BodyID and cannot
+              be selected or positioned in this map.
+            </p>
+            <ul aria-label="Bodies without a map identity">
+              {#each unmappedBodies as body (body.bodyKey)}
+                <li>{body.name}</li>
+              {/each}
+            </ul>
+          {/if}
+        </aside>
         <div class="system-map-browser">
           <ol aria-label="System bodies">
             {#each detail.data.bodies as body (body.bodyKey)}
-              {#if typeof body.id === 'number'}
+              {#if typeof body.id === 'number' && Number.isSafeInteger(body.id)}
                 <li>
                   <button
                     type="button"
@@ -569,3 +620,29 @@
     {/if}
   {/if}
 </section>
+
+<style>
+  .system-map-legend {
+    padding: 0.75rem 1rem;
+    color: #8fa5b9;
+    font-size: 0.78rem;
+    line-height: 1.55;
+  }
+
+  .system-map-legend p {
+    margin: 0;
+  }
+
+  .system-map-legend h3 {
+    margin: 0.75rem 0 0.25rem;
+    color: #d9e7ef;
+    font-size: 0.85rem;
+  }
+
+  .system-map-legend ul {
+    max-height: 12rem;
+    overflow: auto;
+    margin: 0.5rem 0 0;
+    padding-left: 1.25rem;
+  }
+</style>

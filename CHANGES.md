@@ -38,6 +38,58 @@ and reloads. The existing Cypress body-filter journey now checks scope, a
 assertions. This user-visible change requires Product E2E/visual
 validation before production promotion and is **not deployed**.
 
+## 2026-11-02 — Colony Planner S5c: economy bars
+
+`/plan` compares Now and After plan economies for every port, Primary Port
+first, with stable colours, a legend and highlights for appearances,
+disappearances and changes over five percentage points. Keyboard-focusable
+segments expose the returned contribution breakdown and open the existing Why
+drawer filtered to the economy's rule IDs. Values come only from evaluate;
+strengths are shown as returned (1.0 = 100%), with a note when the total is not
+100%. Missing published-generation facts, empty economies, evaluation notes and
+outdated results are stated explicitly.
+
+The planner design now documents S5a (core), S5b (facts and evaluate contract)
+and S5c (bars). Component and Cypress journey coverage exercise the comparison,
+keyboard explanations and accessibility. No backend change or migration. This
+visual change needs Product E2E/visual acceptance before promotion and is not
+deployed.
+
+## 2026-11-02 — Hierarchy-aware schematic System Map (M13)
+
+The System Map now builds a deterministic forest from canonical parent keys:
+stars, barycentres, planets and nested moons have their own schematic regions.
+Sibling bands reserve complete descendant and display-ring footprints so moons
+do not overlap their planet or cross a sibling planet's band. Known semi-major
+axes determine order, with arrival distance and then name as fallbacks and body
+keys breaking ties. Placed children span a full circle with a stable per-parent
+phase, and compact bands add only modest logarithmic spacing. Unknown-distance
+children occupy a separate shelf beyond the known bands. The overview scales
+planet/star glyphs to preserve their earlier angular sizes through semantic
+range 60; compact moons retain a visible size floor and a six-CSS-pixel picking
+radius. Two-body systems retain range 38 and their earlier glyph sizes.
+Frontier BodyID picking identities are preserved. The frontend mapper now
+retains the parent key and semi-major axis already present on the wire; no API
+change is included.
+
+Each placed child has a faint guide at its own schematic orbit radius around
+its parent; unknown distances claim no guide. Barycentres use crosses, and links
+appear only for selected or hovered bodies. Missing parents stay in an explicit
+unattached group; missing distances, cyclic links and pathological layout ranges
+are visibly unplaced instead of being stacked at the star. The truth note and
+legend explain the schematic and unknown-position markers. Catalogue bodies
+without a usable Frontier BodyID remain listed outside the map; resolved station
+body labels and the station list retain their existing catalogue associations.
+
+The former flat-spiral scene assertions now test parent membership and local
+regions. Vitest coverage includes a 41-body Sol-like overview bounded to range
+60, full-circle sibling distribution, readable planet sizes, binary hierarchies,
+nested moon and ring bounds, fallback ordering, shuffled-input determinism,
+malformed links, NullEngine guides/picking/selection/hover, and the component
+truth note. M12 class colours, giant bands and unknown-class dimming remain. This
+visible change needs Product E2E/visual validation before production promotion
+and is not deployed.
+
 ## 2026-11-02 — Complete known-system density follows the camera (M06)
 
 Explore requests known-system density inside an overscanned, bucketed camera

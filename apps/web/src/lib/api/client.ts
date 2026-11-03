@@ -120,11 +120,15 @@ export type {
   V3JournalImportRequest,
   V3VerifiedImportReceipt,
   ContributionRow,
+  EconomyItemV1,
+  EconomyNoteV1,
+  EconomyV1,
   GalaxyImpactSummary,
   PlanBodiesV1,
   PlanBodyV1,
   PlanCatalogueV1,
   PlanCheckV1,
+  PlanEconomiesV1,
   PlanEvaluationV1,
   PlanFacilityV1,
   PlanInvalidV1,
@@ -137,6 +141,7 @@ export type {
   PlanSystemBeltV1,
   PlanSystemBodyV1,
   PlanTotalsV1,
+  PortEconomyV1,
 } from './generated';
 
 export const getV3PlanCatalogue = async (signal?: AbortSignal) =>
@@ -557,13 +562,14 @@ export type SystemDetailRing = Readonly<{
 /** One catalogued body as Inspect renders it (V3 canonical generation). */
 export type SystemDetailBody = Readonly<{
   /**
-   * Frontier in-system BodyID: the 3D map / selection reference. Null when the
-   * catalogue has none (or it is not a unique safe integer); such a body is
-   * counted but cannot be selected in the system map.
+   * Frontier in-system BodyID, when uniquely available as a safe integer.
+   * System Map selection requires this ID; parent links use the key below.
    */
   id: number | null;
   /** Canonical V3 body key (lossless decimal). */
   bodyKey: string;
+  /** Canonical V3 parent key, which may refer to an unloaded body. */
+  directParentBodyKey: string | null;
   name: string;
   /** V3 public body-type code: `star`, `planet`, `barycentre`, `belt_cluster`. */
   bodyType: string | null;
@@ -575,6 +581,7 @@ export type SystemDetailBody = Readonly<{
   luminosityClass: string | null;
   isLandable: boolean | null;
   radiusKm: number | null;
+  semiMajorAxisKm: number | null;
   distanceFromArrivalLs: number | null;
   rings: readonly SystemDetailRing[];
   signals: readonly Readonly<{ signalType: string; count: number }>[];
@@ -1332,6 +1339,7 @@ export function systemDetailFromV3(
       .map((body): SystemDetailBody => ({
         id: ids.get(body.body_id) ?? null,
         bodyKey: body.body_id,
+        directParentBodyKey: body.direct_parent_body_id,
         name: body.name,
         bodyType: body.body_type,
         bodyClass: body.body_class ?? null,
@@ -1342,6 +1350,7 @@ export function systemDetailFromV3(
         luminosityClass: body.luminosity_class,
         isLandable: body.is_landable,
         radiusKm: body.radius_km,
+        semiMajorAxisKm: body.semi_major_axis_km,
         distanceFromArrivalLs: body.distance_from_arrival_ls,
         rings: ringsByBody.get(body.body_id) ?? [],
         signals: body.signals.map((signal) => ({

@@ -1,4 +1,5 @@
 import type {
+  EconomyItemV1,
   PlanBodiesV1,
   PlanCatalogueV1,
   PlanEvaluationV1,
@@ -6,11 +7,12 @@ import type {
   PlanRequestV1,
   PlanStepV1,
   PlanSystemBodyV1,
+  PortEconomyV1,
 } from '../../src/lib/api/generated/types.gen';
 
-// S4 is a browser-only slice. Ordinary success responses keep this journey
+// Ordinary success responses keep this browser journey
 // independent of database seeds; all displayed budgets come from the intercepted
-// evaluation contract, including the picker's evaluation preview.
+// evaluation contract, including the picker's evaluation preview and S5c bars.
 const systemId = '9007199254740993';
 const systemName = 'Planner Reference';
 const primaryId = 'coriolis';
@@ -111,6 +113,12 @@ function body(
     biological_signals: 0,
     signals_complete: true,
     lifecycle_state: 'ACTIVE',
+    economy_kind: 'rocky_body',
+    economy_parent_id: 'star-a',
+    in_binary_pair: false,
+    tidally_locked: false,
+    volcanism_present: false,
+    terraformable: false,
     ...fields,
   };
 }
@@ -119,12 +127,20 @@ const bodies: PlanBodiesV1 = {
   generation_id: 'planner-browser-generation',
   publication_sequence: '1',
   system_id64: systemId,
+  economy_facts_generation_id: 'planner-browser-derived',
+  reserve_level: 'pristine',
+  has_black_hole: false,
+  has_white_dwarf: false,
+  has_neutron_star: false,
+  economy_notes: [],
   bodies: [
     body('star-a', `${systemName} A`, {
       body_type: 'Star',
       is_main_star: true,
       is_landable: false,
       radius_km: 600000,
+      economy_kind: 'other_star',
+      economy_parent_id: null,
     }),
     body('planet-1', `${systemName} A 1`, {
       direct_parent_body_id: 'star-a',
@@ -135,11 +151,13 @@ const bodies: PlanBodiesV1 = {
       body_type: 'Belt Cluster',
       direct_parent_body_id: 'star-a',
       is_landable: false,
+      economy_kind: null,
     }),
     body('cluster-1', `${systemName} A A Belt Cluster 1`, {
       body_type: 'Belt Cluster',
       direct_parent_body_id: 'star-a',
       is_landable: false,
+      economy_kind: null,
     }),
   ],
   belts: [
@@ -156,6 +174,25 @@ const bodies: PlanBodiesV1 = {
     },
   ],
 };
+
+function economyItem(
+  kind: EconomyItemV1['kind'],
+  value: number,
+  sourceSiteIds: string[],
+  ruleIds: string[],
+): EconomyItemV1 {
+  return {
+    kind,
+    base: value,
+    modifiers: [],
+    floored: false,
+    value,
+    source_site_ids: sourceSiteIds,
+    via_site_id: null,
+    rule_ids: ruleIds,
+    count: null,
+  };
+}
 
 function evaluation(request: PlanRequestV1): PlanEvaluationV1 {
   const ids = request.sites.map((site) => site.facility_id);
@@ -189,6 +226,59 @@ function evaluation(request: PlanRequestV1): PlanEvaluationV1 {
       payers: blocked ? [payerId] : [],
     };
   });
+  // Strengths are returned shares, not weights to renormalize. The ordinary
+  // primary-port case deliberately totals over 100% once its links are added.
+  const ports: PortEconomyV1[] = request.sites
+    .filter((site) =>
+      catalogue.facilities.some(
+        (entry) => entry.id === site.facility_id && entry.is_port,
+      ),
+    )
+    .map((site) => ({
+      site_id: site.site_id,
+      body_ref: site.body_ref ?? null,
+      role: 'main',
+      supports: null,
+      economies: [
+        {
+          name: 'Extraction',
+          strength: hasPayer ? 1.5 : 1,
+          items: [
+            economyItem('own', 1, [site.site_id], ['RB-0010']),
+            ...(hasPayer
+              ? [
+                  economyItem(
+                    'strong_link',
+                    0.5,
+                    request.sites
+                      .filter((entry) => entry.facility_id === payerId)
+                      .map((entry) => entry.site_id),
+                    ['RB-0015'],
+                  ),
+                ]
+              : []),
+          ],
+        },
+        ...(hasConsumer && funded
+          ? [
+              {
+                name: 'Industrial',
+                strength: 0.75,
+                items: [
+                  economyItem(
+                    'strong_link',
+                    0.75,
+                    request.sites
+                      .filter((entry) => entry.facility_id === consumerId)
+                      .map((entry) => entry.site_id),
+                    ['RB-0015'],
+                  ),
+                ],
+              },
+            ]
+          : []),
+      ],
+    }));
   return {
     rulebook_release: catalogue.rulebook_release,
     system_id64: request.system_id64,
@@ -198,7 +288,15 @@ function evaluation(request: PlanRequestV1): PlanEvaluationV1 {
       t3: hasConsumer && funded ? 1 : 0,
     },
     next_port_cost: { t2: 3, t3: 6 },
-    economies: { now: [], after_plan: [], notes: [] },
+    economies: {
+      now: ports.filter((port) =>
+        request.sites.some(
+          (site) => site.site_id === port.site_id && site.status === 'complete',
+        ),
+      ),
+      after_plan: ports,
+      notes: [],
+    },
     steps,
     plan_checks: [],
     summary: {
@@ -216,6 +314,23 @@ function evaluation(request: PlanRequestV1): PlanEvaluationV1 {
         statement: 'Earlier installations provide points for later builds.',
         quote: 'Tier 1 facilities generate Tier 2 points.',
         page: 4,
+      },
+      'RB-0010': {
+        id: 'RB-0010',
+        title: 'Body economies',
+        status: 'confirmed',
+        statement: 'Colony ports inherit economies from their local body.',
+        quote: 'The local body determines the inherited economies.',
+        page: 8,
+      },
+      'RB-0015': {
+        id: 'RB-0015',
+        title: 'Strong links',
+        status: 'confirmed',
+        statement:
+          'Supporting facilities add their economies to the local port.',
+        quote: 'Link strength depends on the facility tier.',
+        page: 10,
       },
     },
   };
@@ -490,7 +605,46 @@ describe('Colony planner browser-kept main path', () => {
           .next('dd')
           .should('have.text', '1');
       }
+      cy.get('[data-plan-economies] [data-economy-port]')
+        .should('have.length', 1)
+        .and('contain.text', 'Primary Port');
+      cy.get('[data-economy-view="now"]')
+        .should('contain.text', 'Now')
+        .and('contain.text', 'No economy');
+      cy.get('[data-economy-view="after_plan"]')
+        .should('contain.text', 'After plan')
+        .and('contain.text', 'Extraction')
+        .and('contain.text', '150%')
+        .and('contain.text', 'Industrial')
+        .and('contain.text', '75%')
+        .and('contain.text', '225%');
+      cy.get(
+        '[data-economy-view="after_plan"] button[data-economy-name="Extraction"]',
+      )
+        .focus()
+        .should('be.focused');
+      cy.get('[role="tooltip"]')
+        .should('be.visible')
+        .and('contain.text', 'Own')
+        .and('contain.text', '100%')
+        .and('contain.text', 'Strong link')
+        .and('contain.text', '50%')
+        .and('contain.text', 'Passed on')
+        .and('contain.text', 'Planetary port')
+        .and('contain.text', 'Weak link');
+      cy.focused().should('have.attr', 'data-economy-name', 'Extraction');
+      cy.press(Cypress.Keyboard.Keys.SPACE);
+      cy.get('[role="dialog"]')
+        .should('contain.text', 'RB-0010')
+        .and('contain.text', 'Body economies')
+        .and('contain.text', 'RB-0015')
+        .and('contain.text', 'Strong links')
+        .and('not.contain.text', 'RB-0002');
+      cy.press(Cypress.Keyboard.Keys.ESC);
+      cy.get('[role="dialog"]').should('not.exist');
+      cy.focused().should('have.attr', 'data-economy-name', 'Extraction');
       cy.injectAxe();
+      cy.checkA11y('[data-plan-economies]');
       cy.checkA11y();
       cy.document().should((document) => {
         expect(document.documentElement.scrollWidth).to.be.at.most(width);
