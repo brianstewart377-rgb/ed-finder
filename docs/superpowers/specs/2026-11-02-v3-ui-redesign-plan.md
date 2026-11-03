@@ -141,7 +141,7 @@ No slice needs a SQL migration or new backend contract.
 |---|---|---|---|
 | P0 | This plan, ROADMAP link and CHANGES entry | No | No |
 | P1 | Shared tokens, Saira headings, glossy panels, opt-in pill actions, tabs, chips and pop-out skins; **done-pending-merge, #998** | No | Yes |
-| P2a | Extract Explore view state from layout ownership; retain query, filters, selection, result scroll and spatial context through layout changes | No | Verify unchanged |
+| P2a | Extract Explore view state from layout ownership; retain query, filters, selection, result scroll and spatial context through layout changes; **implemented in this PR** | No | Verify unchanged |
 | P2b | M09: on-demand map window, **Show on map**, **Expand**, close/reopen and state preservation using the existing canvas | No | Yes |
 | P2c | Explore main-task tabs and shared movable/dockable tool behaviour; keep Layers and map controls accessible in the window | No | Yes |
 | P3 | Finder control polish: archetype/results priority, existing count-group tabs, persistent chips and truthful scope gaps; no missing count fields to add today | No | Yes |

@@ -17,7 +17,7 @@ import { auth } from '$lib/auth/auth';
 import { FINDER_F4_ENABLED } from '$lib/config';
 import { PERSISTENCE_KEYS } from '$lib/persistence/storage';
 import { parseId64 } from '$lib/domain/id64';
-import { pins, syncKey } from '$lib/persistence/stores';
+import { applicationStores, pins, syncKey } from '$lib/persistence/stores';
 import { createHeadlessEngine } from '$lib/spatial/babylon/test-support';
 import type {
   RuntimeEvent,
@@ -39,6 +39,7 @@ import {
 import { createManagedSpatialRuntime } from '$lib/spatial/lifecycle';
 import { COMMANDER_HISTORY_GALAXY_BOUNDS } from '$lib/spatial/commander-history-viewport';
 import ExploreWorkspaceTestHost from './ExploreWorkspaceTestHost.svelte';
+import { ExploreViewState } from './explore-view-state.svelte';
 
 const { mockedPage, mockedGoto, featureGate } = vi.hoisted(() => ({
   mockedPage: {
@@ -1572,7 +1573,11 @@ function anchorDetail(anchor: ExploreAnchor): api.SystemDetail {
   };
 }
 
-function renderEnabled(query = 'page_size=1', state: App.PageState = {}) {
+function renderEnabled(
+  query = 'page_size=1',
+  state: App.PageState = {},
+  viewState?: ExploreViewState,
+) {
   const entries = [
     { url: new URL(`http://localhost/explore?${query}`), state },
   ];
@@ -1593,7 +1598,8 @@ function renderEnabled(query = 'page_size=1', state: App.PageState = {}) {
       mockedPage.state = entry.state;
     },
   );
-  render(ExploreWorkspaceTestHost, {
+  const component = render(ExploreWorkspaceTestHost, {
+    viewState,
     initialPage: entries[0],
     installPage(model) {
       Object.defineProperties(mockedPage, {
@@ -1615,6 +1621,7 @@ function renderEnabled(query = 'page_size=1', state: App.PageState = {}) {
     },
   });
   return {
+    rerender: component.rerender,
     back() {
       index -= 1;
       mockedPage.url = entries[index].url;
@@ -4715,3 +4722,502 @@ describe('Explore body filters in archetype mode', () => {
     expect(screen.queryByText('Paused')).not.toBeInTheDocument();
   });
 });
+
+describe.each([false, true])(
+  'Explore view-state remount (F4=%s)',
+  (enabled) => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      queryClient.clear();
+      localStorage.clear();
+      stubRuntime();
+      mockFacadeDefaults();
+      featureGate.enabled = enabled;
+      mockRankedPages();
+      vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
+      vi.mocked(api.autocompleteSystems).mockResolvedValue({
+        results: [anchorB],
+      });
+      vi.mocked(api.getSystem).mockImplementation(async (id64) =>
+        anchorDetail(id64 === anchorB.id64 ? anchorB : anchorA),
+      );
+    });
+
+    afterEach(() => {
+      cleanup();
+      featureGate.enabled = false;
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    });
+
+    it('retains a URL-only anchor, draft and results beyond query garbage-collection time', async () => {
+      const viewState = new ExploreViewState(
+        () => mockedPage,
+        enabled,
+        applicationStores,
+      );
+      const host = renderEnabled(
+        `${enabled ? 'page_size=3&' : ''}near=${anchorA.id64}`,
+        {},
+        viewState,
+      );
+      await screen.findByText('Ranked 1');
+      const list = screen.getByRole('list', { name: 'System results' });
+      expect(within(list).getAllByRole('listitem')).toHaveLength(3);
+      const resultText = list.textContent;
+      expect(api.getSystem).toHaveBeenCalledWith(
+        anchorA.id64,
+        expect.anything(),
+      );
+      await fireEvent.input(
+        screen.getByRole('combobox', { name: 'System name' }),
+        { target: { value: 'Retained URL-only draft' } },
+      );
+      expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+      await host.rerender({ mounted: false });
+      expect(document.querySelectorAll('canvas')).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(300_001);
+      vi.useRealTimers();
+      await host.rerender({ mounted: true });
+
+      const restoredList = await screen.findByRole('list', {
+        name: 'System results',
+      });
+      expect(restoredList.textContent).toBe(resultText);
+      expect(within(restoredList).getAllByRole('listitem')).toHaveLength(3);
+      expect(
+        screen.getByRole('heading', { name: 'Near Anchor A' }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('combobox', { name: 'System name' })).toHaveValue(
+        'Retained URL-only draft',
+      );
+      expect(document.querySelectorAll('canvas')).toHaveLength(1);
+      expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
+      expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+    });
+
+    it('replays an unfinished focus request after remount and stops replaying it once completed', async () => {
+      const viewState = new ExploreViewState(
+        () => mockedPage,
+        enabled,
+        applicationStores,
+      );
+      const host = renderEnabled(
+        `${enabled ? 'page_size=3&' : ''}near=${anchorA.id64}`,
+        { anchor: anchorA },
+        viewState,
+      );
+      await screen.findByText('Ranked 1');
+      const list = screen.getByRole('list', { name: 'System results' });
+      await waitFor(() => expect(currentScene()).toBeDefined());
+      const firstRuntime = runtimeAdapter.create.mock.results[0].value;
+      // The first layout disappears while the renderer still owes its flight
+      // completion receipt. The new layout must finish that explicit intent.
+      firstRuntime.dispatch.mockImplementation(() => ({
+        status: 'executed' as const,
+      }));
+      const target = {
+        kind: 'system' as const,
+        systemId64: rankedRows[1].id64,
+      };
+      await fireEvent.click(
+        within(list).getByRole('button', {
+          name: /Ranked 2.*9007199254741002/,
+        }),
+      );
+      await waitFor(() =>
+        expect(firstRuntime.dispatch).toHaveBeenCalledWith({
+          type: 'FLY_TO',
+          target,
+          reducedMotion: true,
+        }),
+      );
+      expect(viewState.completedFocusRevision).toBeLessThan(
+        viewState.focusRevision,
+      );
+
+      await host.rerender({ mounted: false });
+      await host.rerender({ mounted: true });
+      await waitFor(() =>
+        expect(runtimeAdapter.create).toHaveBeenCalledTimes(2),
+      );
+      const secondRuntime = runtimeAdapter.create.mock.results[1].value;
+      await waitFor(() =>
+        expect(secondRuntime.dispatch).toHaveBeenCalledWith({
+          type: 'FLY_TO',
+          target,
+          reducedMotion: true,
+        }),
+      );
+      expect(
+        secondRuntime.dispatch.mock.calls.filter(
+          ([command]: [RuntimeCommand]) => command.type === 'FLY_TO',
+        ),
+      ).toHaveLength(1);
+      await waitFor(() =>
+        expect(viewState.completedFocusRevision).toBe(viewState.focusRevision),
+      );
+
+      await host.rerender({ mounted: false });
+      await host.rerender({ mounted: true });
+      await waitFor(() =>
+        expect(runtimeAdapter.create).toHaveBeenCalledTimes(3),
+      );
+      await waitFor(() => expect(currentScene()).toBeDefined());
+      expect(
+        runtimeCommands().filter((command) => command.type === 'FLY_TO'),
+      ).toHaveLength(0);
+      expect(document.querySelectorAll('canvas')).toHaveLength(1);
+      expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
+    });
+
+    it('retains the draft, committed search, selection, scroll and Galaxy context without repeating a stale search', async () => {
+      const viewState = new ExploreViewState(
+        () => mockedPage,
+        enabled,
+        applicationStores,
+      );
+      const host = renderEnabled(
+        `${enabled ? 'page_size=3&' : ''}near=${anchorA.id64}&radius=250&bodies=elw_count:1-`,
+        { anchor: anchorA },
+        viewState,
+      );
+      await screen.findByText('Ranked 1');
+      expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(api.searchExploreSystems).mock.calls[0][0]).toEqual({
+        reference_coords: { x: 10, y: 20, z: 30 },
+        filters: { distance: { min: 0, max: 250 }, economy: 'any' },
+        body_filters: { elw_count: { min: 1 } },
+        sort_by: 'distance',
+        size: enabled ? 3 : 24,
+        from: 0,
+      });
+      const list = screen.getByRole('list', { name: 'System results' });
+      await fireEvent.click(
+        within(list).getByRole('button', {
+          name: /Ranked 2.*9007199254741002/,
+        }),
+      );
+      await waitFor(() =>
+        expect(currentScene().selection).toContainEqual({
+          kind: 'system',
+          systemId64: rankedRows[1].id64,
+        }),
+      );
+      emitRuntime({
+        type: 'TARGET_PICKED',
+        target: { kind: 'system', systemId64: rankedRows[1].id64 },
+      });
+
+      const layers = within(await openLayers());
+      await fireEvent.click(layers.getByRole('switch', { name: 'Nebulae' }));
+      await fireEvent.click(
+        layers.getByRole('switch', { name: 'Known-system density' }),
+      );
+      await fireEvent.click(
+        layers.getByRole('switch', { name: 'My journeys' }),
+      );
+      await fireEvent.click(
+        layers.getByRole('button', { name: 'Close map layers' }),
+      );
+
+      const camera = {
+        ...currentScene().camera,
+        focusLy: { x: 100, y: 20, z: 300 },
+        distanceLy: 400,
+        bearingRad: 0.25,
+        pitchRad: 0.65,
+        revision: 17,
+      };
+      emitRuntime({ type: 'CAMERA_CHANGED', camera });
+      await waitFor(() => expect(viewState.streamCamera).toEqual(camera));
+      expect(viewState.starDetailMode).toBe('local');
+      // Region state belongs to the retained Galaxy context even while its
+      // independently loaded geometry is unavailable during a layout remount.
+      viewState.selectedRegionId = '1';
+      emitRuntime({
+        type: 'TARGET_HOVERED',
+        target: { kind: 'region', id: '2' },
+      });
+      await fireEvent.input(
+        screen.getByRole('combobox', { name: 'System name' }),
+        { target: { value: 'Unsubmitted next destination' } },
+      );
+      list.scrollTop = 256;
+      await fireEvent.scroll(list);
+      expect(viewState.resultScrollTop).toBe(256);
+      expect(viewState.lastPickedId64).toBe(rankedRows[1].id64);
+      expect(viewState.focusTarget).toEqual({
+        kind: 'system',
+        systemId64: rankedRows[1].id64,
+      });
+      const focusRevision = viewState.focusRevision;
+      expect(focusRevision).toBeGreaterThan(0);
+      const resultText = list.textContent;
+      const committedUrl = mockedPage.url.href;
+      const firstRuntime = runtimeAdapter.create.mock.results[0].value;
+      expect(document.querySelectorAll('canvas')).toHaveLength(1);
+      expect(runtimeAdapter.create).toHaveBeenCalledTimes(1);
+      expect(firstRuntime.subscribe).toHaveBeenCalledTimes(1);
+
+      await host.rerender({ mounted: false });
+      expect(document.querySelectorAll('canvas')).toHaveLength(0);
+      expect(firstRuntime.dispose).toHaveBeenCalledTimes(1);
+      expect(
+        firstRuntime.subscribe.mock.results[0].value,
+      ).toHaveBeenCalledTimes(1);
+      // A fresh TanStack cache alone must not mask an accidental search on
+      // remount. A layout change also preserves results older than staleTime.
+      const cachedResults = queryClient
+        .getQueryCache()
+        .getAll()
+        .filter((cached) => cached.queryKey[2] === 'results');
+      expect(cachedResults).toHaveLength(1);
+      for (const cached of cachedResults) {
+        queryClient.setQueryData(cached.queryKey, cached.state.data, {
+          updatedAt: 1,
+        });
+      }
+      await host.rerender({ mounted: true });
+      await screen.findByRole('list', { name: 'System results' });
+      await waitFor(() =>
+        expect(runtimeAdapter.create).toHaveBeenCalledTimes(2),
+      );
+      const restoredList = screen.getByRole('list', { name: 'System results' });
+      expect(restoredList.textContent).toBe(resultText);
+      expect(restoredList.scrollTop).toBe(256);
+      expect(screen.getByRole('combobox', { name: 'System name' })).toHaveValue(
+        'Unsubmitted next destination',
+      );
+      expect(screen.getByRole('combobox', { name: 'Within' })).toHaveValue(
+        '250',
+      );
+      expect(screen.getByText('Earth-like ≥ 1')).toBeInTheDocument();
+      expect(
+        screen.getByRole('heading', { name: 'Near Anchor A' }),
+      ).toBeInTheDocument();
+      expect(
+        within(restoredList).getByRole('button', {
+          name: /Ranked 2.*9007199254741002/,
+        }),
+      ).toHaveAttribute('aria-pressed', 'true');
+      expect(mockedPage.url.href).toBe(committedUrl);
+      expect(viewState.lastPickedId64).toBe(rankedRows[1].id64);
+      expect(viewState.focusRevision).toBe(focusRevision);
+      expect(viewState.focusTarget).toEqual({
+        kind: 'system',
+        systemId64: rankedRows[1].id64,
+      });
+      expect(viewState.retainedCamera?.camera).toEqual(camera);
+      expect(viewState.streamCamera).toEqual(camera);
+      expect(viewState.starDetailMode).toBe('local');
+      expect(viewState.selectedRegionId).toBe('1');
+      expect(viewState.hoveredRegionId).toBe('2');
+      expect(currentScene().camera).toEqual(camera);
+      expect(document.querySelectorAll('canvas')).toHaveLength(1);
+      const secondRuntime = runtimeAdapter.create.mock.results[1].value;
+      expect(secondRuntime.subscribe).toHaveBeenCalledTimes(1);
+      expect(secondRuntime.dispose).not.toHaveBeenCalled();
+      const restoredLayers = within(await openLayers());
+      expect(
+        restoredLayers.getByRole('switch', { name: 'Nebulae' }),
+      ).toHaveAttribute('aria-checked', 'false');
+      expect(
+        restoredLayers.getByRole('switch', { name: 'Known-system density' }),
+      ).toHaveAttribute('aria-checked', 'false');
+      expect(
+        restoredLayers.getByRole('switch', { name: 'My journeys' }),
+      ).toHaveAttribute('aria-checked', 'true');
+      expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
+      expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+
+      await fireEvent.input(
+        screen.getByRole('combobox', { name: 'System name' }),
+        { target: { value: 'Anchor B' } },
+      );
+      await fireEvent.click(
+        await screen.findByRole('option', { name: /Anchor B/ }),
+      );
+      await waitFor(() =>
+        expect(api.searchExploreSystems).toHaveBeenCalledTimes(2),
+      );
+      expect(vi.mocked(api.searchExploreSystems).mock.lastCall?.[0]).toEqual({
+        reference_coords: { x: -10, y: -20, z: -30 },
+        filters: { distance: { min: 0, max: 250 }, economy: 'any' },
+        body_filters: { elw_count: { min: 1 } },
+        sort_by: 'distance',
+        size: enabled ? 3 : 24,
+        from: 0,
+      });
+      await host.rerender({ mounted: false });
+      expect(firstRuntime.dispose).toHaveBeenCalledTimes(1);
+      expect(secondRuntime.dispose).toHaveBeenCalledTimes(1);
+      expect(
+        secondRuntime.subscribe.mock.results[0].value,
+      ).toHaveBeenCalledTimes(1);
+    });
+
+    if (enabled) {
+      it('keeps the previous Any results through a failed ranking and remount without retrying it', async () => {
+        vi.mocked(api.getArchetypeRankings).mockRejectedValue(
+          new api.ApiError(503, '/api/archetypes/rankings', {
+            detail: 'Temporarily unavailable',
+          }),
+        );
+        const viewState = new ExploreViewState(
+          () => mockedPage,
+          enabled,
+          applicationStores,
+        );
+        const host = renderEnabled(
+          `page_size=3&near=${anchorA.id64}`,
+          { anchor: anchorA },
+          viewState,
+        );
+        await screen.findByText('Ranked 1');
+        const list = screen.getByRole('list', {
+          name: 'System results',
+        });
+        const resultText = list.textContent;
+        expect(within(list).getAllByRole('listitem')).toHaveLength(3);
+        await fireEvent.click(
+          screen.getByRole('radio', { name: 'Manufacturing Hub' }),
+        );
+        await screen.findByRole('heading', {
+          name: 'Ranking temporarily unavailable',
+        });
+        expect(
+          screen.getByRole('list', { name: 'System results' }).textContent,
+        ).toBe(resultText);
+        expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
+        expect(api.getArchetypeRankings).toHaveBeenCalledTimes(1);
+
+        await host.rerender({ mounted: false });
+        await host.rerender({ mounted: true });
+
+        await screen.findByRole('heading', {
+          name: 'Ranking temporarily unavailable',
+        });
+        const restoredList = screen.getByRole('list', {
+          name: 'System results',
+        });
+        expect(restoredList.textContent).toBe(resultText);
+        expect(within(restoredList).getAllByRole('listitem')).toHaveLength(3);
+        expect(
+          screen.getByRole('radio', { name: 'Manufacturing Hub' }),
+        ).toBeChecked();
+        expect(document.querySelectorAll('canvas')).toHaveLength(1);
+        expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
+        expect(api.getArchetypeRankings).toHaveBeenCalledTimes(1);
+
+        await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+        await waitFor(() =>
+          expect(api.getArchetypeRankings).toHaveBeenCalledTimes(2),
+        );
+        await screen.findByRole('heading', {
+          name: 'Ranking temporarily unavailable',
+        });
+        expect(
+          screen.getByRole('list', { name: 'System results' }).textContent,
+        ).toBe(resultText);
+        expect(api.searchExploreSystems).toHaveBeenCalledTimes(1);
+      });
+
+      it('retains a selected archetype, tier and page with paused filters without repeating rankings', async () => {
+        const viewState = new ExploreViewState(
+          () => mockedPage,
+          enabled,
+          applicationStores,
+        );
+        const host = renderEnabled(
+          `archetype=manufacturing_hub&min-tier=A&page_size=2&offset=1&near=${anchorA.id64}&radius=1000&bodies=elw_count:1-`,
+          { anchor: anchorA },
+          viewState,
+        );
+        await screen.findByText('Ranked 2');
+        expect(api.getArchetypeRankings).toHaveBeenCalledTimes(1);
+        expect(vi.mocked(api.getArchetypeRankings).mock.calls[0][0]).toEqual({
+          archetype: 'manufacturing_hub',
+          min_score: 76,
+          page_size: 2,
+          offset: 1,
+        });
+        expect(screen.getByRole('combobox', { name: 'Within' })).toHaveValue(
+          '500',
+        );
+        expect(viewState.radius).toBe(1000);
+        const list = screen.getByRole('list', { name: 'System results' });
+        await fireEvent.click(
+          within(list).getByRole('button', {
+            name: /Ranked 2.*9007199254741002/,
+          }),
+        );
+        await fireEvent.input(
+          screen.getByRole('combobox', { name: 'System name' }),
+          { target: { value: 'Another unsubmitted destination' } },
+        );
+        list.scrollTop = 128;
+        await fireEvent.scroll(list);
+        const ranking = viewState.rankingState;
+        const committedUrl = mockedPage.url.href;
+
+        await host.rerender({ mounted: false });
+        const cachedRankings = queryClient
+          .getQueryCache()
+          .getAll()
+          .filter((cached) => cached.queryKey[2] === 'rankings');
+        expect(cachedRankings).toHaveLength(1);
+        for (const cached of cachedRankings) {
+          queryClient.setQueryData(cached.queryKey, cached.state.data, {
+            updatedAt: 1,
+          });
+        }
+        await host.rerender({ mounted: true });
+
+        const restoredList = await screen.findByRole('list', {
+          name: 'System results',
+        });
+        expect(within(restoredList).getByText('Ranked 2')).toBeInTheDocument();
+        expect(
+          screen.getByRole('radio', { name: 'Manufacturing Hub' }),
+        ).toBeChecked();
+        expect(
+          screen.getByRole('combobox', { name: 'Minimum tier' }),
+        ).toHaveValue('A');
+        expect(
+          screen.getByRole('combobox', { name: 'System name' }),
+        ).toHaveValue('Another unsubmitted destination');
+        expect(screen.getByRole('combobox', { name: 'Within' })).toHaveValue(
+          '500',
+        );
+        expect(viewState.radius).toBe(1000);
+        expect(screen.getByRole('combobox', { name: 'Within' })).toBeDisabled();
+        expect(screen.getByText('Earth-like ≥ 1')).toBeInTheDocument();
+        expect(screen.getByText('Paused')).toBeInTheDocument();
+        expect(restoredList.scrollTop).toBe(128);
+        expect(
+          within(restoredList).getByRole('button', {
+            name: /Ranked 2.*9007199254741002/,
+          }),
+        ).toHaveAttribute('aria-pressed', 'true');
+        expect(viewState.rankingState).toEqual(ranking);
+        expect(mockedPage.url.href).toBe(committedUrl);
+        expect(document.querySelectorAll('canvas')).toHaveLength(1);
+        expect(api.getArchetypeRankings).toHaveBeenCalledTimes(1);
+        expect(api.searchExploreSystems).not.toHaveBeenCalled();
+
+        await fireEvent.click(screen.getByRole('radio', { name: 'Any' }));
+        await waitFor(() =>
+          expect(api.searchExploreSystems).toHaveBeenCalledTimes(1),
+        );
+        expect(api.getArchetypeRankings).toHaveBeenCalledTimes(1);
+        expect(
+          vi.mocked(api.searchExploreSystems).mock.lastCall?.[0].body_filters,
+        ).toEqual({ elw_count: { min: 1 } });
+      });
+    }
+  },
+);

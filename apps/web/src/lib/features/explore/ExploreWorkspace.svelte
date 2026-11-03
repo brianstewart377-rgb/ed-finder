@@ -14,7 +14,6 @@
     getArchetypeRankings,
     getSystem,
     searchExploreSystems,
-    SOL_ID64,
     type AutocompleteSystem,
     type CatalogueViewportResponse,
     type DistanceAnchor,
@@ -27,11 +26,9 @@
   import { FINDER_F4_ENABLED } from '$lib/config';
   import { parseId64, type Id64 } from '$lib/domain/id64';
   import {
-    DEFAULT_RANKING_STATE,
     hasRankingSearchParams,
     lastPageCorrection,
     normalizeRankingState,
-    parseRankingSearchParams,
     selectFinderRequest,
     serializeRankingSearchParams,
     stripRankingSearchParams,
@@ -56,13 +53,12 @@
     effectiveSearchRadius,
     FILTERED_SEARCH_RADIUS_CAP_LY,
     normalizeSearchRadius,
-    parseExploreSearchParams,
     SEARCH_RADIUS_OPTIONS,
     serializeExploreSearchParams,
     type SearchRadius,
   } from './search-state';
-  import { usePersistenceContext } from '$lib/persistence/context';
-  import { createMapLayerPreferences } from '$lib/persistence/map-layers';
+  import type { ExploreResultCache } from './explore-result-cache';
+  import type { ExploreViewState } from './explore-view-state.svelte';
   import MapLayers from './MapLayers.svelte';
   import SpatialCanvas from '$lib/spatial/SpatialCanvas.svelte';
   import type {
@@ -71,7 +67,6 @@
     RenderedLayerReceipt,
     RuntimeEvent,
     SpatialContribution,
-    SpatialTarget,
     SystemCameraState,
   } from '$lib/spatial/contracts';
   import {
@@ -93,7 +88,6 @@
   import {
     DENSITY_CROSSFADE_NEAR_LY,
     galaxyDetailMode,
-    type GalaxyDetailMode,
   } from '$lib/spatial/galaxy-detail-policy';
   import {
     fitGalaxyPlaneCamera,
@@ -131,12 +125,24 @@
   import { withinGalaxyStarFootprint } from '$lib/spatial/galaxy-star-footprint';
   import { createGalaxyStarQuery } from '$lib/spatial/galaxy-star-query.svelte';
 
-  const { selectedSystem, pins, compare } = usePersistenceContext();
+  let { viewState, resultCache } = $props<{
+    viewState: ExploreViewState;
+    resultCache: ExploreResultCache;
+  }>();
+  const { selectedSystem, pins, compare, layerPreferences } = untrack(
+    () => viewState,
+  );
+  // Only a layout remount reuses this instance. A fresh route visit retains
+  // the existing query freshness/refetch policy.
+  const remount = untrack(() => viewState.hasMounted);
+  untrack(() => {
+    viewState.hasMounted = true;
+  });
+  const mountedFocusRevision = untrack(() => viewState.completedFocusRevision);
+  const mountedCameraRevision = untrack(
+    () => viewState.appliedCameraRequestRevision,
+  );
   const watchedSystems = createWatchlistQuery();
-  const layerPreferences = createMapLayerPreferences();
-  // Read before creating the observers: a saved OFF preference must not issue
-  // a default-ON density request during mount. The store catches storage errors.
-  layerPreferences.hydrate();
   const session = fromStore(auth);
   // The travel heatmap is the signed-in account's own V3 journal travel; the
   // cache key carries the account so a sign-out/switch never reuses rows.
@@ -144,54 +150,31 @@
     session.current.loading ? null : (session.current.user?.account_id ?? null),
   );
   const reviewLabRun = import.meta.env.VITE_REVIEW_LAB === '1';
-  let query = $state('');
   let activeSuggestion = $state(-1);
   let autocompleteOpen = $state(false);
-  const parsedSearch = $derived(
-    parseExploreSearchParams(page.url.searchParams),
-  );
-  const historyAnchor = $derived(readExploreAnchor(page.state));
-  // Old history entries still carry coordinates. An explicit URL always wins,
-  // including a malformed near parameter, which must not revive stale state.
-  const nearId = $derived(
-    parsedSearch.near ??
-      (!page.url.searchParams.has('near')
-        ? (historyAnchor?.id64 ?? null)
-        : null),
-  );
   const anchorDetail = createQuery(() => {
-    const id64 = nearId;
+    const id64 = viewState.nearId;
     return {
       queryKey: [...queryKeys.all, 'explore', 'selected-point', id64],
       queryFn: ({ signal }: { signal: AbortSignal }) => {
         if (!id64) throw new Error('No search anchor');
         return getSystem(id64, signal);
       },
-      enabled: id64 !== null && historyAnchor?.id64 !== id64,
+      enabled: id64 !== null && viewState.historyAnchor?.id64 !== id64,
       retry: 0,
     };
   });
-  const anchor = $derived.by(() => {
-    if (!nearId) return null;
-    if (historyAnchor?.id64 === nearId) return historyAnchor;
-    const detail = anchorDetail.data;
-    if (detail?.id64 !== nearId) return null;
-    // The legacy facade only guards unknown origins with F4 enabled. A near
-    // anchor requires real coordinates in either build.
-    if (
-      detail.id64 !== SOL_ID64 &&
-      detail.x === 0 &&
-      detail.y === 0 &&
-      detail.z === 0
-    )
-      return null;
-    return readExploreAnchor({ anchor: detail });
+  const anchor = $derived(viewState.resolveAnchor(anchorDetail.data));
+  $effect(() => {
+    // Only the small, validated view anchor survives the layout. The detail
+    // response and observer keep their existing query ownership.
+    viewState.resolvedAnchor = anchor;
   });
-  const bodyFilters = $derived(parsedSearch.bodyFilters);
-  const radius = $derived(parsedSearch.radius);
   // Body filters cap the anchored search at the API's filtered radius; the
   // URL keeps the chosen radius so it resumes when the filters are cleared.
-  const effectiveRadius = $derived(effectiveSearchRadius(radius, bodyFilters));
+  const effectiveRadius = $derived(
+    effectiveSearchRadius(viewState.radius, viewState.bodyFilters),
+  );
   const mapAnchorPoint = $derived<GalaxySystemPoint | null>(
     anchor &&
       typeof anchor.x === 'number' &&
@@ -204,46 +187,28 @@
         }
       : null,
   );
-  let anchorSelectionRevision = $state(0);
-  let focusedAnchorRevision = 0;
-  let hydratedAnchorIdentity: string | undefined;
-  let hydratedExploreUrl: string | undefined;
   let searchInput = $state<HTMLInputElement>();
-  let rankingNotice = $state('');
-  let selectionRevision = $state(0);
-  let focusRevision = $state(0);
-  let focusTarget = $state<SpatialTarget | null>(null);
-  let lastPickedId64 = $state<Id64 | null>(null);
   let regions = $state<GalaxyRegionsPayload | null>(null);
   let regionContribution = $state<SpatialContribution | null>(null);
   let regionState = $state<'loading' | 'ready' | 'failed'>('loading');
   let regionResourceRevision = $state(0);
-  let selectedRegionId = $state<string | null>(null);
-  let hoveredRegionId = $state<string | null>(null);
-  let hoveredSystemId = $state<string | null>(null);
-  let cameraRequest = $state<CameraState | null>(null);
-  let cameraRequestRevision = $state(0);
   let spatialCameraTransitionActive = $state(false);
-  let retainedCamera = $state<{
-    finderRevision: number;
-    camera: CameraState;
-  } | null>(null);
   let regionLoadAttempt = 0;
   let mapSection = $state<HTMLElement>();
   let resultList = $state<HTMLUListElement>();
-  let initialGalaxyViewRequested = false;
-  let canvasViewport = $state<GalaxyCameraViewport>();
-  let streamCamera = $state<CameraState | null>({
-    focusLy: { x: 0, y: 0, z: 0 },
-    distanceLy: 118_000,
-    bearingRad: 0,
-    pitchRad: 0.55,
-    projection: 'perspective',
-    revision: 0,
+  let restoredResultScroll = false;
+  $effect(() => {
+    const list = resultList;
+    if (list && !restoredResultScroll) {
+      restoredResultScroll = true;
+      untrack(() => viewState.restoreResultScroll(list));
+    } else if (list) {
+      // An explicit search can replace the list with a new element. Preserve
+      // that existing reset rather than restoring another result set's scroll.
+      untrack(() => viewState.captureResultScroll(list.scrollTop));
+    }
   });
-  let streamRevision = $state(0);
-  let starDetailMode = $state<GalaxyDetailMode>('wide');
-  let starViewportSize = $state<GalaxyCameraViewport | null>(null);
+  let canvasViewport = $state<GalaxyCameraViewport>();
   let viewportCameraTimeout: number | null = null;
   let pendingViewportCamera: CameraState | null = null;
   let appliedCataloguePacket = $state.raw<CatalogueViewportResponse | null>(
@@ -252,10 +217,8 @@
   let appliedCatalogueViewport = $state.raw<GalaxyStarViewport | null>(null);
   let appliedCatalogueRevision = $state(0);
   let appliedFootprintKey = '';
-  let layerToggleRevision = $state(0);
   const showDensity = $derived($layerPreferences.value.density);
   const showTravelHeatmap = $derived($layerPreferences.value.journeys);
-  let showNebulae = $state(true);
   let nebulae = $state<GalaxyNebulaePayload | null>(null);
   let nebulaState = $state<'loading' | 'ready' | 'failed'>('loading');
   let nebulaResourceRevision = $state(0);
@@ -269,7 +232,7 @@
     ),
   });
   const nebulaDisplayStatus = $derived.by(() => {
-    if (!showNebulae) return 'Nebula layer hidden';
+    if (!viewState.showNebulae) return 'Nebula layer hidden';
     if (
       !nebulae ||
       !renderedNebulaReceipt ||
@@ -293,7 +256,7 @@
     return `${count.toLocaleString()} ${count === 1 ? 'landmark' : 'landmarks'} shown (${kinds.join(' and ')} nebulae)${nebulaKinds.diffuse ? ' · schematic extent (clouds fade on approach)' : ''}`;
   });
 
-  const normalizedQuery = $derived(query.trim());
+  const normalizedQuery = $derived(viewState.query.trim());
   const suggestions = createQuery(() => ({
     queryKey: queryKeys.autocomplete(normalizedQuery.toLocaleLowerCase()),
     queryFn: ({ signal }) => autocompleteSystems(normalizedQuery, signal),
@@ -302,80 +265,31 @@
   }));
   const suggestionRows = $derived(suggestions.data?.results ?? []);
 
-  const parsedRanking = $derived(
-    FINDER_F4_ENABLED ? parseRankingSearchParams(page.url.searchParams) : null,
-  );
-  const rankingState = $derived(parsedRanking?.state ?? DEFAULT_RANKING_STATE);
   const bodyFiltersPaused = $derived(
-    !anchor || rankingState.archetype !== 'any',
+    !anchor || viewState.rankingState.archetype !== 'any',
   );
   const radiusCappedByFilters = $derived(
-    !bodyFiltersPaused && effectiveRadius !== radius,
-  );
-  const urlSelection = $derived.by((): Id64 | null => {
-    if (!FINDER_F4_ENABLED) return null;
-    const values = page.url.searchParams.getAll('selected');
-    if (values.length !== 1) return null;
-    try {
-      return parseId64(values[0]);
-    } catch {
-      return null;
-    }
-  });
-  // A malformed or duplicated near parameter is rejected before any lookup.
-  // In Any mode its pagination belonged to the nearby search it named, so it
-  // must not survive as a galaxy-wide results intent.
-  const rejectedNear = $derived(
-    page.url.searchParams.has('near') && parsedSearch.near === null,
-  );
-  const canonicalSearch = $derived.by(() => {
-    let params = serializeExploreSearchParams(
-      { near: nearId, bodyFilters, radius },
-      page.url.searchParams,
-    );
-    if (FINDER_F4_ENABLED) {
-      params.delete('selected');
-      if (urlSelection) params.set('selected', urlSelection);
-      params =
-        rejectedNear && rankingState.archetype === 'any'
-          ? stripRankingSearchParams(params)
-          : serializeRankingSearchParams(rankingState, params);
-    } else {
-      params = stripRankingSearchParams(params);
-    }
-    const serialized = params.toString();
-    return serialized ? `?${serialized}` : '';
-  });
-  const invalidAnchorState = $derived(
-    page.state?.anchor != null && historyAnchor === null,
-  );
-  const rankingUrlReady = $derived(
-    page.url.search === canonicalSearch && !invalidAnchorState,
-  );
-  const hasResultsIntent = $derived(
-    nearId !== null ||
-      (FINDER_F4_ENABLED &&
-        (rankingState.archetype !== 'any' ||
-          hasRankingSearchParams(page.url.searchParams) ||
-          page.state.finderRequested === true)),
+    !bodyFiltersPaused && effectiveRadius !== viewState.radius,
   );
   const resultsEnabled = $derived(
-    rankingUrlReady && hasResultsIntent && (!nearId || anchor !== null),
+    viewState.rankingUrlReady &&
+      viewState.hasResultsIntent &&
+      (!viewState.nearId || anchor !== null),
   );
   const finderRequest = $derived.by(() => {
     const selected = selectFinderRequest(
-      rankingState,
+      viewState.rankingState,
       anchor ? { x: anchor.x, y: anchor.y, z: anchor.z } : null,
       { enabled: FINDER_F4_ENABLED, radius: effectiveRadius },
     );
     if (
       selected.kind === 'any' &&
       !bodyFiltersPaused &&
-      Object.keys(bodyFilters).length
+      Object.keys(viewState.bodyFilters).length
     )
       return {
         ...selected,
-        request: { ...selected.request, body_filters: bodyFilters },
+        request: { ...selected.request, body_filters: viewState.bodyFilters },
       };
     return selected;
   });
@@ -409,9 +323,12 @@
       const reference = anchorReference;
       return {
         queryKey: queryKeys.explore(request, reference),
+        gcTime: resultCache.gcTime(queryKeys.explore(request, reference)),
         queryFn: ({ signal }) =>
           searchExploreSystems(request, signal, reference),
         enabled: resultsEnabled,
+        refetchOnMount: !remount,
+        retryOnMount: !remount,
         retry: 0,
       };
     }
@@ -419,12 +336,13 @@
     // keep their old mode, floor and offset until the replacement arrives.
     const request = finderRequest;
     const reference = anchorReference;
-    const state = rankingState;
+    const state = viewState.rankingState;
     const identity = finderIdentity;
     const searchRadius =
       request.kind === 'any' && reference ? effectiveRadius : null;
     return {
       queryKey: finderQueryKey,
+      gcTime: resultCache.gcTime(finderQueryKey),
       queryFn: async ({ signal }: { signal: AbortSignal }) => ({
         ...(request.kind === 'rankings'
           ? await getArchetypeRankings(request.request, signal)
@@ -440,21 +358,47 @@
       }),
       enabled: resultsEnabled,
       staleTime: 0,
+      refetchOnMount: !remount,
+      retryOnMount: !remount,
       placeholderData: (previous: FinderResponse | undefined) => previous,
       retry: 0,
     };
   });
   // Query data is immutable and structurally shared. A deep $state proxy here
   // would give retained rows a different identity and rebuild their map layer.
-  let retainedResults = $state.raw<FinderResponse>();
+  let retainedResults = $state.raw<FinderResponse | undefined>(
+    untrack(() =>
+      viewState.displayedResultsKey
+        ? queryClient.getQueryData<FinderResponse>(
+            viewState.displayedResultsKey,
+          )
+        : undefined,
+    ),
+  );
   $effect(() => {
-    if (!hasResultsIntent) retainedResults = undefined;
-    else if (FINDER_F4_ENABLED && results.data && !results.isPlaceholderData) {
+    if (!viewState.hasResultsIntent) {
+      retainedResults = undefined;
+      viewState.displayedResultsKey = null;
+    } else if (
+      FINDER_F4_ENABLED &&
+      results.data &&
+      !results.isPlaceholderData
+    ) {
       retainedResults = results.data;
+      // The envelope carries the identity that produced these rows, even
+      // while the observer is switching to another request.
+      if (results.data.finderIdentity)
+        viewState.displayedResultsKey = JSON.parse(results.data.finderIdentity);
     }
   });
+  $effect(() => {
+    resultCache.retain([
+      finderQueryKey,
+      ...(viewState.displayedResultsKey ? [viewState.displayedResultsKey] : []),
+    ]);
+  });
   const displayedResults = $derived(
-    hasResultsIntent
+    viewState.hasResultsIntent
       ? (results.data ?? (FINDER_F4_ENABLED ? retainedResults : undefined))
       : undefined,
   );
@@ -472,8 +416,8 @@
       resultsEnabled &&
       !results.isPlaceholderData &&
       results.data?.finderIdentity === finderIdentity &&
-      results.data.page.page_size === rankingState.pageSize &&
-      results.data.page.offset === rankingState.offset,
+      results.data.page.page_size === viewState.rankingState.pageSize &&
+      results.data.page.offset === viewState.rankingState.offset,
   );
   const pageCorrection = $derived(
     FINDER_F4_ENABLED && currentResponse && !results.isFetching && results.data
@@ -482,14 +426,16 @@
   );
   const updatingResults = $derived(
     FINDER_F4_ENABLED &&
-      hasResultsIntent &&
+      viewState.hasResultsIntent &&
       !results.isError &&
       (results.isFetching || !currentResponse || pageCorrection !== null),
   );
-  const activeArchetypeLabel = $derived(archetypeLabel(rankingState.archetype));
+  const activeArchetypeLabel = $derived(
+    archetypeLabel(viewState.rankingState.archetype),
+  );
   const resultsScope = $derived(
-    rankingState.archetype !== 'any'
-      ? `Galaxy-wide · ranked by ${activeArchetypeLabel} fit · minimum tier ${rankingState.minimumTier}`
+    viewState.rankingState.archetype !== 'any'
+      ? `Galaxy-wide · ranked by ${activeArchetypeLabel} fit · minimum tier ${viewState.rankingState.minimumTier}`
       : anchor
         ? `Within ${effectiveRadius.toLocaleString('en-US')} LY of ${anchor.name} · sorted by distance`
         : 'Galaxy-wide · best colony potential',
@@ -519,38 +465,44 @@
     const restoredAnchor = anchor;
     const identity = restoredAnchor ? JSON.stringify(restoredAnchor) : '';
     if (
-      identity !== hydratedAnchorIdentity ||
-      current.href !== hydratedExploreUrl
+      identity !== viewState.hydratedAnchorIdentity ||
+      current.href !== viewState.hydratedExploreUrl
     ) {
-      hydratedAnchorIdentity = identity;
-      hydratedExploreUrl = current.href;
-      query = restoredAnchor?.name ?? '';
+      viewState.hydratedAnchorIdentity = identity;
+      viewState.hydratedExploreUrl = current.href;
+      viewState.query = restoredAnchor?.name ?? '';
     }
-    if (FINDER_F4_ENABLED && $selectedSystem.value !== urlSelection) {
-      selectedSystem.set(urlSelection);
+    if (FINDER_F4_ENABLED && $selectedSystem.value !== viewState.urlSelection) {
+      selectedSystem.set(viewState.urlSelection);
       untrack(() => {
-        selectionRevision += 1;
+        viewState.selectionRevision += 1;
       });
     }
-    if (!rankingUrlReady) {
-      if (parsedSearch.issues.length || parsedRanking?.issues.length)
-        rankingNotice = parsedSearch.issues.length
+    if (!viewState.rankingUrlReady) {
+      if (
+        viewState.parsedSearch.issues.length ||
+        viewState.parsedRanking?.issues.length
+      )
+        viewState.rankingNotice = viewState.parsedSearch.issues.length
           ? 'Invalid search link option removed.'
           : 'Unsupported link option removed.';
       void navigateWithAnchor(
-        `${current.pathname}${canonicalSearch}${current.hash}`,
+        `${current.pathname}${viewState.canonicalSearch}${current.hash}`,
         {
           replaceState: true,
           state: {
-            ...(invalidAnchorState ||
-            (current.searchParams.has('near') && !parsedSearch.near)
+            ...(viewState.invalidAnchorState ||
+            (current.searchParams.has('near') && !viewState.parsedSearch.near)
               ? { anchor: null }
               : {}),
             // Explicit default/ignored URL parameters can canonicalize away.
             // Keep that link's search intent in its history entry.
             finderRequested:
               FINDER_F4_ENABLED &&
-              !(rejectedNear && rankingState.archetype === 'any') &&
+              !(
+                viewState.rejectedNear &&
+                viewState.rankingState.archetype === 'any'
+              ) &&
               (hasRankingSearchParams(current.searchParams) ||
                 page.state.finderRequested === true),
           },
@@ -563,24 +515,28 @@
     // A lookup can fail, return a different id, or lack usable coordinates.
     // Never let that turn an intended nearby search into a galaxy-wide one.
     if (
-      !rankingUrlReady ||
-      !nearId ||
+      !viewState.rankingUrlReady ||
+      !viewState.nearId ||
       anchor ||
       anchorDetail.isPending ||
       anchorDetail.isFetching
     )
       return;
-    rankingNotice =
+    viewState.rankingNotice =
       'Search anchor could not be restored; choose a system again.';
     // An Any-mode link's pagination belonged to the nearby search; dropping
     // the anchor must leave no results intent behind, or the page would run a
     // galaxy-wide search the user never asked for. A picked archetype is a
     // galaxy-wide ranking in its own right and keeps its parameters.
     let params = serializeExploreSearchParams(
-      { near: null, bodyFilters, radius },
+      {
+        near: null,
+        bodyFilters: viewState.bodyFilters,
+        radius: viewState.radius,
+      },
       page.url.searchParams,
     );
-    if (rankingState.archetype === 'any')
+    if (viewState.rankingState.archetype === 'any')
       params = stripRankingSearchParams(params);
     void navigateWithAnchor(exploreDestination(params), {
       replaceState: true,
@@ -590,9 +546,9 @@
 
   $effect(() => {
     if (pageCorrection === null) return;
-    rankingNotice = 'Page reset to the last available results.';
+    viewState.rankingNotice = 'Page reset to the last available results.';
     const params = serializeRankingSearchParams(
-      { ...rankingState, offset: pageCorrection },
+      { ...viewState.rankingState, offset: pageCorrection },
       page.url.searchParams,
     );
     void navigateWithAnchor(exploreDestination(params), {
@@ -610,11 +566,11 @@
     patch: Partial<FinderRankingState>,
     resetOffset = true,
   ): void {
-    rankingNotice = '';
+    viewState.rankingNotice = '';
     // A later picker/page action supersedes an unfinished anchor autofocus.
-    focusedAnchorRevision = anchorSelectionRevision;
+    viewState.focusedAnchorRevision = viewState.anchorSelectionRevision;
     const state = normalizeRankingState({
-      ...rankingState,
+      ...viewState.rankingState,
       ...patch,
       ...(resetOffset ? { offset: 0 } : {}),
     });
@@ -627,7 +583,7 @@
           // Paging back to defaults can remove the last URL parameter too.
           finderRequested:
             (patch.offset !== undefined || patch.pageSize !== undefined) &&
-            hasResultsIntent,
+            viewState.hasResultsIntent,
         },
       },
     );
@@ -638,58 +594,64 @@
       const params = new URLSearchParams(page.url.searchParams);
       params.set('selected', id64);
       void navigateWithAnchor(
-        exploreDestination(serializeRankingSearchParams(rankingState, params)),
+        exploreDestination(
+          serializeRankingSearchParams(viewState.rankingState, params),
+        ),
       );
     } else {
       selectedSystem.set(id64);
-      selectionRevision += 1;
+      viewState.selectionRevision += 1;
     }
   }
 
   async function clearAnchor(): Promise<void> {
     autocompleteOpen = false;
-    query = '';
+    viewState.query = '';
     const params = serializeRankingSearchParams(
-      { ...rankingState, offset: 0 },
+      { ...viewState.rankingState, offset: 0 },
       serializeExploreSearchParams(
-        { near: null, bodyFilters, radius },
+        {
+          near: null,
+          bodyFilters: viewState.bodyFilters,
+          radius: viewState.radius,
+        },
         page.url.searchParams,
       ),
     );
     await navigateWithAnchor(exploreDestination(params), {
       state: { anchor: null, finderRequested: false },
     });
-    rankingNotice = hasResultsIntent
+    viewState.rankingNotice = viewState.hasResultsIntent
       ? 'Anchor cleared; searching galaxy-wide.'
       : '';
     searchInput?.focus();
   }
 
   function commitBodyFilters(value: BodyFilterValues): Promise<void> {
-    return commitSearchInputs(value, radius);
+    return commitSearchInputs(value, viewState.radius);
   }
 
   function commitRadius(value: number): void {
     const nextRadius = normalizeSearchRadius(value);
-    if (bodyFiltersPaused || nextRadius === radius) return;
-    void commitSearchInputs(bodyFilters, nextRadius);
+    if (bodyFiltersPaused || nextRadius === viewState.radius) return;
+    void commitSearchInputs(viewState.bodyFilters, nextRadius);
   }
 
   async function commitSearchInputs(
     value: BodyFilterValues,
     nextRadius: SearchRadius,
   ): Promise<void> {
-    focusedAnchorRevision = anchorSelectionRevision;
+    viewState.focusedAnchorRevision = viewState.anchorSelectionRevision;
     const committed = normalizeBodyFilters(value);
     const params = serializeExploreSearchParams(
-      { near: nearId, bodyFilters: committed, radius: nextRadius },
+      { near: viewState.nearId, bodyFilters: committed, radius: nextRadius },
       page.url.searchParams,
     );
     // Paused chips do not take part in the active search, so clearing them
     // must not move a ranking off its current page.
     const nextRankingState = bodyFiltersPaused
-      ? rankingState
-      : { ...rankingState, offset: 0 };
+      ? viewState.rankingState
+      : { ...viewState.rankingState, offset: 0 };
     if (!bodyFiltersPaused) params.delete('offset');
     const destination = exploreDestination(
       FINDER_F4_ENABLED
@@ -705,10 +667,14 @@
       return;
     }
     if (!bodyFiltersPaused) {
-      const next = selectFinderRequest({ ...rankingState, offset: 0 }, anchor, {
-        enabled: FINDER_F4_ENABLED,
-        radius: effectiveSearchRadius(nextRadius, committed),
-      });
+      const next = selectFinderRequest(
+        { ...viewState.rankingState, offset: 0 },
+        anchor,
+        {
+          enabled: FINDER_F4_ENABLED,
+          radius: effectiveSearchRadius(nextRadius, committed),
+        },
+      );
       if (next.kind === 'any') {
         const request = Object.keys(committed).length
           ? { ...next.request, body_filters: committed }
@@ -728,7 +694,7 @@
   }
 
   function removeBodyFilter(key: BodyFilterKey): void {
-    const next = { ...bodyFilters };
+    const next = { ...viewState.bodyFilters };
     delete next[key];
     void commitBodyFilters(next);
   }
@@ -748,16 +714,23 @@
   }
 
   const starViewport = $derived(
-    starViewportSize
-      ? galaxyStarViewport(streamCamera, starDetailMode, starViewportSize)
+    viewState.starViewportSize
+      ? galaxyStarViewport(
+          viewState.streamCamera,
+          viewState.starDetailMode,
+          viewState.starViewportSize,
+        )
       : null,
   );
   const journeyViewport = $derived(
-    commanderHistoryViewport(streamCamera, starViewportSize),
+    commanderHistoryViewport(
+      viewState.streamCamera,
+      viewState.starViewportSize,
+    ),
   );
   const catalogueStars = createGalaxyStarQuery(
     () => starViewport,
-    () => streamCamera?.focusLy ?? { x: 0, y: 0, z: 0 },
+    () => viewState.streamCamera?.focusLy ?? { x: 0, y: 0, z: 0 },
   );
   const footprintKey = $derived(JSON.stringify(starViewport));
   $effect(() => {
@@ -787,11 +760,11 @@
       },
     ),
     queryFn: ({ signal }) => {
-      if (!journeyViewport || !streamCamera)
+      if (!journeyViewport || !viewState.streamCamera)
         throw new Error('No commander-history viewport requested');
       return getCommanderTravelHeatmap(
         journeyViewport,
-        streamCamera.distanceLy,
+        viewState.streamCamera.distanceLy,
         signal,
       );
     },
@@ -859,13 +832,14 @@
   // Request and cache key share the bucketed projection bounds, updated after
   // the camera debounce or a canvas resize. The server chooses a complete level.
   const heatmapRequest = $derived(
-    heatmapViewportRequest(streamCamera, canvasViewport),
+    heatmapViewportRequest(viewState.streamCamera, canvasViewport),
   );
   const heatmapRequestIdentity = $derived(
     heatmapViewportQueryKey(heatmapRequest)[1],
   );
   const densityEnabled = $derived(
-    showDensity && (streamCamera?.distanceLy ?? 0) >= DENSITY_CROSSFADE_NEAR_LY,
+    showDensity &&
+      (viewState.streamCamera?.distanceLy ?? 0) >= DENSITY_CROSSFADE_NEAR_LY,
   );
   const heatmap = createQuery(() => {
     // Equivalent bounds must preserve a pending query when the canvas first
@@ -994,9 +968,11 @@
     })),
   );
   const systems = $derived(
-    hasResultsIntent
+    viewState.hasResultsIntent
       ? (displayedResults?.results ??
-          (FINDER_F4_ENABLED || !anchor || Object.keys(bodyFilters).length
+          (FINDER_F4_ENABLED ||
+          !anchor ||
+          Object.keys(viewState.bodyFilters).length
             ? []
             : viewportSystems))
       : [],
@@ -1036,13 +1012,12 @@
     return ++commanderHistorySequence;
   });
   const nebulaContribution = $derived(
-    showNebulae && nebulae
+    viewState.showNebulae && nebulae
       ? createGalaxyNebulaeContribution(nebulae, nebulaResourceRevision)
       : null,
   );
-  let retainedSelectedSystem = $state.raw<ExploreSystem | null>(null);
   const selectedId = $derived(
-    FINDER_F4_ENABLED ? urlSelection : $selectedSystem.value,
+    FINDER_F4_ENABLED ? viewState.urlSelection : $selectedSystem.value,
   );
   const selectedOnPage = $derived(
     systems.find((system) => system.id64 === selectedId),
@@ -1051,22 +1026,22 @@
   // of catalogue viewport response timing.
   const knownSelectedSystem = $derived(
     selectedOnPage ??
-      (retainedSelectedSystem?.id64 === selectedId
-        ? retainedSelectedSystem
+      (viewState.retainedSelectedSystem?.id64 === selectedId
+        ? viewState.retainedSelectedSystem
         : null),
   );
   const needsSelectionResolution = $derived(
     FINDER_F4_ENABLED &&
-      rankingUrlReady &&
-      urlSelection !== null &&
+      viewState.rankingUrlReady &&
+      viewState.urlSelection !== null &&
       !selectedOnPage &&
-      (retainedSelectedSystem?.id64 !== urlSelection ||
-        !mapExploreSelectedSystemPoint(retainedSelectedSystem)) &&
-      (!hasResultsIntent || !results.isPending),
+      (viewState.retainedSelectedSystem?.id64 !== viewState.urlSelection ||
+        !mapExploreSelectedSystemPoint(viewState.retainedSelectedSystem)) &&
+      (!viewState.hasResultsIntent || !results.isPending),
   );
   const selectedDetail = FINDER_F4_ENABLED
     ? createQuery(() => {
-        const id64 = urlSelection;
+        const id64 = viewState.urlSelection;
         return {
           queryKey: [...queryKeys.all, 'explore', 'selected-point', id64],
           queryFn: ({ signal }: { signal: AbortSignal }) => {
@@ -1081,7 +1056,7 @@
   const selectedDetailData = $derived(selectedDetail?.data);
   const reconstructedSelection = $derived<ExploreSystem | null>(
     FINDER_F4_ENABLED &&
-      selectedDetailData?.id64 === urlSelection &&
+      selectedDetailData?.id64 === viewState.urlSelection &&
       selectedDetailData
       ? {
           id64: selectedDetailData.id64,
@@ -1099,7 +1074,7 @@
       return (
         knownSelectedSystem ??
         reconstructedSelection ??
-        (urlSelection ? { id64: urlSelection } : null)
+        (viewState.urlSelection ? { id64: viewState.urlSelection } : null)
       );
     const finder = systems.find(
       (system) => system.id64 === $selectedSystem.value,
@@ -1133,15 +1108,15 @@
           allegiance: null,
           security: null,
         }
-      : retainedSelectedSystem?.id64 === selectedId
-        ? retainedSelectedSystem
+      : viewState.retainedSelectedSystem?.id64 === selectedId
+        ? viewState.retainedSelectedSystem
         : null;
   });
   const selectedPoint = $derived(
     FINDER_F4_ENABLED && selectedMapSystem
       ? (mapExploreSelectedSystemPoint(selectedMapSystem) ??
-          (retainedSelectedSystem?.id64 === urlSelection
-            ? mapExploreSelectedSystemPoint(retainedSelectedSystem)
+          (viewState.retainedSelectedSystem?.id64 === viewState.urlSelection
+            ? mapExploreSelectedSystemPoint(viewState.retainedSelectedSystem)
             : null) ??
           (reconstructedSelection
             ? mapExploreSelectedSystemPoint(reconstructedSelection)
@@ -1157,7 +1132,9 @@
           : null),
       anchor,
       // Only actual Finder rows are reserved, never the catalogue fallback.
-      systems: hasResultsIntent ? (displayedResults?.results ?? []) : [],
+      systems: viewState.hasResultsIntent
+        ? (displayedResults?.results ?? [])
+        : [],
       pins: $pins.value,
       watched:
         watchedSystems.ready && !watchedSystems.query.isError
@@ -1191,7 +1168,7 @@
   });
   $effect(() => {
     if (!FINDER_F4_ENABLED && selectedMapSystem?.coords)
-      retainedSelectedSystem = selectedMapSystem;
+      viewState.retainedSelectedSystem = selectedMapSystem;
   });
   let selectionSequence = 0;
   const selectionContribution = $derived(
@@ -1211,11 +1188,11 @@
     if (
       selected &&
       (mapExploreSelectedSystemPoint(selected) ||
-        retainedSelectedSystem?.id64 !== selected.id64)
+        viewState.retainedSelectedSystem?.id64 !== selected.id64)
     )
-      retainedSelectedSystem = selected;
-    else if (retainedSelectedSystem?.id64 !== urlSelection)
-      retainedSelectedSystem = null;
+      viewState.retainedSelectedSystem = selected;
+    else if (viewState.retainedSelectedSystem?.id64 !== viewState.urlSelection)
+      viewState.retainedSelectedSystem = null;
   });
   const selectedStarPresentation = $derived(
     stellarPresentation({
@@ -1235,7 +1212,7 @@
         finderRevision,
         selectedPoint,
         selectionContribution,
-        camera: untrack(() => retainedCamera?.camera ?? null),
+        camera: untrack(() => viewState.retainedCamera?.camera ?? null),
         spatialContributions: collectGalaxySpatialContributions({
           regions: regionContribution,
           nebulae: nebulaContribution,
@@ -1247,17 +1224,17 @@
           catalogueStars: catalogueStarsContribution,
           commanderHistory: commanderHistoryContribution,
         }),
-        selectedRegionId,
+        selectedRegionId: viewState.selectedRegionId,
       });
     }
     return buildExploreGalaxyScene(
       systems,
       $selectedSystem.value,
       finderRevision +
-        selectionRevision +
+        viewState.selectionRevision +
         regionResourceRevision +
-        streamRevision +
-        layerToggleRevision +
+        viewState.streamRevision +
+        viewState.layerToggleRevision +
         appliedCatalogueRevision +
         (catalogueStarsContribution?.revision ?? 0) +
         commanderVisits.dataUpdatedAt +
@@ -1267,7 +1244,7 @@
       {
         finderContribution,
         finderRevision,
-        camera: retainedCamera?.camera ?? null,
+        camera: viewState.retainedCamera?.camera ?? null,
         spatialContributions: collectGalaxySpatialContributions({
           regions: regionContribution,
           nebulae: nebulaContribution,
@@ -1275,7 +1252,7 @@
           catalogueStars: catalogueStarsContribution,
           commanderHistory: commanderHistoryContribution,
         }),
-        selectedRegionId,
+        selectedRegionId: viewState.selectedRegionId,
       },
     );
   });
@@ -1283,13 +1260,13 @@
   $effect(() => {
     if (!anchor || !results.data || results.isFetching) return;
     if (
-      rankingState.archetype !== 'any' ||
+      viewState.rankingState.archetype !== 'any' ||
       (FINDER_F4_ENABLED && !currentResponse) ||
-      anchorSelectionRevision === 0 ||
-      anchorSelectionRevision === focusedAnchorRevision
+      viewState.anchorSelectionRevision === 0 ||
+      viewState.anchorSelectionRevision === viewState.focusedAnchorRevision
     )
       return;
-    focusedAnchorRevision = anchorSelectionRevision;
+    viewState.focusedAnchorRevision = viewState.anchorSelectionRevision;
     void tick().then(() =>
       resultList
         ?.querySelector<HTMLButtonElement>('[data-result-select]')
@@ -1303,29 +1280,36 @@
       viewportCameraTimeout = null;
     }
     pendingViewportCamera = null;
-    query = hit.name;
+    viewState.query = hit.name;
     autocompleteOpen = false;
-    rankingNotice = '';
+    viewState.rankingNotice = '';
     const committedAnchor = readExploreAnchor({ anchor: hit });
     const params = serializeExploreSearchParams(
-      { near: committedAnchor?.id64 ?? null, bodyFilters, radius },
+      {
+        near: committedAnchor?.id64 ?? null,
+        bodyFilters: viewState.bodyFilters,
+        radius: viewState.radius,
+      },
       page.url.searchParams,
     );
     if (FINDER_F4_ENABLED) params.set('selected', hit.id64);
-    if (committedAnchor && rankingState.archetype === 'any')
-      anchorSelectionRevision += 1;
+    if (committedAnchor && viewState.rankingState.archetype === 'any')
+      viewState.anchorSelectionRevision += 1;
     void navigateWithAnchor(
       exploreDestination(
-        serializeRankingSearchParams({ ...rankingState, offset: 0 }, params),
+        serializeRankingSearchParams(
+          { ...viewState.rankingState, offset: 0 },
+          params,
+        ),
       ),
       { state: { anchor: committedAnchor } },
     );
     if (!committedAnchor) return;
     if (!FINDER_F4_ENABLED) {
       selectedSystem.set(hit.id64);
-      selectionRevision += 1;
+      viewState.selectionRevision += 1;
     }
-    streamRevision += 1;
+    viewState.streamRevision += 1;
     updateStreamCamera({
       focusLy: {
         x: hit.x ?? 0,
@@ -1336,10 +1320,10 @@
       bearingRad: 0,
       pitchRad: 0.55,
       projection: 'perspective',
-      revision: streamRevision,
+      revision: viewState.streamRevision,
     });
-    focusTarget = { kind: 'system', systemId64: hit.id64 };
-    focusRevision += 1;
+    viewState.focusTarget = { kind: 'system', systemId64: hit.id64 };
+    viewState.focusRevision += 1;
   }
 
   function handleQueryInput(event: Event): void {
@@ -1383,10 +1367,10 @@
   }
 
   function selectResult(system: ExploreSystem): void {
-    if (FINDER_F4_ENABLED) retainedSelectedSystem = system;
+    if (FINDER_F4_ENABLED) viewState.retainedSelectedSystem = system;
     commitSelection(system.id64);
-    focusTarget = { kind: 'system', systemId64: system.id64 };
-    focusRevision += 1;
+    viewState.focusTarget = { kind: 'system', systemId64: system.id64 };
+    viewState.focusRevision += 1;
   }
 
   function selectMapSystem(point: GalaxySystemPoint): void {
@@ -1419,12 +1403,15 @@
   }
 
   function updateStreamCamera(camera: CameraState): void {
-    starDetailMode = galaxyDetailMode(camera.distanceLy, starDetailMode);
-    streamCamera = camera;
+    viewState.starDetailMode = galaxyDetailMode(
+      camera.distanceLy,
+      viewState.starDetailMode,
+    );
+    viewState.streamCamera = camera;
   }
 
   function retainCamera(camera: CameraState): void {
-    retainedCamera = { finderRevision, camera };
+    viewState.retainedCamera = { finderRevision, camera };
     pendingViewportCamera = camera;
     if (viewportCameraTimeout !== null) {
       window.clearTimeout(viewportCameraTimeout);
@@ -1437,7 +1424,28 @@
     }, 180);
   }
 
+  function acknowledgeCameraRequest(camera: CameraState): void {
+    const requested = viewState.cameraRequest;
+    if (
+      requested &&
+      camera.focusLy.x === requested.focusLy.x &&
+      camera.focusLy.y === requested.focusLy.y &&
+      camera.focusLy.z === requested.focusLy.z &&
+      camera.distanceLy === requested.distanceLy &&
+      camera.bearingRad === requested.bearingRad &&
+      camera.pitchRad === requested.pitchRad &&
+      camera.projection === requested.projection
+    )
+      viewState.appliedCameraRequestRevision = viewState.cameraRequestRevision;
+  }
+
   function handleRuntimeEvent(event: RuntimeEvent): void {
+    if (
+      event.type === 'TRANSITION_FINISHED' &&
+      event.target &&
+      JSON.stringify(event.target) === JSON.stringify(viewState.focusTarget)
+    )
+      viewState.completedFocusRevision = viewState.focusRevision;
     if (
       event.type === 'SCENE_APPLIED' ||
       event.type === 'CONTRIBUTION_APPLIED'
@@ -1452,15 +1460,16 @@
       renderedNebulaReceipt = null;
     }
     if (event.type === 'CAMERA_CHANGED' && 'focusLy' in event.camera) {
+      acknowledgeCameraRequest(event.camera);
       // Retained navigation state may already hold a flight's destination.
       // Status follows the camera actually applied by the renderer each frame.
       nebulaCameraDistanceLy = event.camera.distanceLy;
       if (spatialCameraTransitionActive) return;
       retainCamera(event.camera);
     } else if (event.type === 'TARGET_HOVERED') {
-      hoveredRegionId =
+      viewState.hoveredRegionId =
         event.target?.kind === 'region' ? event.target.id : null;
-      hoveredSystemId =
+      viewState.hoveredSystemId =
         event.target?.kind === 'system' ? event.target.systemId64 : null;
     } else if (event.type === 'TARGET_PICKED') {
       if (event.target?.kind === 'region') {
@@ -1469,7 +1478,7 @@
         try {
           const picked = parseId64(event.target.systemId64);
           commitSelection(picked);
-          lastPickedId64 = picked;
+          viewState.lastPickedId64 = picked;
         } catch {
           // Renderer events fail closed if an adapter emits a non-Id64 target.
         }
@@ -1482,7 +1491,7 @@
       ...$layerPreferences.value,
       journeys: !showTravelHeatmap,
     });
-    layerToggleRevision += 1;
+    viewState.layerToggleRevision += 1;
   }
 
   function toggleDensity(): void {
@@ -1502,13 +1511,13 @@
       appliedDensityData = undefined;
     }
     densityRemovalRevision += 1;
-    layerToggleRevision += 1;
+    viewState.layerToggleRevision += 1;
   }
 
   function toggleNebulae(): void {
-    showNebulae = !showNebulae;
+    viewState.showNebulae = !viewState.showNebulae;
     renderedNebulaReceipt = null;
-    layerToggleRevision += 1;
+    viewState.layerToggleRevision += 1;
   }
 
   function regionName(regionId: string | null): string {
@@ -1520,14 +1529,14 @@
   }
 
   function selectRegion(regionId: string | null): void {
-    if (regionId === selectedRegionId || !regions) return;
-    selectedRegionId = regionId;
-    selectionRevision += 1;
+    if (regionId === viewState.selectedRegionId || !regions) return;
+    viewState.selectedRegionId = regionId;
+    viewState.selectionRevision += 1;
   }
 
   function requestView(camera: CameraState): void {
-    cameraRequest = camera;
-    cameraRequestRevision += 1;
+    viewState.cameraRequest = camera;
+    viewState.cameraRequestRevision += 1;
   }
 
   function handleCameraTransitionChange(
@@ -1540,6 +1549,7 @@
     // and then switch back to the overview on settle. FLY_TO supplies its camera
     // only on completion; its in-flight samples are still ignored.
     if ((FINDER_F4_ENABLED || !active) && camera && 'focusLy' in camera) {
+      acknowledgeCameraRequest(camera);
       retainCamera(camera);
     }
   }
@@ -1552,7 +1562,7 @@
       fitGalaxyPlaneCamera(
         {
           ...(FINDER_F4_ENABLED
-            ? (retainedCamera?.camera ?? scene.camera)
+            ? (viewState.retainedCamera?.camera ?? scene.camera)
             : scene.camera),
           bearingRad: 0,
           pitchRad: Math.PI / 2,
@@ -1575,13 +1585,13 @@
 
   function viewSelectedRegion(): void {
     const region = regions?.regions.find(
-      (candidate) => String(candidate.id) === selectedRegionId,
+      (candidate) => String(candidate.id) === viewState.selectedRegionId,
     );
     if (region)
       requestView(
         focusGalaxyCamera(
           FINDER_F4_ENABLED
-            ? (retainedCamera?.camera ?? scene.camera)
+            ? (viewState.retainedCamera?.camera ?? scene.camera)
             : scene.camera,
           region.labelLy,
           18_000,
@@ -1599,8 +1609,8 @@
       regionContribution = createGalaxyRegionsContribution(accepted, 1);
       regionResourceRevision += 1;
       regionState = 'ready';
-      if (!initialGalaxyViewRequested) {
-        initialGalaxyViewRequested = true;
+      if (!viewState.initialGalaxyViewRequested) {
+        viewState.initialGalaxyViewRequested = true;
         void tick().then(() => overview());
       }
     } catch {
@@ -1699,7 +1709,7 @@
             ? `suggestion-${activeSuggestion}`
             : undefined}
           bind:this={searchInput}
-          bind:value={query}
+          bind:value={viewState.query}
           oninput={handleQueryInput}
           onfocus={() => (autocompleteOpen = normalizedQuery.length >= 2)}
           onkeydown={handleQueryKeydown}
@@ -1745,7 +1755,7 @@
 
   {#snippet bodyFilterTools()}
     <BodyFilters
-      value={bodyFilters}
+      value={viewState.bodyFilters}
       disabled={bodyFiltersPaused}
       paused={bodyFiltersPaused}
       onapply={(value) => void commitBodyFilters(value)}
@@ -1763,7 +1773,7 @@
         onclick={clearAnchor}>Clear</button
       >
     </p>
-    {#if FINDER_F4_ENABLED && rankingState.archetype !== 'any'}
+    {#if FINDER_F4_ENABLED && viewState.rankingState.archetype !== 'any'}
       <p>
         Archetype ranking is galaxy-wide today; choose Any to search around {anchor.name}.
       </p>
@@ -1771,8 +1781,8 @@
   {/if}
   {#if FINDER_F4_ENABLED}
     <ArchetypePicker
-      archetype={rankingState.archetype}
-      minimumTier={rankingState.minimumTier}
+      archetype={viewState.rankingState.archetype}
+      minimumTier={viewState.rankingState.minimumTier}
       onArchetypeChange={(archetype) =>
         commitRanking({ archetype, minimumTier: null })}
       onMinimumTierChange={(minimumTier) => commitRanking({ minimumTier })}
@@ -1785,7 +1795,7 @@
         min="1"
         max="50"
         step="1"
-        value={rankingState.pageSize}
+        value={viewState.rankingState.pageSize}
         onchange={(event) =>
           commitRanking({ pageSize: event.currentTarget.valueAsNumber })}
       />
@@ -1794,15 +1804,15 @@
     {@render bodyFilterTools()}
   {/if}
 
-  {#if rankingNotice}
-    <p role="status" class="ranking-status">{rankingNotice}</p>
+  {#if viewState.rankingNotice}
+    <p role="status" class="ranking-status">{viewState.rankingNotice}</p>
   {/if}
 
   <div class="explore-grid">
     <section
       class="results-panel"
       aria-labelledby="results-title"
-      aria-busy={hasResultsIntent &&
+      aria-busy={viewState.hasResultsIntent &&
         (FINDER_F4_ENABLED
           ? updatingResults
           : results.isFetching || catalogueStars.isFetching)}
@@ -1811,11 +1821,11 @@
         <div>
           <p class="eyebrow">Catalogue results</p>
           <h2 id="results-title">
-            {FINDER_F4_ENABLED && rankingState.archetype !== 'any'
+            {FINDER_F4_ENABLED && viewState.rankingState.archetype !== 'any'
               ? `Galaxy-wide ${activeArchetypeLabel} ranking`
               : anchor
                 ? `Near ${anchor.name}`
-                : hasResultsIntent
+                : viewState.hasResultsIntent
                   ? 'Galaxy-wide opportunities'
                   : 'Systems'}
           </h2>
@@ -1839,7 +1849,7 @@
             disabled={bodyFiltersPaused}
             aria-describedby={bodyFiltersPaused
               ? 'search-radius-disabled'
-              : Object.keys(bodyFilters).length > 0
+              : Object.keys(viewState.bodyFilters).length > 0
                 ? 'search-radius-capped'
                 : undefined}
             onchange={(event) =>
@@ -1849,7 +1859,7 @@
               <option
                 value={option}
                 disabled={!bodyFiltersPaused &&
-                  Object.keys(bodyFilters).length > 0 &&
+                  Object.keys(viewState.bodyFilters).length > 0 &&
                   option > FILTERED_SEARCH_RADIUS_CAP_LY}
                 >{option.toLocaleString('en-US')} LY</option
               >
@@ -1860,21 +1870,21 @@
           <p id="search-radius-disabled" class="radius-hint">
             Search radius works when you search near a system with Any selected.
           </p>
-        {:else if Object.keys(bodyFilters).length > 0}
+        {:else if Object.keys(viewState.bodyFilters).length > 0}
           <p id="search-radius-capped" class="radius-hint">
             Body filters limit the search to {FILTERED_SEARCH_RADIUS_CAP_LY} LY{radiusCappedByFilters
-              ? `; your ${radius.toLocaleString('en-US')} LY radius resumes when the filters are cleared`
+              ? `; your ${viewState.radius.toLocaleString('en-US')} LY radius resumes when the filters are cleared`
               : ''}.
           </p>
         {/if}
       </div>
 
-      {#if FINDER_F4_ENABLED && hasResultsIntent}
+      {#if FINDER_F4_ENABLED && viewState.hasResultsIntent}
         <div role="status" aria-live="polite" class="ranking-status">
           {#if updatingResults}
             <p>
-              {displayedResults ? 'Updating… ' : ''}{rankingState.archetype ===
-              'any'
+              {displayedResults ? 'Updating… ' : ''}{viewState.rankingState
+                .archetype === 'any'
                 ? 'Searching systems…'
                 : `Ranking systems for ${activeArchetypeLabel}…`}
             </p>
@@ -1895,14 +1905,14 @@
             <p>
               {rankingDataNotReady
                 ? 'Archetype rankings are unavailable until Finder ranking data is published.'
-                : rankingState.archetype !== 'any'
+                : viewState.rankingState.archetype !== 'any'
                   ? 'Archetype rankings are temporarily unavailable. Try again shortly.'
                   : 'Discovery results could not be loaded. Try again shortly.'}
             </p>
             <button type="button" onclick={() => results.refetch()}
               >Retry</button
             >
-            {#if rankingState.archetype !== 'any'}
+            {#if viewState.rankingState.archetype !== 'any'}
               <button
                 type="button"
                 onclick={() => commitRanking({ archetype: 'any' })}
@@ -1913,12 +1923,12 @@
         {:else if currentResponse && !results.isFetching && results.data?.page.total === 0}
           <div class="state-card">
             <p>
-              {rankingState.archetype === 'any'
+              {viewState.rankingState.archetype === 'any'
                 ? 'No systems match this discovery area. Choose another anchor.'
-                : `No systems meet minimum tier ${rankingState.minimumTier} for ${activeArchetypeLabel}.`}
+                : `No systems meet minimum tier ${viewState.rankingState.minimumTier} for ${activeArchetypeLabel}.`}
             </p>
-            {#if rankingState.archetype !== 'any'}
-              {#if rankingState.minimumTier !== 'B'}
+            {#if viewState.rankingState.archetype !== 'any'}
+              {#if viewState.rankingState.minimumTier !== 'B'}
                 <button
                   type="button"
                   onclick={() => commitRanking({ minimumTier: 'B' })}
@@ -1935,7 +1945,7 @@
         {/if}
       {/if}
 
-      {#if !hasResultsIntent}
+      {#if !viewState.hasResultsIntent}
         <div class="state-card">
           <p>Search for a system above to see what is near it.</p>
         </div>
@@ -1965,6 +1975,8 @@
         <ul
           class="result-list"
           bind:this={resultList}
+          onscroll={(event) =>
+            viewState.captureResultScroll(event.currentTarget.scrollTop)}
           aria-label="System results"
           aria-describedby="results-scope"
         >
@@ -1989,7 +2001,7 @@
                     >{system.name ?? `System ${system.id64}`}</strong
                   ><code>{system.id64}</code></span
                 >
-                {#if FINDER_F4_ENABLED && displayedResults && !(rankingState.archetype === 'any' && displayedResults.finderState!.archetype !== 'any')}
+                {#if FINDER_F4_ENABLED && displayedResults && !(viewState.rankingState.archetype === 'any' && displayedResults.finderState!.archetype !== 'any')}
                   <FinderResultRanking
                     variant="row"
                     {system}
@@ -2029,7 +2041,7 @@
                 Inspect <ArrowRight aria-hidden="true" size={16} />
               </a>
               <!-- eslint-enable svelte/no-navigation-without-resolve -->
-              {#if FINDER_F4_ENABLED && displayedResults && !(rankingState.archetype === 'any' && displayedResults.finderState!.archetype !== 'any')}
+              {#if FINDER_F4_ENABLED && displayedResults && !(viewState.rankingState.archetype === 'any' && displayedResults.finderState!.archetype !== 'any')}
                 <ArchetypeExplanation
                   {system}
                   expected={system.ranking_provenance ?? null}
@@ -2086,7 +2098,7 @@
     <section
       class="map-panel"
       aria-labelledby="map-title"
-      data-hovered-system-id={hoveredSystemId ?? ''}
+      data-hovered-system-id={viewState.hoveredSystemId ?? ''}
       bind:this={mapSection}
     >
       <div class="panel-heading">
@@ -2119,7 +2131,7 @@
             <span>Galactic region</span>
             <select
               id="explore-region-picker"
-              value={selectedRegionId ?? ''}
+              value={viewState.selectedRegionId ?? ''}
               onchange={(event) =>
                 selectRegion(event.currentTarget.value || null)}
             >
@@ -2142,20 +2154,21 @@
             <button type="button" onclick={overview}>All 42 regions</button>
             <button
               type="button"
-              disabled={!selectedRegionId}
+              disabled={!viewState.selectedRegionId}
               onclick={viewSelectedRegion}>View selected</button
             >
           </div>
           <div class="product-region-status" aria-live="polite">
             <span
               >Selected: <strong
-                data-selected-region-id={selectedRegionId ?? ''}
-                >{regionName(selectedRegionId)}</strong
+                data-selected-region-id={viewState.selectedRegionId ?? ''}
+                >{regionName(viewState.selectedRegionId)}</strong
               ></span
             >
             <span
-              >Hovered: <strong data-hovered-region-id={hoveredRegionId ?? ''}
-                >{regionName(hoveredRegionId)}</strong
+              >Hovered: <strong
+                data-hovered-region-id={viewState.hoveredRegionId ?? ''}
+                >{regionName(viewState.hoveredRegionId)}</strong
               ></span
             >
           </div>
@@ -2165,7 +2178,7 @@
         <MapLayers
           densityEnabled={showDensity}
           journeysEnabled={showTravelHeatmap}
-          nebulaeEnabled={showNebulae}
+          nebulaeEnabled={viewState.showNebulae}
           onDensityToggle={toggleDensity}
           onJourneysToggle={toggleTravelHeatmap}
           onNebulaeToggle={toggleNebulae}
@@ -2332,10 +2345,10 @@
         onViewportChange={(viewport) => {
           canvasViewport = viewport;
           if (
-            starViewportSize?.width !== viewport.width ||
-            starViewportSize?.height !== viewport.height
+            viewState.starViewportSize?.width !== viewport.width ||
+            viewState.starViewportSize?.height !== viewport.height
           )
-            starViewportSize = viewport;
+            viewState.starViewportSize = viewport;
         }}
         {scene}
         anchorPoint={mapAnchorPoint}
@@ -2347,10 +2360,15 @@
         onSystemInspect={FINDER_F4_ENABLED
           ? (event, point) => followInspect(event, parseId64(point.systemId64))
           : undefined}
-        {cameraRequest}
-        {cameraRequestRevision}
-        {focusTarget}
-        {focusRevision}
+        cameraRequest={remount &&
+        viewState.cameraRequestRevision === mountedCameraRevision
+          ? null
+          : viewState.cameraRequest}
+        cameraRequestRevision={viewState.cameraRequestRevision}
+        focusTarget={remount && viewState.focusRevision === mountedFocusRevision
+          ? null
+          : viewState.focusTarget}
+        focusRevision={viewState.focusRevision}
         contributionPatch={FINDER_F4_ENABLED && showDensity
           ? densityContribution
           : null}
@@ -2436,9 +2454,10 @@
       <p
         class="selection-status"
         aria-live="polite"
-        data-last-picked-id64={lastPickedId64}
+        data-last-picked-id64={viewState.lastPickedId64}
       >
-        {#if lastPickedId64}Spatial pick selected <code>{lastPickedId64}</code
+        {#if viewState.lastPickedId64}Spatial pick selected <code
+            >{viewState.lastPickedId64}</code
           >.{:else if $selectedSystem.value}Active system <code
             >{$selectedSystem.value}</code
           >.{:else}Select a result to focus the map.{/if}
