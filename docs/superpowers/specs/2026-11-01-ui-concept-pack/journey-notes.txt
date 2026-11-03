@@ -1,0 +1,39 @@
+ED:FINDER — revised UI/UX concepts, 1 November 2026
+
+DESIGN
+Elite Dangerous orange, glossy gunmetal, midnight navy and neon deep blue. Rounded panels/buttons, soft reflections, crisp text. Main tasks use tabs; occasional tools use closable, movable/dockable popouts.
+
+JOURNEY
+Finder: archetype selection and results first. Any uses Best Colony Potential; a selected archetype uses fit for that archetype.
+Body filters: optional grouped sliders, with Reset/Cancel/Apply. Applied filter chips remain visible when closed.
+Show on map: opens the selected system on demand. Closing preserves search, filters, selection and scroll position. Expand enables broader exploration.
+Inspect: Overview/Bodies/Stations tabs, seven independent economy potentials, evidence explanations in a popout.
+Plan: System layout/Build order tabs, facility preview popout, explicit Add to plan. Unknown slots remain unknown; separate Tier 2 and Tier 3 balances.
+Review/export: a popout over the plan, unresolved information linked to the relevant body/build, explicit draft export without claiming build eligibility.
+
+FINDER CONTROLS
+Any plus: Paradise World; Mining Hub; Manufacturing Hub; Megacomplex; Research Hub; Stronghold; Population Capital; Flexible Multi-Role Colony.
+Selected-mode minimum tiers are B/A/S in the reviewed repository contract.
+18 body counts:
+Planets (9): Earth-like, water worlds, ammonia worlds, terraformable, gas giants, high metal content, metal-rich, rocky, icy.
+Stars (4): black holes, neutron stars, white dwarfs, other stars.
+Features (5): landable, walkable, rings, biological signals, geological signals.
+Count filters are not ranking weights. Future V3 ranking-weight dimensions are not yet defined and were not invented here. Production combinations must respect actual API capabilities.
+
+REFERENCES
+Live: https://ed-finder.app/explore
+Followed Tavgi through Inspect/Plan; opened Industrial explanation, facility picker and build order; inspected local 3D grid and all-42-regions map.
+www.ed-finder.com still returned a Cloudflare block.
+Repo: https://github.com/brianstewart377-rgb/ed-finder
+Snapshot: 1932816189ffe1751eb462c69a879dd12f602562
+Current frontend is apps/web (Svelte), not historical frontend/.
+Sources: apps/web/src/lib/features/explore/archetypes.ts and ArchetypePicker.svelte; apps/web/src/lib/features/plan/SummaryPane.svelte; docs/superpowers/specs/2026-09-16-v3-finder-derived-foundation-design.md; docs/superpowers/specs/2026-10-10-v3-finder-f4-archetype-ui-design.md.
+F4 archetypes are behind a default-off flag in the reviewed snapshot. The full slider surfaces are design intent, not all enabled live controls.
+
+SCOPE
+Static visual concepts; no implementation or deployment.
+Finder scores/results and plan contents are illustrative, not actual search results, saved builds or eligibility decisions. Inspect's economy scores/confidences were read live.
+The map-window image defines styling and placement. Its generated geography is illustrative, not authoritative. Implementation should embed the existing renderer and real coordinates/regions. reference-live-map.png is the actual captured map for comparison.
+No repo files or live implementation were changed. No builds were added, exported or published.
+Generated with the built-in image generation tool. generation-prompts.txt contains the complete prompts.
+

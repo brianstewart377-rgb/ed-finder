@@ -1,0 +1,47 @@
+ED-FINDER - CLAUDE HANDOFF
+1 November 2026
+
+Suggested message to paste with the PDF:
+Please review the attached ED-Finder UI/UX concepts alongside the repository. Treat them as the visual direction, with illustrative data rather than new business rules. Keep the cinematic Orbis homepage; use rounded, glossy orange/gunmetal/neon-blue workspaces. Preserve all eight archetypes, the optional 18-slider body-filter popout, results-first Finder and Show on map action. Carry system context through Inspect, Plan and review/export. Use the existing map renderer and real coordinates. Identify any implementation gaps against the current Svelte code before proposing changes.
+
+THE SET
+00-orbis-home.png - the cinematic homepage the user liked, with Orbis-based imagery and relevant copy.
+01-finder.png - results first, archetype selectors, body-filter popout.
+02-map.png - Show on map popout; its drawn geography is illustrative.
+03-inspect.png - system tabs, independent economy potentials and evidence popout.
+04-plan.png - system/build-order tabs and facility picker.
+05-review.png - review/export popout and unresolved-information state.
+
+USER PREFERENCES
+Elite Dangerous orange, gunmetal and neon dark blue.
+Rounder corners and more glossy surfaces for the workspaces.
+Tabs are welcome. Popouts suit things that do not need to remain visible.
+Map is optional from a result, not the default results-page centrepiece.
+Do not omit archetype selectors or sliders.
+Preserve the selected homepage composition; replace its fictional station with an Orbis and use text relevant to system finding and colony planning.
+
+FINDER DETAILS
+Any plus Paradise World, Mining Hub, Manufacturing Hub, Megacomplex, Research Hub, Stronghold, Population Capital, Flexible Multi-Role Colony.
+18 count sliders: Planets (9) - Earth-like, water worlds, ammonia worlds, terraformable, gas giants, high metal content, metal-rich, rocky, icy.
+Stars (4) - black holes, neutron stars, white dwarfs, other stars.
+Features (5) - landable, walkable, rings, biological signals, geological signals.
+Count filters are distinct from ranking weights. V3 weight dimensions were not defined in the reviewed source; do not infer them from old code or these concepts.
+Any mode: Best Colony Potential. Selected mode: fit for the selected archetype. Preserve API-supported modes and filters.
+
+SOURCE AND LIMITS
+Repo: https://github.com/brianstewart377-rgb/ed-finder
+Reviewed snapshot: 1932816189ffe1751eb462c69a879dd12f602562
+Current frontend: apps/web (Svelte), not historical frontend/.
+Live inspected: https://ed-finder.app/explore and Tavgi Inspect/Plan.
+Original www.ed-finder.com was Cloudflare-blocked.
+F4 archetype UI was default-off in the reviewed build; full slider interfaces are design intent, not all currently enabled live behaviour.
+Ranking/plan examples are illustrative. Seven economy potentials remain independent. Confidence is evidence completeness, not success probability.
+Unknown slots remain unknown; planned and built stay distinct; Tier 2 and Tier 3 balances remain separate.
+The generated map is a layout example, not accurate geometry. Use reference-live-map.png and the existing renderer.
+The Orbis hero is a generated/edited composition based on an Orbis reference, not an unmodified gameplay screenshot.
+These are static mockups. No implementation, deployed change or saved plan was created.
+
+PACKAGE
+The PDF provides the six screens, a brief and the actual map reference.
+The ZIP includes this handoff, the PDF, full-resolution PNGs, the HTML gallery, notes and prompts.
+Inside the ZIP, open ed-finder-mockups-v3/index.html to browse the gallery after extracting.
