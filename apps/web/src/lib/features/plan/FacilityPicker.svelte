@@ -632,12 +632,8 @@
     min-height: 0;
     padding: 0.75rem;
     overflow: hidden;
-<<<<<<< HEAD
-    background: var(--panel, var(--color-panel));
-=======
     background: var(--panel);
     background-image: var(--panel-gloss);
->>>>>>> origin/main
   }
   .picker-heading {
     display: flex;
@@ -665,17 +661,10 @@
     padding: 0.4rem 0.6rem;
     font-size: 0.8rem;
   }
-<<<<<<< HEAD
   [role='tab'][aria-selected='true'] {
-    border-color: var(--accent, var(--color-signal));
-    background: color-mix(
-      in srgb,
-      var(--accent, var(--color-signal)) 15%,
-      var(--panel, var(--color-panel))
-    );
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 15%, var(--panel));
   }
-=======
->>>>>>> origin/main
   .picker-search {
     display: flex;
     align-items: center;
@@ -689,11 +678,7 @@
   }
   p {
     margin: 0.6rem 0;
-<<<<<<< HEAD
-    color: var(--text-muted, var(--muted));
-=======
     color: var(--text-muted);
->>>>>>> origin/main
     font-size: 0.75rem;
   }
   .picker-list {
@@ -713,11 +698,7 @@
   }
   h4 {
     margin: 0.7rem 0 0.3rem;
-<<<<<<< HEAD
-    color: var(--text-muted, var(--muted));
-=======
     color: var(--text-muted);
->>>>>>> origin/main
     font-size: 0.72rem;
     font-weight: 600;
   }
@@ -747,21 +728,13 @@
     padding-right: 0.3rem;
     font-size: 0.7rem;
     font-variant-numeric: tabular-nums;
-<<<<<<< HEAD
-    color: var(--text-muted, var(--muted));
-=======
     color: var(--text-muted);
->>>>>>> origin/main
     text-align: right;
   }
   .picker-prerequisites {
     grid-column: 1 / -1;
     padding: 0 0.4rem 0.25rem;
-<<<<<<< HEAD
-    color: var(--text-muted, var(--muted));
-=======
     color: var(--text-muted);
->>>>>>> origin/main
     font-size: 0.7rem;
   }
   @media (max-width: 400px) {
@@ -782,9 +755,9 @@
     flex-direction: column;
     min-height: 0;
     margin-top: 0.5rem;
-    border: 1px solid var(--line, hsl(216 10% 24%));
-    border-radius: var(--radius, 0.6rem);
-    background: var(--panel-raised, hsl(216 10% 14%));
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel-raised);
   }
   .preview-details {
     overflow-y: auto;
@@ -809,7 +782,7 @@
     font-size: 0.8rem;
   }
   .preview-facts dt {
-    color: var(--text-muted, var(--muted));
+    color: var(--text-muted);
   }
   .preview-facts dd {
     margin: 0.15rem 0 0;
@@ -818,7 +791,7 @@
   .preview-economy {
     margin-top: 0.6rem;
     padding-top: 0.4rem;
-    border-top: 1px solid var(--line, hsl(216 10% 24%));
+    border-top: 1px solid var(--line);
     font-size: 0.8rem;
   }
   .preview-economy li {
@@ -831,10 +804,10 @@
     flex-wrap: wrap;
     gap: 0.5rem;
     padding: 0.65rem;
-    border-top: 1px solid var(--line, hsl(216 10% 24%));
+    border-top: 1px solid var(--line);
   }
   [data-add-to-plan] {
-    border-color: var(--neon, var(--color-cyan));
-    background: var(--panel, var(--color-panel));
+    border-color: var(--neon);
+    background: var(--panel);
   }
 </style>

@@ -513,13 +513,10 @@
     width: min(34rem, calc(100% - 1rem));
     max-height: min(38rem, calc(100dvh - 1rem));
     overflow: hidden;
-<<<<<<< HEAD
-    border: 1px solid var(--neon, var(--color-cyan));
-    border-radius: var(--radius, 0.6rem);
-    background: var(--panel, var(--color-panel));
-    box-shadow: 0 0.6rem 2rem #0008;
-=======
->>>>>>> origin/main
+    border: 1px solid var(--neon);
+    border-radius: var(--radius);
+    background: var(--panel);
+    box-shadow: var(--shadow-panel);
   }
   .plan-addition {
     position: absolute;

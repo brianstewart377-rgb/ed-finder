@@ -9,40 +9,17 @@
 .plan-workspace input,
 .plan-workspace select {
   font: inherit;
-<<<<<<< HEAD
   color: inherit;
-  border: 1px solid var(--line, hsl(216 10% 24%));
+  border: 1px solid var(--line);
   border-radius: 0.45rem;
-  background: var(--panel-raised, hsl(216 10% 14%));
-=======
->>>>>>> origin/main
+  background: var(--panel-raised);
   padding: 0.45rem 0.65rem;
   min-width: 0;
   max-width: 100%;
 }
-<<<<<<< HEAD
-.plan-workspace button {
-  cursor: pointer;
-}
-.plan-workspace button:hover:not(:disabled) {
-  border-color: var(--accent, var(--color-signal, #ff7a14));
-}
-.plan-workspace button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.plan-workspace button[aria-pressed='true'] {
-  border-color: var(--accent, var(--color-signal, #ff7a14));
-  background: color-mix(
-    in srgb,
-    var(--accent, var(--color-signal, #ff7a14)) 15%,
-    var(--panel, var(--color-panel, hsl(218 11% 10%)))
-  );
-=======
 .plan-workspace button[aria-pressed='true'] {
   border-color: var(--neon);
   background: var(--neon-soft);
->>>>>>> origin/main
 }
 .plan-header nav,
 .plan-header-actions,
@@ -56,19 +33,11 @@
   flex-wrap: wrap;
 }
 .plan-header nav {
-<<<<<<< HEAD
-  color: var(--text-muted, var(--muted, #a6acb4));
-  margin-bottom: 1rem;
-}
-.build-order-blocked {
-  color: var(--accent, var(--color-signal, #ff7a14));
-=======
   color: var(--text-muted);
   margin-bottom: 1rem;
 }
 .build-order-blocked {
   color: var(--accent);
->>>>>>> origin/main
 }
 .plan-title {
   display: flex;
@@ -94,28 +63,24 @@
   padding: 0.35rem;
   width: fit-content;
   max-width: 100%;
-  border: 1px solid var(--line, hsl(216 10% 24%));
-  border-radius: var(--radius, 0.8rem);
-  background: var(--panel, var(--color-panel, hsl(218 11% 10%)));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
 }
 .plan-task-tabs [role='tab'] {
   min-height: 44px;
   font-family: var(--font-hud, inherit);
-  border-radius: var(--radius-sm, 0.45rem);
+  border-radius: var(--radius-sm);
   border-color: transparent;
-  color: var(--text-muted, var(--muted, #a6acb4));
+  color: var(--text-muted);
 }
 .plan-task-tabs [role='tab'][aria-selected='true'] {
-  color: var(--accent, var(--color-signal, #ff7a14));
-  border-color: var(--accent, var(--color-signal, #ff7a14));
-  background: color-mix(
-    in srgb,
-    var(--neon, var(--color-cyan, #7dd3fc)) 10%,
-    var(--panel-raised, hsl(216 10% 14%))
-  );
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--neon) 10%, var(--panel-raised));
 }
 .plan-task-tabs [role='tab']:focus-visible {
-  outline: 2px solid var(--focus, var(--accent, var(--color-signal, #ff7a14)));
+  outline: 2px solid var(--focus);
   outline-offset: 3px;
 }
 .plan-columns {
@@ -126,17 +91,11 @@
 }
 .plan-pane {
   min-width: 0;
-<<<<<<< HEAD
-  border: 1px solid var(--line, hsl(216 10% 24%));
-  border-radius: var(--radius, 0.8rem);
-  background: var(--panel, var(--color-panel, hsl(218 11% 10%)));
-=======
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--panel);
   background-image: var(--panel-gloss);
   box-shadow: var(--shadow-panel);
->>>>>>> origin/main
   padding: 0.65rem;
 }
 .plan-workspace [hidden] {
@@ -163,14 +122,6 @@
   font-size: 0.95rem;
 }
 .plan-muted {
-<<<<<<< HEAD
-  color: var(--text-muted, var(--muted, #a6acb4));
-  font-size: 0.85rem;
-}
-.plan-chip {
-  border: 1px solid var(--line, hsl(216 10% 24%));
-  border-radius: 0.3rem;
-=======
   color: var(--text-muted);
   font-size: 0.85rem;
 }
@@ -178,7 +129,6 @@
   border: 1px solid var(--neon);
   border-radius: var(--radius-pill);
   background: var(--neon-soft);
->>>>>>> origin/main
   padding: 0.15rem 0.35rem;
   font-size: 0.72rem;
 }
@@ -195,24 +145,15 @@
   padding: 2px 0.25rem;
 }
 .plan-site-group.surface {
-<<<<<<< HEAD
-  border-radius: 0.3rem;
-  background: var(--panel-raised, hsl(216 10% 14%));
-=======
   border-radius: var(--radius-sm);
   background: var(--panel-raised);
->>>>>>> origin/main
 }
 .plan-pane .site-group-heading {
   display: flex;
   align-items: center;
   gap: 0.25rem;
   margin: 0;
-<<<<<<< HEAD
-  color: var(--text-muted, var(--muted, #a6acb4));
-=======
   color: var(--text-muted);
->>>>>>> origin/main
   font-size: 0.65rem;
   font-weight: 600;
   line-height: 16px;
@@ -266,11 +207,7 @@
   min-width: 0;
   max-width: 50%;
   overflow: hidden;
-<<<<<<< HEAD
-  color: var(--text-muted, var(--muted, #a6acb4));
-=======
   color: var(--text-muted);
->>>>>>> origin/main
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -286,21 +223,8 @@
   font-size: 0.8rem;
 }
 .blocked {
-<<<<<<< HEAD
-  background: color-mix(
-    in srgb,
-    var(--accent, var(--color-signal, #ff7a14)) 10%,
-    var(--panel, var(--color-panel, hsl(218 11% 10%)))
-  ) !important;
-  border-color: color-mix(
-    in srgb,
-    var(--accent, var(--color-signal, #ff7a14)) 60%,
-    var(--line, hsl(216 10% 24%))
-  ) !important;
-=======
   background: color-mix(in srgb, var(--accent) 10%, var(--panel)) !important;
   border-color: color-mix(in srgb, var(--accent) 60%, var(--line)) !important;
->>>>>>> origin/main
 }
 .stale {
   /* Keep pending/last-good text readable; opacity breaks text contrast. */
@@ -326,14 +250,6 @@
 }
 .plan-totals > div {
   padding: 0.7rem;
-<<<<<<< HEAD
-  background: var(--panel-raised, hsl(216 10% 14%));
-  border: 1px solid var(--line, hsl(216 10% 24%));
-  border-radius: 0.5rem;
-}
-.plan-totals dt {
-  color: var(--text-muted, var(--muted, #a6acb4));
-=======
   background: var(--panel);
   background-image: var(--panel-gloss);
   border: 1px solid var(--line);
@@ -342,7 +258,6 @@
 }
 .plan-totals dt {
   color: var(--text-muted);
->>>>>>> origin/main
   font-size: 0.8rem;
 }
 .plan-totals dd {
@@ -395,11 +310,7 @@
   font-size: 0.8rem;
 }
 .plan-empty {
-<<<<<<< HEAD
-  color: var(--text-muted, var(--muted, #a6acb4));
-=======
   color: var(--text-muted);
->>>>>>> origin/main
   line-height: 1.6;
 }
 .plan-file-input,
