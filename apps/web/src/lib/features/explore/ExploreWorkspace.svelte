@@ -53,8 +53,13 @@
     type BodyFilterValues,
   } from './body-filters';
   import {
+    effectiveSearchRadius,
+    FILTERED_SEARCH_RADIUS_CAP_LY,
+    normalizeSearchRadius,
     parseExploreSearchParams,
+    SEARCH_RADIUS_OPTIONS,
     serializeExploreSearchParams,
+    type SearchRadius,
   } from './search-state';
   import { usePersistenceContext } from '$lib/persistence/context';
   import { createMapLayerPreferences } from '$lib/persistence/map-layers';
@@ -183,6 +188,10 @@
     return readExploreAnchor({ anchor: detail });
   });
   const bodyFilters = $derived(parsedSearch.bodyFilters);
+  const radius = $derived(parsedSearch.radius);
+  // Body filters cap the anchored search at the API's filtered radius; the
+  // URL keeps the chosen radius so it resumes when the filters are cleared.
+  const effectiveRadius = $derived(effectiveSearchRadius(radius, bodyFilters));
   const mapAnchorPoint = $derived<GalaxySystemPoint | null>(
     anchor &&
       typeof anchor.x === 'number' &&
@@ -300,6 +309,9 @@
   const bodyFiltersPaused = $derived(
     !anchor || rankingState.archetype !== 'any',
   );
+  const radiusCappedByFilters = $derived(
+    !bodyFiltersPaused && effectiveRadius !== radius,
+  );
   const urlSelection = $derived.by((): Id64 | null => {
     if (!FINDER_F4_ENABLED) return null;
     const values = page.url.searchParams.getAll('selected');
@@ -318,7 +330,7 @@
   );
   const canonicalSearch = $derived.by(() => {
     let params = serializeExploreSearchParams(
-      { near: nearId, bodyFilters },
+      { near: nearId, bodyFilters, radius },
       page.url.searchParams,
     );
     if (FINDER_F4_ENABLED) {
@@ -354,7 +366,7 @@
     const selected = selectFinderRequest(
       rankingState,
       anchor ? { x: anchor.x, y: anchor.y, z: anchor.z } : null,
-      { enabled: FINDER_F4_ENABLED },
+      { enabled: FINDER_F4_ENABLED, radius: effectiveRadius },
     );
     if (
       selected.kind === 'any' &&
@@ -388,6 +400,8 @@
     page: FinderPageEnvelope;
     finderState?: FinderRankingState;
     finderIdentity?: string;
+    /** Keep retained rows labelled with the radius that produced them. */
+    searchRadius?: SearchRadius | null;
   };
   const results = createQuery<FinderResponse>(() => {
     if (!FINDER_F4_ENABLED) {
@@ -407,6 +421,8 @@
     const reference = anchorReference;
     const state = rankingState;
     const identity = finderIdentity;
+    const searchRadius =
+      request.kind === 'any' && reference ? effectiveRadius : null;
     return {
       queryKey: finderQueryKey,
       queryFn: async ({ signal }: { signal: AbortSignal }) => ({
@@ -420,6 +436,7 @@
             )),
         finderState: state,
         finderIdentity: identity,
+        searchRadius,
       }),
       enabled: resultsEnabled,
       staleTime: 0,
@@ -441,6 +458,15 @@
       ? (results.data ?? (FINDER_F4_ENABLED ? retainedResults : undefined))
       : undefined,
   );
+  // Only F4 retains previous rows while a new query loads. The default-off
+  // path replaces its list with a loading state until the current query arrives.
+  const displayedSearchRadius = $derived(
+    FINDER_F4_ENABLED
+      ? displayedResults?.searchRadius
+      : anchor
+        ? effectiveRadius
+        : null,
+  );
   const currentResponse = $derived(
     FINDER_F4_ENABLED &&
       resultsEnabled &&
@@ -461,6 +487,13 @@
       (results.isFetching || !currentResponse || pageCorrection !== null),
   );
   const activeArchetypeLabel = $derived(archetypeLabel(rankingState.archetype));
+  const resultsScope = $derived(
+    rankingState.archetype !== 'any'
+      ? `Galaxy-wide · ranked by ${activeArchetypeLabel} fit · minimum tier ${rankingState.minimumTier}`
+      : anchor
+        ? `Within ${effectiveRadius.toLocaleString('en-US')} LY of ${anchor.name} · sorted by distance`
+        : 'Galaxy-wide · best colony potential',
+  );
   const rankingDataNotReady = $derived.by(() => {
     const error = results.error;
     if (!(error instanceof ApiError) || error.status !== 503) return false;
@@ -544,7 +577,7 @@
     // galaxy-wide search the user never asked for. A picked archetype is a
     // galaxy-wide ranking in its own right and keeps its parameters.
     let params = serializeExploreSearchParams(
-      { near: null, bodyFilters },
+      { near: null, bodyFilters, radius },
       page.url.searchParams,
     );
     if (rankingState.archetype === 'any')
@@ -619,7 +652,7 @@
     const params = serializeRankingSearchParams(
       { ...rankingState, offset: 0 },
       serializeExploreSearchParams(
-        { near: null, bodyFilters },
+        { near: null, bodyFilters, radius },
         page.url.searchParams,
       ),
     );
@@ -632,11 +665,24 @@
     searchInput?.focus();
   }
 
-  async function commitBodyFilters(value: BodyFilterValues): Promise<void> {
+  function commitBodyFilters(value: BodyFilterValues): Promise<void> {
+    return commitSearchInputs(value, radius);
+  }
+
+  function commitRadius(value: number): void {
+    const nextRadius = normalizeSearchRadius(value);
+    if (bodyFiltersPaused || nextRadius === radius) return;
+    void commitSearchInputs(bodyFilters, nextRadius);
+  }
+
+  async function commitSearchInputs(
+    value: BodyFilterValues,
+    nextRadius: SearchRadius,
+  ): Promise<void> {
     focusedAnchorRevision = anchorSelectionRevision;
     const committed = normalizeBodyFilters(value);
     const params = serializeExploreSearchParams(
-      { near: nearId, bodyFilters: committed },
+      { near: nearId, bodyFilters: committed, radius: nextRadius },
       page.url.searchParams,
     );
     // Paused chips do not take part in the active search, so clearing them
@@ -661,6 +707,7 @@
     if (!bodyFiltersPaused) {
       const next = selectFinderRequest({ ...rankingState, offset: 0 }, anchor, {
         enabled: FINDER_F4_ENABLED,
+        radius: effectiveSearchRadius(nextRadius, committed),
       });
       if (next.kind === 'any') {
         const request = Object.keys(committed).length
@@ -1261,7 +1308,7 @@
     rankingNotice = '';
     const committedAnchor = readExploreAnchor({ anchor: hit });
     const params = serializeExploreSearchParams(
-      { near: committedAnchor?.id64 ?? null, bodyFilters },
+      { near: committedAnchor?.id64 ?? null, bodyFilters, radius },
       page.url.searchParams,
     );
     if (FINDER_F4_ENABLED) params.set('selected', hit.id64);
@@ -1782,6 +1829,46 @@
         {:else}<span>{systems.length} shown</span>{/if}
       </div>
 
+      <div class="search-scope">
+        <p id="results-scope">{resultsScope}</p>
+        <label class="search-radius" for="search-radius">
+          Within
+          <select
+            id="search-radius"
+            value={effectiveRadius}
+            disabled={bodyFiltersPaused}
+            aria-describedby={bodyFiltersPaused
+              ? 'search-radius-disabled'
+              : Object.keys(bodyFilters).length > 0
+                ? 'search-radius-capped'
+                : undefined}
+            onchange={(event) =>
+              commitRadius(Number(event.currentTarget.value))}
+          >
+            {#each SEARCH_RADIUS_OPTIONS as option (option)}
+              <option
+                value={option}
+                disabled={!bodyFiltersPaused &&
+                  Object.keys(bodyFilters).length > 0 &&
+                  option > FILTERED_SEARCH_RADIUS_CAP_LY}
+                >{option.toLocaleString('en-US')} LY</option
+              >
+            {/each}
+          </select>
+        </label>
+        {#if bodyFiltersPaused}
+          <p id="search-radius-disabled" class="radius-hint">
+            Search radius works when you search near a system with Any selected.
+          </p>
+        {:else if Object.keys(bodyFilters).length > 0}
+          <p id="search-radius-capped" class="radius-hint">
+            Body filters limit the search to {FILTERED_SEARCH_RADIUS_CAP_LY} LY{radiusCappedByFilters
+              ? `; your ${radius.toLocaleString('en-US')} LY radius resumes when the filters are cleared`
+              : ''}.
+          </p>
+        {/if}
+      </div>
+
       {#if FINDER_F4_ENABLED && hasResultsIntent}
         <div role="status" aria-live="polite" class="ranking-status">
           {#if updatingResults}
@@ -1879,6 +1966,7 @@
           class="result-list"
           bind:this={resultList}
           aria-label="System results"
+          aria-describedby="results-scope"
         >
           {#each systems as system (system.id64)}
             <li
@@ -1912,7 +2000,10 @@
                   {#if system.distance != null}<span
                       >{FINDER_F4_ENABLED
                         ? `${system.distance.toFixed(2)} LY`
-                        : `${system.distance.toFixed(1)} ly`}</span
+                        : `${system.distance.toFixed(1)} ly`}{displayedSearchRadius !=
+                      null
+                        ? ` · within ${displayedSearchRadius.toLocaleString('en-US')} LY`
+                        : ''}</span
                     >{/if}
                   {#if system.primaryEconomy}<span>{system.primaryEconomy}</span
                     >{/if}
@@ -2373,6 +2464,43 @@
   }
   .page-size input {
     width: 5rem;
+  }
+  .search-scope {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem 1rem;
+    padding: 0.75rem 1.15rem;
+    color: var(--muted);
+    font-size: 0.85rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .search-scope p {
+    margin: 0;
+  }
+  .search-radius {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .search-radius select {
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--line);
+    border-radius: 0.4rem;
+    background: var(--panel-raised);
+    color: inherit;
+    font: inherit;
+  }
+  .search-radius select:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+  }
+  .search-radius select:focus-visible {
+    outline: 2px solid var(--color-cyan);
+    outline-offset: 2px;
+  }
+  .radius-hint {
+    flex-basis: 100%;
   }
   .ranking-status,
   .result-paging {

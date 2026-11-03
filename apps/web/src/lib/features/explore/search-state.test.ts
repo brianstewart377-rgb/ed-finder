@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { parseId64 } from '$lib/domain/id64';
 import { BODY_FILTER_OPTIONS, type BodyFilterValues } from './body-filters';
 import {
+  DEFAULT_SEARCH_RADIUS,
   MAX_BODIES_PARAMETER_LENGTH,
+  SEARCH_RADIUS_OPTIONS,
+  normalizeSearchRadius,
   parseExploreSearchParams,
   serializeExploreSearchParams,
 } from './search-state';
@@ -14,9 +17,96 @@ describe('Explore search URL', () => {
   it('leaves plain Explore empty', () => {
     const result = parse('');
     expect(result.near).toBeNull();
+    expect(result.radius).toBe(500);
     expect(result.bodyFilters).toEqual({});
     expect(result.issues).toEqual([]);
     expect(result.canonical.toString()).toBe('');
+  });
+
+  it.each(SEARCH_RADIUS_OPTIONS)(
+    'round-trips the bounded radius %s',
+    (radius) => {
+      const result = parse(`near=42&radius=${radius}&bodies=elw_count:1-`);
+      expect(result.radius).toBe(radius);
+      expect(result.near).toBe('42');
+      expect(result.bodyFilters).toEqual({ elw_count: { min: 1 } });
+      expect(result.issues).toEqual([]);
+      expect(result.canonical.get('radius')).toBe(
+        radius === DEFAULT_SEARCH_RADIUS ? null : String(radius),
+      );
+      expect(parse(result.canonical.toString()).radius).toBe(radius);
+      expect(serializeExploreSearchParams(result).toString()).toBe(
+        result.canonical.toString(),
+      );
+    },
+  );
+
+  it.each([
+    '',
+    '0',
+    '99',
+    '101',
+    '2001',
+    '10000',
+    '-100',
+    '100.0',
+    '1e3',
+    '0100',
+    '+100',
+    ' 100',
+    'NaN',
+    'Infinity',
+    '1,000',
+    '10000000000000000000',
+  ])('clears an invalid or unsupported radius with a notice: %s', (radius) => {
+    const result = parse(
+      `radius=${encodeURIComponent(radius)}&near=42&selected=99`,
+    );
+    expect(result.radius).toBe(DEFAULT_SEARCH_RADIUS);
+    expect(result.issues).toEqual([
+      'Invalid search radius in this link has been cleared.',
+    ]);
+    expect(result.canonical.toString()).toBe('selected=99&near=42');
+  });
+
+  it.each([
+    'radius=100&radius=100',
+    'radius=100&radius=1000',
+    'radius=bad&radius=500',
+  ])('clears duplicate radius parameters entirely: %s', (query) => {
+    const result = parse(query);
+    expect(result.radius).toBe(DEFAULT_SEARCH_RADIUS);
+    expect(result.issues).toHaveLength(1);
+    expect(result.canonical.toString()).toBe('');
+  });
+
+  it.each(['', 'archetype=flexible'])(
+    'retains a nondefault radius while inactive: %s',
+    (base) => {
+      const result = parse(`${base}&radius=1000`);
+      expect(result.radius).toBe(1000);
+      expect(result.near).toBeNull();
+      expect(result.canonical.get('radius')).toBe('1000');
+      expect(result.canonical.get('archetype')).toBe(base ? 'flexible' : null);
+      expect(result.issues).toEqual([]);
+    },
+  );
+
+  it('normalizes and serializes only supported numeric radii', () => {
+    for (const radius of SEARCH_RADIUS_OPTIONS)
+      expect(normalizeSearchRadius(radius)).toBe(radius);
+    for (const radius of [undefined, null, '1000', 101, 2001, NaN, Infinity]) {
+      expect(normalizeSearchRadius(radius)).toBe(DEFAULT_SEARCH_RADIUS);
+      expect(
+        serializeExploreSearchParams({ radius: radius as never }).has('radius'),
+      ).toBe(false);
+    }
+    expect(
+      serializeExploreSearchParams(
+        { radius: DEFAULT_SEARCH_RADIUS },
+        new URLSearchParams('radius=1000&selected=42'),
+      ).toString(),
+    ).toBe('selected=42');
   });
 
   it.each(['0', '9007199254740993', '18446744073709551615'])(
