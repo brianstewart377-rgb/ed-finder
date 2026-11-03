@@ -12,6 +12,32 @@ import SlotEditor from './SlotEditor.svelte';
 afterEach(cleanup);
 
 describe('commander slot editor', () => {
+  it('retains the open editor when a Plan task tab receives a pointer press', async () => {
+    render(SlotEditor, {
+      label: 'A 1',
+      kind: 'orbital',
+      used: 0,
+      value: 4,
+      onchange: vi.fn(),
+    });
+    await fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Orbital slots on A 1: 0 used, 4 total',
+      }),
+    );
+    const tablist = document.createElement('div');
+    tablist.setAttribute('role', 'tablist');
+    tablist.setAttribute('aria-label', 'Plan tasks');
+    const tab = document.createElement('button');
+    tablist.append(tab);
+    document.body.append(tablist);
+    await fireEvent.pointerDown(tab);
+    expect(
+      screen.getByRole('dialog', { name: 'Orbital slots on A 1' }),
+    ).toBeVisible();
+    tablist.remove();
+  });
+
   it('shows unknown counts and commits commander changes bounded to 0–64', async () => {
     const onchange = vi.fn();
     const { rerender } = render(SlotEditor, {

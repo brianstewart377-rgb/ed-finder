@@ -18,6 +18,9 @@ const systemName = 'Planner Reference';
 const primaryId = 'coriolis';
 const consumerId = 'industrial-installation';
 const payerId = 'mining-installation';
+const systemTab = '[role="tab"][aria-controls="plan-system-layout"]';
+const orderTab = '[role="tab"][aria-controls="plan-build-order"]';
+const planStorageKey = 'ed_colony_projects_v1';
 
 function facility(
   id: string,
@@ -146,6 +149,9 @@ const bodies: PlanBodiesV1 = {
       direct_parent_body_id: 'star-a',
       has_rings: true,
       geological_signals: 2,
+      predicted_surface_slots: 5,
+      prediction_status: 'predicted',
+      prediction_version: 'validated-slot-v1',
     }),
     body('cluster-2', `${systemName} A A Belt Cluster 2`, {
       body_type: 'Belt Cluster',
@@ -336,7 +342,7 @@ function evaluation(request: PlanRequestV1): PlanEvaluationV1 {
   };
 }
 
-function installApiFixtures(): void {
+function installApiFixtures(evaluationDelayMs = 0): void {
   cy.intercept('GET', '/api/v1/auth/session', {
     authenticated: false,
     user: null,
@@ -388,25 +394,60 @@ function installApiFixtures(): void {
     expect(plan.bodies?.map((entry) => entry.body_ref)).not.to.include(
       'cluster-2',
     );
-    request.reply(evaluation(plan));
+    request.reply({
+      body: evaluation(plan),
+      delay: plan.sites.some((site) => site.site_id.startsWith('preview-'))
+        ? 0
+        : evaluationDelayMs,
+    });
   }).as('evaluate');
 }
 
-function addFacility(facilityId: string): void {
-  cy.get('[data-plan-body="planet-1"]')
-    .find(`button[aria-label="Add a build on ${systemName} A 1"]`)
-    .click();
+function addFacility(facilityId: string, previousSites: number): void {
+  const name = catalogue.facilities.find(
+    (entry) => entry.id === facilityId,
+  )!.name;
+  const opener = `button[aria-label="Add a build on ${systemName} A 1"]`;
+  let storedPlan: string | null;
+  cy.window().then((window) => {
+    storedPlan = window.localStorage.getItem(planStorageKey);
+  });
+  cy.get('[data-plan-body="planet-1"]').find(opener).click();
   cy.get('[role="dialog"] [role="tab"]')
     .contains(/^Orbital$/)
     .click();
-  cy.get('[role="dialog"] input[type="search"]').type(
-    catalogue.facilities.find((entry) => entry.id === facilityId)!.name,
-  );
+  cy.get('[role="dialog"] input[type="search"]').type(name);
   cy.get(`button[data-facility-id="${facilityId}"]`).click();
+  cy.get(`[data-facility-preview="${facilityId}"]`)
+    .should('be.visible')
+    .and('contain.text', name);
+  if (facilityId === payerId) {
+    cy.get('[data-facility-preview]')
+      .should('contain.text', 'Strong link: 50%')
+      .and('contain.text', 'Mining Installation');
+  }
+  cy.get('[data-plan-body="planet-1"] .plan-site-row').should(
+    'have.length',
+    previousSites,
+  );
+  cy.window().should((window) => {
+    expect(window.localStorage.getItem(planStorageKey)).to.equal(storedPlan);
+  });
+  cy.get('[data-add-to-plan]').focus().should('be.focused');
+  cy.press(Cypress.Keyboard.Keys.SPACE);
+  cy.get('[role="dialog"]').should('not.exist');
+  cy.get('[data-plan-body="planet-1"] .plan-site-row').should(
+    'have.length',
+    previousSites + 1,
+  );
+  cy.get(opener).should('be.focused');
+  cy.get('[data-plan-addition]')
+    .should('have.attr', 'aria-live', 'polite')
+    .and('contain.text', `${name} added to plan`);
 }
 
 describe('Colony planner browser-kept main path', () => {
-  beforeEach(installApiFixtures);
+  beforeEach(() => installApiFixtures());
 
   for (const [width, height] of [
     [1280, 900],
@@ -425,6 +466,9 @@ describe('Colony planner browser-kept main path', () => {
         body.closest('.plan-body-tree')!.getBoundingClientRect().top;
       cy.get('[data-plan-body="planet-1"]').then(($body) => {
         bodyTop = offsetInTree($body[0]);
+      });
+      cy.document().should((document) => {
+        expect(document.documentElement.scrollWidth).to.be.at.most(width + 1);
       });
       cy.get(opener).focus().click();
       cy.get('[role="dialog"]')
@@ -474,10 +518,14 @@ describe('Colony planner browser-kept main path', () => {
       cy.get('[data-plan-body="planet-1"]').should(($body) => {
         expect(offsetInTree($body[0])).to.equal(bodyTop);
       });
-      cy.get('[role="dialog"] [role="tabpanel"]').should(($list) => {
-        expect($list[0].scrollHeight).to.be.greaterThan($list[0].clientHeight);
-        expect(getComputedStyle($list[0]).overflowY).to.equal('auto');
-      });
+      cy.get('[role="dialog"] [role="tabpanel"] .picker-list').should(
+        ($list) => {
+          expect($list[0].scrollHeight).to.be.greaterThan(
+            $list[0].clientHeight,
+          );
+          expect(getComputedStyle($list[0]).overflowY).to.equal('auto');
+        },
+      );
       cy.get('[role="dialog"]')
         .contains(
           'button',
@@ -486,6 +534,9 @@ describe('Colony planner browser-kept main path', () => {
         .should('not.exist');
       cy.injectAxe();
       cy.checkA11y('[role="dialog"]');
+      cy.document().should((document) => {
+        expect(document.documentElement.scrollWidth).to.be.at.most(width + 1);
+      });
       cy.screenshot(
         `plan/facility-picker-${Cypress.browser.name}-${width}x${height}`,
         {
@@ -500,6 +551,7 @@ describe('Colony planner browser-kept main path', () => {
         'have.length',
         2,
       );
+      cy.checkA11y('[role="dialog"]');
       cy.get('[role="dialog"] input[type="search"]').type('Coriolis');
       cy.get('[role="dialog"]').should(
         'contain.text',
@@ -512,16 +564,81 @@ describe('Colony planner browser-kept main path', () => {
         'have.length',
         2,
       );
+      let storedPlan: string | null;
+      cy.window().then((window) => {
+        storedPlan = window.localStorage.getItem(planStorageKey);
+      });
+      cy.get(`button[data-facility-id="${primaryId}"]`).focus().click();
+      cy.get('[data-facility-preview]')
+        .should('be.visible')
+        .and('contain.text', 'Coriolis Starport')
+        .and('contain.text', 'Tier 2')
+        .and('contain.text', 'Orbital')
+        .and('contain.text', 'Extraction')
+        .and('contain.text', 'Own: 100%');
+      cy.get('[data-plan-body="planet-1"] .plan-site-row').should(
+        'have.length',
+        0,
+      );
+      cy.window().should((window) => {
+        expect(window.localStorage.getItem(planStorageKey)).to.equal(
+          storedPlan,
+        );
+      });
+      cy.checkA11y('[role="dialog"]');
+      cy.document().should((document) => {
+        expect(document.documentElement.scrollWidth).to.be.at.most(width + 1);
+      });
+      cy.screenshot(
+        `plan/facility-preview-${Cypress.browser.name}-${width}x${height}`,
+        { capture: 'viewport', overwrite: true },
+      );
+      if (width < 640) {
+        cy.get('[data-facility-preview] .preview-details')
+          .should(($details) => {
+            expect($details[0].scrollHeight).to.be.greaterThan(
+              $details[0].clientHeight,
+            );
+          })
+          .focus()
+          .should('be.focused');
+        cy.press(Cypress.Keyboard.Keys.SPACE);
+        cy.get('[data-facility-preview] .preview-details').should(
+          ($details) => {
+            expect($details[0].scrollTop).to.be.greaterThan(0);
+          },
+        );
+      }
+      cy.contains('button', 'Close preview').click();
+      cy.get('[data-facility-preview]').should('not.exist');
+      cy.get(`button[data-facility-id="${primaryId}"]`)
+        .should('be.focused')
+        .click();
+      cy.press(Cypress.Keyboard.Keys.ESC);
+      cy.get('[data-facility-preview]').should('not.exist');
+      cy.get('[role="dialog"]').should('be.visible');
+      cy.get(`button[data-facility-id="${primaryId}"]`).should('be.focused');
       cy.press(Cypress.Keyboard.Keys.ESC);
       cy.get('[role="dialog"]').should('not.exist');
       cy.get(opener).should('be.focused');
       cy.get(opener).click();
+      cy.get(`button[data-facility-id="${primaryId}"]`).click();
       cy.contains('button', 'Close picker').click();
       cy.get(opener).should('be.focused');
+      cy.get('[data-plan-body="planet-1"] .plan-site-row').should(
+        'have.length',
+        0,
+      );
+      cy.window().should((window) => {
+        expect(window.localStorage.getItem(planStorageKey)).to.equal(
+          storedPlan,
+        );
+      });
       cy.get(opener).click();
       cy.get('body').click(2, 2);
       cy.get('[role="dialog"]').should('not.exist');
       cy.get(opener).should('be.focused');
+      cy.checkA11y();
     });
 
     it(`plans from Inspect, fixes build order and keeps the plan at ${width}px`, () => {
@@ -535,6 +652,16 @@ describe('Colony planner browser-kept main path', () => {
       cy.get('[data-plan-body="planet-1"]').should('be.visible');
       cy.get('[data-plan-body="cluster-1"]').should('exist');
       cy.get('[data-plan-body="cluster-2"]').should('not.exist');
+      cy.get('[data-plan-body="planet-1"]')
+        .find('button[aria-label^="Orbital slots on"]')
+        .should('contain.text', '0/?');
+      cy.get('[data-plan-body="planet-1"]')
+        .find('button[aria-label^="Surface slots on"]')
+        .should('contain.text', '0/5');
+      cy.get('[data-plan-body="planet-1"] .slot-source').should(
+        'have.text',
+        'predicted',
+      );
 
       cy.get('[data-plan-body="planet-1"]')
         .find('button[aria-label^="Orbital slots on"]')
@@ -546,14 +673,37 @@ describe('Colony planner browser-kept main path', () => {
       cy.contains('button', 'Done').click();
       cy.get('[data-plan-body="planet-1"]').should('contain.text', '0/3');
 
-      addFacility(primaryId);
-      addFacility(consumerId);
-      addFacility(payerId);
+      addFacility(primaryId, 0);
+      addFacility(consumerId, 1);
+      addFacility(payerId, 2);
       cy.get('[aria-live="polite"]').should('contain.text', '1 blocked');
-      cy.contains('button', /^Build order \(3\)/)
-        .should('have.attr', 'aria-expanded', 'false')
-        .click()
-        .should('have.attr', 'aria-expanded', 'true');
+      cy.screenshot(
+        `plan/system-layout-${Cypress.browser.name}-${width}x${height}`,
+        { capture: 'fullPage', overwrite: true },
+      );
+      let storedBeforeTab: string | null;
+      cy.window().then((window) => {
+        storedBeforeTab = window.localStorage.getItem(planStorageKey);
+      });
+      cy.get(systemTab)
+        .should('have.attr', 'aria-selected', 'true')
+        .and('have.attr', 'tabindex', '0')
+        .focus();
+      cy.press(Cypress.Keyboard.Keys.END);
+      cy.get(orderTab)
+        .should('be.focused')
+        .and('have.attr', 'aria-selected', 'true')
+        .and('have.attr', 'tabindex', '0');
+      cy.get(systemTab).should('have.attr', 'tabindex', '-1');
+      cy.get('#plan-system-layout').should('have.attr', 'hidden');
+      cy.get('#plan-system-layout').should('have.attr', 'inert');
+      cy.get('#plan-build-order').should('be.visible');
+      cy.location('search').should('include', 'tab=build-order');
+      cy.window().should((window) => {
+        expect(window.localStorage.getItem(planStorageKey)).to.equal(
+          storedBeforeTab,
+        );
+      });
       cy.get('[data-plan-build-order] [data-plan-site]').should(
         'have.length',
         3,
@@ -562,6 +712,24 @@ describe('Colony planner browser-kept main path', () => {
         .eq(1)
         .should('contain.text', 'Industrial Installation')
         .and('contain.text', 'Blocked');
+      cy.get('[data-plan-summary]')
+        .contains('dt', /^Tier 2$/)
+        .next('dd')
+        .should('have.text', '2');
+      cy.get('[data-plan-summary]')
+        .contains('dt', /^Tier 3$/)
+        .next('dd')
+        .should('have.text', '0');
+      cy.get('[aria-label="Points view"]').contains('button', /^Now$/).click();
+      for (const tier of ['Tier 2', 'Tier 3']) {
+        cy.get('[data-plan-summary]')
+          .contains('dt', new RegExp(`^${tier}$`))
+          .next('dd')
+          .should('have.text', '0');
+      }
+      cy.get('[aria-label="Points view"]')
+        .contains('button', 'After the plan')
+        .click();
       cy.get('[data-plan-summary]')
         .contains('dt', /^Tier 2$/)
         .next('dd')
@@ -655,16 +823,20 @@ describe('Colony planner browser-kept main path', () => {
       });
 
       cy.reload();
-      cy.contains('button', /^Build order \(3\)/).should(
-        'have.attr',
-        'aria-expanded',
-        'true',
-      );
-      cy.get('[data-plan-build-order]')
-        .contains('button', /^Close$/)
-        .click();
+      cy.get(orderTab).should('have.attr', 'aria-selected', 'true').focus();
+      cy.press(Cypress.Keyboard.Keys.HOME);
+      cy.get(systemTab)
+        .should('be.focused')
+        .and('have.attr', 'aria-selected', 'true');
       cy.get('[data-plan-body="planet-1"]').should('contain.text', '3/3');
-      cy.contains('button', /^Build order \(3\)/).click();
+      cy.get('[data-plan-body="planet-1"] .slot-source').should(
+        'have.text',
+        'predicted',
+      );
+      cy.press(Cypress.Keyboard.Keys.RIGHT);
+      cy.get(orderTab)
+        .should('be.focused')
+        .and('have.attr', 'aria-selected', 'true');
       cy.get('[data-plan-build-order] [data-plan-site]').should(
         'have.length',
         3,
@@ -680,15 +852,31 @@ describe('Colony planner browser-kept main path', () => {
         .should('contain.text', 'Industrial Installation')
         .and('contain.text', 'OK');
 
+      cy.get('[aria-label="Planner breadcrumbs"]')
+        .contains('a', 'Inspect')
+        .click();
+      cy.location('pathname').should('eq', '/inspect');
+      cy.contains('h1', systemName).should('be.visible');
+      cy.go('back');
+      cy.location('pathname').should('eq', '/plan');
+      cy.location('search').should('include', 'tab=build-order');
+      cy.get(orderTab).should('have.attr', 'aria-selected', 'true');
+      cy.get('[data-plan-build-order] [data-plan-site]')
+        .should('have.length', 3)
+        .eq(1)
+        .should('contain.text', 'Mining Installation');
+
       cy.visit('/plan');
       cy.get('h1').should('have.text', systemName);
+      cy.get(systemTab).should('have.attr', 'aria-selected', 'true');
+      cy.get(orderTab).click();
       cy.get('[data-plan-build-order] [data-plan-site]').should(
         'have.length',
         3,
       );
 
       cy.window().then((window) => {
-        cy.stub(window, 'confirm').returns(true).as('confirmRaven');
+        cy.stub(window, 'confirm').as('confirmRaven').returns(true);
       });
       cy.contains('button', /^Import from Raven$/).click();
       cy.get(
@@ -723,3 +911,61 @@ describe('Colony planner browser-kept main path', () => {
     });
   }
 });
+
+describe(
+  'Colony planner reduced motion',
+  { browser: { family: 'chromium' } },
+  () => {
+    beforeEach(() => installApiFixtures(3_000));
+    afterEach(() => {
+      cy.then(() =>
+        Cypress.automation('remote:debugger:protocol', {
+          command: 'Emulation.setEmulatedMedia',
+          params: { features: [] },
+        }),
+      );
+    });
+
+    it('keeps keyboard tabs and explicit Add usable with motion disabled', () => {
+      cy.then(() =>
+        Cypress.automation('remote:debugger:protocol', {
+          command: 'Emulation.setEmulatedMedia',
+          params: {
+            features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+          },
+        }),
+      );
+      cy.visit(`/plan?system=${systemId}&tab=invalid`);
+      cy.wait(['@catalogue', '@planBodies']);
+      cy.window().should((window) => {
+        expect(
+          window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+        ).to.equal(true);
+      });
+      cy.get(systemTab).should('have.attr', 'aria-selected', 'true').focus();
+      cy.press(Cypress.Keyboard.Keys.LEFT);
+      cy.get(orderTab)
+        .should('be.focused')
+        .and('have.attr', 'aria-selected', 'true');
+      cy.location('search').should('include', 'tab=build-order');
+      cy.press(Cypress.Keyboard.Keys.RIGHT);
+      cy.get(systemTab)
+        .should('be.focused')
+        .and('have.attr', 'aria-selected', 'true');
+      cy.location('search').should('not.include', 'tab=');
+      cy.get('[role="tablist"] [role="tab"]').each(($tab) => {
+        const style = getComputedStyle($tab[0]);
+        expect(style.animationName).to.equal('none');
+        expect(style.transitionDuration).to.equal('0s');
+      });
+      addFacility(primaryId, 0);
+      cy.get('[data-plan-summary]').should('have.attr', 'aria-busy', 'true');
+      cy.injectAxe();
+      cy.checkA11y();
+      cy.screenshot(`plan/reduced-motion-${Cypress.browser.name}`, {
+        capture: 'viewport',
+        overwrite: true,
+      });
+    });
+  },
+);

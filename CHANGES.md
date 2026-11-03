@@ -11,14 +11,31 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
-## Unreleased
+## 2026-11-03 — UI redesign P2a: route-owned Explore view state
 
-- **UI redesign P2a:** extract route-owned Explore view state so query drafts,
-  URL-backed search/filter/ranking intent, selection, result scroll and Galaxy
-  camera/layers survive workspace remounts without another search. Existing
-  URL/storage formats, presentation and request budgets are unchanged; query
-  data and renderer resources retain their existing owners. P2b/P2c are not
-  included, and this change is not deployed.
+Extracts route-owned Explore view state so query drafts, URL-backed
+search/filter/ranking intent, selection, result scroll and Galaxy camera/layers
+survive workspace remounts without another search. Existing URL/storage
+formats, presentation and request budgets are unchanged; query data and
+renderer resources retain their existing owners. P2b/P2c are not included, and
+this change is not deployed.
+
+## 2026-11-03 — UI redesign P5a: Plan tabs and facility preview
+
+The Plan workspace now has accessible System layout / Build order tabs with
+keyboard navigation and bounded `tab=` URL state. Switching tasks keeps slot
+editors, selection and panel scroll without changing the plan. Facility choices
+open a preview of catalogue facts and existing evaluation economy/link data;
+only **Add to plan** adds the site, returns focus and announces the addition.
+Closing either preview or picker adds nothing. Tier 2 and Tier 3 balances and
+slot provenance stay separate and unchanged. Styles use design-kit tokens with
+fallbacks for the current theme. Pending and last-good evaluation text retains
+readable contrast instead of opacity dimming.
+
+Vitest and the Product planner journey cover tab/URL state, preview/Add,
+keyboard focus, separate balances, axe and reduced motion. P5b Review/export
+remains a separate PR; API, routes and export format are unchanged. This visual
+change needs Product E2E/visual validation before promotion; it is not deployed.
 
 ## 2026-11-02 — Design kit phase 1: shared application visual tokens
 

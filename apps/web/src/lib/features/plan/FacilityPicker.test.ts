@@ -404,7 +404,7 @@ describe('Facility picker server previews', () => {
     await advance();
     expect(evaluatePlanPreview).not.toHaveBeenCalled();
     const observer = currentObserver();
-    expect(observer.root).toBe(screen.getByRole('tabpanel'));
+    expect(observer.root).toBe(document.querySelector('.picker-list'));
     const targets = [...observer.targets];
     expect(targets).toHaveLength(12);
     observer.notify(targets.slice(0, 2));
@@ -493,5 +493,185 @@ describe('Facility picker server previews', () => {
     expect(
       document.querySelector('[data-facility-id="installation-t2"]'),
     ).toBeDisabled();
+  });
+});
+
+describe('explicit facility addition', () => {
+  it('previews catalogue details without changing the plan, preserves list scroll and search, and returns focus on close', async () => {
+    const props = pickerProps(true);
+    props.facilities = facilities.map((item) =>
+      item.id === 'coriolis_station'
+        ? { ...item, economy: 'Industrial' }
+        : item,
+    );
+    const before = structuredClone(props.model);
+    render(FacilityPicker, props);
+    const list = document.querySelector<HTMLElement>('.picker-list')!;
+    await fireEvent.input(screen.getByRole('searchbox'), {
+      target: { value: 'Coriolis' },
+    });
+    list.scrollTop = 123;
+    const trigger = screen.getByRole('button', { name: 'Coriolis' });
+    await fireEvent.click(trigger);
+    const preview = screen.getByRole('region', { name: 'Preview: Coriolis' });
+    expect(
+      within(preview).getByRole('heading', { name: 'Preview: Coriolis' }),
+    ).toHaveFocus();
+    const details = within(preview).getByRole('region', {
+      name: 'Coriolis preview details',
+    });
+    expect(details).toHaveAttribute('tabindex', '0');
+    details.focus();
+    expect(details).toHaveFocus();
+    expect(within(preview).getByText('Tier 2')).toBeVisible();
+    expect(within(preview).getByText('Orbital')).toBeVisible();
+    expect(within(preview).getByText('Industrial')).toBeVisible();
+    expect(
+      within(preview).getByText(/Economy facts unavailable/),
+    ).toBeVisible();
+    expect(list).not.toBeVisible();
+    expect(screen.getByRole('tabpanel')).toBeVisible();
+    expect(list.inert).toBe(true);
+    expect(props.model).toEqual(before);
+    expect(props.onadd).not.toHaveBeenCalled();
+    await fireEvent.click(
+      within(preview).getByRole('button', { name: 'Close preview' }),
+    );
+    expect(trigger).toHaveFocus();
+    expect(list.scrollTop).toBe(123);
+    expect(screen.getByRole('searchbox')).toHaveValue('Coriolis');
+    expect(props.onadd).not.toHaveBeenCalled();
+    await fireEvent.click(trigger);
+    await fireEvent.click(screen.getByRole('button', { name: 'Close picker' }));
+    expect(props.onclose).toHaveBeenCalledTimes(1);
+    expect(props.onadd).not.toHaveBeenCalled();
+  });
+
+  it('calls Add only from the explicit action, including when evaluation is unavailable', async () => {
+    const props = pickerProps();
+    vi.mocked(evaluatePlanPreview).mockRejectedValue(new Error('Unavailable'));
+    render(FacilityPicker, props);
+    await fireEvent.click(screen.getByRole('button', { name: 'Coriolis' }));
+    await advance();
+    const preview = screen.getByRole('region', { name: 'Preview: Coriolis' });
+    expect(within(preview).getByText('CP preview unavailable')).toBeVisible();
+    expect(props.onadd).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('button', { name: 'Add to plan' }));
+    expect(props.onadd).toHaveBeenCalledExactlyOnceWith(
+      facilities.find((item) => item.id === 'coriolis_station'),
+    );
+  });
+
+  it('shows returned economy strengths and links without inventing a total or using catalogue costs', async () => {
+    const props = pickerProps(true);
+    props.bodies.economy_facts_generation_id = 'published-facts';
+    vi.mocked(evaluatePlanPreview).mockImplementation(async (request) => {
+      const result = evaluation(request);
+      const siteId = request.sites.at(-1)!.site_id;
+      const contribution = {
+        kind: 'strong_link' as const,
+        base: 0.2,
+        modifiers: [],
+        floored: false,
+        value: 0.35,
+        source_site_ids: [siteId],
+        via_site_id: null,
+        rule_ids: ['RB-0015'],
+        count: null,
+      };
+      result.economies.after_plan = [
+        {
+          site_id: siteId,
+          body_ref: '2',
+          role: 'main',
+          supports: null,
+          economies: [
+            {
+              name: 'Industrial',
+              strength: 1.25,
+              items: [{ ...contribution, kind: 'own', value: 1.25 }],
+            },
+          ],
+        },
+        {
+          site_id: props.model.sites[0].site_id,
+          body_ref: '1',
+          role: 'main',
+          supports: null,
+          economies: [
+            { name: 'Industrial', strength: 1.8, items: [contribution] },
+          ],
+        },
+      ];
+      return result;
+    });
+    render(FacilityPicker, props);
+    await fireEvent.click(screen.getByRole('button', { name: 'Coriolis' }));
+    await advance();
+    const preview = screen.getByRole('region', { name: 'Preview: Coriolis' });
+    expect(within(preview).getByText('Industrial: 125%')).toBeVisible();
+    expect(within(preview).getByText('Own: 125% from Coriolis')).toBeVisible();
+    expect(
+      within(preview).getByText('Strong link: 35% from Coriolis'),
+    ).toBeVisible();
+    expect(within(preview).getByText('-7 T3 · +1 T2')).toBeVisible();
+    expect(
+      within(preview).queryByText(/99 T[23]|180%/),
+    ).not.toBeInTheDocument();
+    expect(props.onadd).not.toHaveBeenCalled();
+  });
+
+  it('evaluates a selected facility beyond the first six rows and cancels it when dismissed with the picker', async () => {
+    const props = pickerProps(true);
+    const { unmount } = render(FacilityPicker, props);
+    await advance();
+    vi.mocked(evaluatePlanPreview).mockClear();
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Research Installation' }),
+    );
+    await advance();
+    expect(evaluatePlanPreview).toHaveBeenCalledTimes(1);
+    expect(
+      vi.mocked(evaluatePlanPreview).mock.calls[0][0].sites.at(-1)?.facility_id,
+    ).toBe('installation-t2');
+    const signal = vi.mocked(evaluatePlanPreview).mock.calls[0][1];
+    unmount();
+    expect(signal.aborted).toBe(true);
+    expect(props.onadd).not.toHaveBeenCalled();
+  });
+
+  it('re-evaluates an open preview after plan changes even when its list has left view', async () => {
+    const currentObserver = mockIntersections();
+    const props = pickerProps(true);
+    props.bodies.economy_facts_generation_id = 'published-facts';
+    const { rerender } = render(FacilityPicker, props);
+    await fireEvent.click(screen.getByRole('button', { name: 'Coriolis' }));
+    currentObserver().notify([...currentObserver().targets], false);
+    await advance();
+    const preview = screen.getByRole('region', { name: 'Preview: Coriolis' });
+    expect(within(preview).getByText('-7 T3 · +1 T2')).toBeVisible();
+    vi.mocked(evaluatePlanPreview).mockRejectedValue(new Error('Unavailable'));
+    vi.mocked(evaluatePlanPreview).mockClear();
+    await rerender({
+      model: {
+        ...props.model,
+        slots: { '2': { orbital_slots: 5, surface_slots: 3 } },
+      },
+    });
+    expect(
+      within(preview).queryByText('-7 T3 · +1 T2'),
+    ).not.toBeInTheDocument();
+    await advance();
+    expect(evaluatePlanPreview).toHaveBeenCalledTimes(1);
+    expect(within(preview).getByText('CP preview unavailable')).toBeVisible();
+    expect(
+      within(preview).getByText('Economy preview unavailable.'),
+    ).toBeVisible();
+    expect(
+      within(preview).queryByText(
+        'No economy or links returned for this facility.',
+      ),
+    ).not.toBeInTheDocument();
+    expect(props.onadd).not.toHaveBeenCalled();
   });
 });
