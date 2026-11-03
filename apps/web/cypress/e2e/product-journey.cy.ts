@@ -406,11 +406,29 @@ const closeMapLayers = () => {
     .should('have.attr', 'aria-expanded', 'false');
 };
 
+const openMapRegions = () => {
+  cy.get('[data-map-regions-trigger]').then(($trigger) => {
+    if ($trigger.attr('aria-expanded') !== 'true') cy.wrap($trigger).click();
+  });
+  cy.get('[data-map-regions-panel]')
+    .should('be.visible')
+    .and('have.attr', 'aria-modal', 'false');
+};
+
+const closeMapRegions = () => {
+  cy.get('[data-map-regions-trigger]')
+    .should('have.attr', 'aria-expanded', 'true')
+    .click()
+    .should('have.attr', 'aria-expanded', 'false');
+};
+
 const captureFinder = (state: 'any' | 'flexible' | 'flexible-explanation') => {
   openExploreMap();
+  openMapRegions();
   cy.get('[data-region-resource-state="ready"]', { timeout: 20_000 })
     .scrollIntoView()
     .should('contain.text', '42/42 regions');
+  closeMapRegions();
   openMapLayers();
   cy.get('[data-nebula-resource-state="ready"]', { timeout: 20_000 }).should(
     'contain.text',
@@ -457,9 +475,21 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.intercept('GET', '/api/map/heatmap*').as('density');
     visitExplore();
     openExploreMap();
+    cy.get(`${mapWindowSelector} h2`).should('have.text', 'Galaxy map');
+    cy.contains(`${mapWindowSelector} button`, /^Local$/)
+      .should('be.disabled')
+      .and('have.attr', 'aria-describedby')
+      .then((id) => {
+        cy.get(`#${id}`).should(
+          'have.text',
+          'Select a system to use the Local camera preset.',
+        );
+      });
+    openMapRegions();
     cy.get('[data-region-resource-state="ready"]', { timeout: 20_000 })
       .scrollIntoView()
       .should('be.visible');
+    closeMapRegions();
     cy.get(readySelector, { timeout: 20_000 }).should('be.visible');
 
     let initialSpan = 0;
@@ -922,9 +952,10 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       cy.get('[data-testid="selected-system-context"] a')
         .first()
         .should('have.attr', 'href', inspect);
-      cy.get(`[data-selected-system-card="${selectedId}"] a`)
-        .first()
-        .should('have.attr', 'href', inspect);
+      cy.contains(
+        `${mapWindowSelector} a`,
+        `Inspect ${FLEXIBLE_B_FIXTURE_ROWS[0].name}`,
+      ).should('have.attr', 'href', inspect);
     });
 
     // F4 design section 7, step 5: a full document load drops in-memory
@@ -1104,15 +1135,27 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       0,
     );
     assertSpatialResultsReady();
+    cy.get(`${mapWindowSelector} h2`).should(
+      'have.text',
+      'Achenar · Galaxy map',
+    );
+    cy.contains(`${mapWindowSelector} button`, /^Local$/).should('be.enabled');
+    cy.contains(`${mapWindowSelector} a`, 'Inspect Achenar')
+      .should('have.attr', 'href')
+      .and('include', 'system=10477373803000');
+    cy.contains(`${mapWindowSelector} a`, 'Plan here').should('be.visible');
+    openMapRegions();
     cy.get('[data-region-resource-state="ready"]', { timeout: 20_000 })
       .scrollIntoView()
       .should('contain.text', '42/42 regions');
+    closeMapRegions();
     openMapLayers();
     cy.get('[data-nebula-resource-state="ready"]', { timeout: 20_000 })
       .should('contain.text', '5,842 catalogue records')
       .and('contain.text', 'EDAstro / CMDR Orvidius')
       .and('contain.text', 'source CSV');
     closeMapLayers();
+    openMapRegions();
     cy.get('[data-galaxy-region-option]').should('have.length', 42);
     cy.get('.spatial-canvas')
       .should('have.attr', 'data-rendered-layer-ids')
@@ -1123,6 +1166,7 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       .invoke('attr', 'data-system-target-count')
       .then((count) => expect(Number(count)).to.be.greaterThan(0));
     cy.contains('button', 'All 42 regions').click();
+    closeMapRegions();
     cy.get(canvasSelector).scrollIntoView();
     cy.get('[data-map-label-kind="region"]', { timeout: 20_000 })
       .should('have.length', 42)
@@ -1133,11 +1177,13 @@ describe('V3 Explore to Inspect product checkpoint', () => {
           .sort();
         expect(names).to.deep.equal([...GALAXY_REGION_NAMES].sort());
       });
+    openMapRegions();
     cy.get('#explore-region-picker').select('18');
     cy.get('[data-selected-region-id="18"]').should(
       'contain.text',
       'Inner Orion Spur',
     );
+    closeMapRegions();
     cy.get(canvasSelector).then(([canvas]) => {
       initialCanvas = canvas as HTMLCanvasElement;
       const initialRevision = Number(
@@ -1231,8 +1277,14 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.get('[data-selected-system-card="10477373803000"]')
       .scrollIntoView()
       .should('be.visible')
-      .and('contain.text', 'Achenar')
+      .and('contain.text', 'Achenar');
+    cy.get('[data-map-selection-trigger]').click();
+    cy.get('[data-map-selection-panel]')
+      .should('be.visible')
       .and('contain.text', 'Primary star');
+    cy.press(Cypress.Keyboard.Keys.ESC);
+    cy.get('[data-map-selection-panel]').should('not.exist');
+    cy.get('[data-map-selection-trigger]').should('be.focused');
     openMapLayers();
     cy.get('[data-density-toggle]')
       .should('have.attr', 'role', 'switch')
@@ -1270,7 +1322,7 @@ describe('V3 Explore to Inspect product checkpoint', () => {
     cy.location('search', { timeout: 15_000 }).then((search) => {
       originatingExploreQuery = search.slice(1);
     });
-    cy.get('[data-system-result="10477373803000"] .inspect-link').click();
+    cy.contains(`${mapWindowSelector} a`, 'Inspect Achenar').click();
     waitForInspectSettled();
     cy.location('pathname', { timeout: 15_000 }).should('eq', '/inspect');
     cy.location('search', { timeout: 15_000 }).should((search) => {

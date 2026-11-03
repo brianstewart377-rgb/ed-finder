@@ -307,16 +307,17 @@
 <style>
   .layers-trigger,
   .close-button {
-    min-height: 2.15rem;
-    padding: 0.35rem 0.65rem;
+    min-height: 2rem;
+    padding: 0.3rem 0.6rem;
     border: 1px solid var(--line);
-    border-radius: 0.35rem;
-    background: var(--panel-raised);
+    border-radius: var(--radius-pill);
+    background: var(--panel);
+    background-image: var(--panel-gloss);
     color: inherit;
     cursor: pointer;
   }
   .layers-trigger[aria-expanded='true'] {
-    border-color: var(--color-cyan);
+    border-color: var(--neon);
   }
   .layers-dialog {
     position: fixed;
@@ -325,11 +326,12 @@
     max-height: calc(100dvh - 1rem);
     overflow: auto;
     overscroll-behavior: contain;
-    border: 1px solid var(--color-cyan);
-    border-radius: 0.6rem;
-    background: var(--color-panel);
-    color: #e4edf4;
-    box-shadow: 0 0.6rem 2rem #0008;
+    border: 1px solid var(--neon);
+    border-radius: var(--radius-lg);
+    background: var(--panel);
+    background-image: var(--panel-gloss);
+    color: var(--text);
+    box-shadow: var(--line-glow), var(--shadow-panel);
     font-size: 0.8rem;
     line-height: 1.5;
     overflow-wrap: anywhere;
