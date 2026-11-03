@@ -10,10 +10,16 @@ Product E2E/visual acceptance before promotion; none is deployed. The other
 phases below retain their recorded status; implementation is not a claim of
 shipped behaviour.
 
-The approved 1 November 2026 concept pack is not in this repository. This plan
-records the owner's supplied direction; it does not reconstruct unseen images
-or invent features. The map-window image governs styling and placement, not
-galaxy data. Its visual comparison remains an implementation acceptance input.
+The owner's 1 November 2026 concept pack is committed as reference in
+[`2026-11-01-ui-concept-pack/`](2026-11-01-ui-concept-pack/README.md), except the
+Orbis homepage mockup, which is held back from this public repository pending a
+rights decision (the owner's black hole screenshot is the homepage background
+candidate). Slices P1 to P6a were built from this plan's written description,
+before the images were in the repository. A first comparison on 2026-11-03 found
+gaps on the home page, map window, Inspect, Plan and Review; aligning built
+screens to the images is tracked as follow-up slices. The map-window image
+governs styling and placement, not galaxy data; its visual comparison remains
+an implementation acceptance input.
 
 Follow the [ROADMAP](../../ROADMAP.md), [application stack](../../development/v3-application-stack-decision.md),
 [spatial product contract](../../colonisation-redesign/spatial-platform-product-contract.md),
@@ -149,7 +155,7 @@ No slice needs a SQL migration or new backend contract.
 | P4 | Inspect **Overview / Bodies / Stations** tabs; evidence explanation pop-out and retained Sources & freshness; **implemented (#1002)** | No | Yes |
 | P5a | Plan **System layout / Build order** tabs; facility preview pop-out with explicit **Add to plan**; **implemented (#1003)** | No | Yes |
 | P5b | Review/export pop-out over the plan, per-item unresolved-information links and explicit **DRAFT** export; **implemented in this PR** | No | Yes |
-| P6a | Home polish: existing hero actions and three tool cards adopt the kit; truthful Review/export entry wording completed in P5b | No | Yes |
+| P6a | Home polish: existing hero actions and three tool cards adopt the kit; truthful Review/export entry wording completed in P5b; **implemented in this PR** | No | Yes |
 | P6b | Final visual sweep across the complete journey, responsive layouts and all tool states | No | Yes |
 
 ### Phase 1 — shared design kit
@@ -353,6 +359,8 @@ unrelated work. Promotion always retains §5's separate visual gate.
 4. **Explore task tabs — decided 2026-11-03:** **Finder / Saved / Compare** are
    approved for P2c. P2b adds no task tabs. Archetype/results stay together and
    Body filters/Layers remain pop-outs.
-5. **Visual reference hand-off — outstanding, confirmed 2026-11-03:** no image
-   has been handed over. P2b placement follows this plan's description only;
-   it makes no claim of pixel fidelity or an approved visual baseline.
+5. **Visual reference hand-off — resolved 2026-11-03:** the owner's concept pack
+   is now in the repository (see §1). P2b was built before the images were
+   available and follows this plan's description only; it makes no claim of
+   pixel fidelity or an approved visual baseline. Aligning the map window to
+   `02-map.png` is a follow-up (P2d); the other screens follow in turn.

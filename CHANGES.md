@@ -24,8 +24,35 @@ context through close/reopen. Closing disposes the canvas runtime and suspends
 viewport requests; window actions do not submit Finder searches. Existing
 URLs, storage keys, F4 recovery, API/scene contracts and map truth stay unchanged.
 Finder / Saved / Compare tabs remain P2c. Owner decisions are recorded in the
-redesign plan; no reference image was supplied and no pixel fidelity is claimed.
+redesign plan. The owner's concept pack is now in the repository, but this slice
+was built from the plan's written description: the window does not yet match
+`02-map.png` and no pixel fidelity is claimed; aligning it is a follow-up (P2d).
 Product E2E/visual acceptance remains required before promotion; not deployed.
+
+## 2026-11-03 — UI concept pack added to the repository (reference only)
+
+Adds the owner's 1 November concept mockups for Finder, map window, Inspect, Plan
+and Review, the live-map comparison capture, the owner's black hole homepage
+background candidate and the handoff notes under
+`docs/superpowers/specs/2026-11-01-ui-concept-pack/`, so implementers and
+visual acceptance can compare against the real images instead of a written
+summary. Reference only: illustrative data, no behaviour or contract change, and
+nothing here is a shippable asset. The Orbis homepage mockup is held back from
+the public repository pending a rights decision, because it is edited from a
+third-party artwork. Docs and images only; nothing deployed.
+
+## 2026-11-03 — UI redesign P6a: home polish
+
+Home adopts the shared design kit's Saira headings, orange primary and blue
+outline actions, glossy tool cards, spacing and visible keyboard focus. The
+existing Explore, Inspect and Plan destinations remain unchanged; Review &
+export remains available in Plan. The compass/orbit illustration stays
+decorative and hidden from assistive technology, with no catalogue or map-data
+claim. Responsive coverage checks the existing desktop, tablet and phone
+viewports, keyboard order, reduced motion and accessibility.
+
+P6b's journey-wide visual sweep remains a separate PR. This visual change
+requires Product E2E/visual acceptance before promotion; it is not deployed.
 
 ## 2026-11-03 — Tenth F2d release `96644cad` accepted: map review fixes, design kit and Plan review live
 
