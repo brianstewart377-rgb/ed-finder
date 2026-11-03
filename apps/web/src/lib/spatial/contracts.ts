@@ -92,6 +92,8 @@ export type GalaxySystemPoint = Readonly<{
   systemId64: string;
   name: string;
   positionLy: Vec3Ly;
+  /** Known application targets retained before the viewport background sample. */
+  reserved?: true;
   primaryStar?: Readonly<{
     type?: string;
     subtype?: string;

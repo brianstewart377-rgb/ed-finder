@@ -2,17 +2,23 @@ import type { Id64 } from '$lib/domain/id64';
 import type {
   CameraState,
   GalaxySystemPoint,
+  GalaxySystemsPayload,
   SpatialContribution,
+  Vec3Ly,
 } from './contracts';
 import {
   galaxyDetailMode,
   galaxyLocalStarLimit,
   GALAXY_WIDE_STAR_LIMIT,
   LOCAL_STAR_MIN_RADIUS_LY,
-  LOCAL_STAR_MAX_HORIZONTAL_RADIUS_LY,
   LOCAL_STAR_MAX_VERTICAL_RADIUS_LY,
   type GalaxyDetailMode,
 } from './galaxy-detail-policy';
+import type { GalaxyCameraViewport } from './galaxy-camera';
+import {
+  galaxyStarFootprint,
+  type GalaxyStarFootprint,
+} from './galaxy-star-footprint';
 
 export type GalaxyStarViewport = Readonly<{
   minX: number;
@@ -24,6 +30,7 @@ export type GalaxyStarViewport = Readonly<{
   limit: number;
   cameraDistanceLy: number;
   wide: boolean;
+  footprint: GalaxyStarFootprint;
 }>;
 
 export type CatalogueViewportSystem = Readonly<{
@@ -60,6 +67,45 @@ function galaxyPositionHash(x: number, z: number): number {
   return seed - Math.floor(seed);
 }
 
+function sampleByPosition<T>(
+  values: readonly T[],
+  limit: number,
+  position: (value: T) => Vec3Ly,
+  identity: (value: T) => string,
+): readonly T[] {
+  if (limit <= 0) return [];
+  if (values.length <= limit) return values;
+  // Calculate each hash once. Comparators must not repeat trigonometry over
+  // a dense response, and network arrival/id64 order must not decide detail.
+  return values
+    .map((value) => {
+      const point = position(value);
+      return {
+        value,
+        hash: galaxyPositionHash(point.x + point.y * 0.137, point.z),
+      };
+    })
+    .sort(
+      (a, b) =>
+        a.hash - b.hash || identity(a.value).localeCompare(identity(b.value)),
+    )
+    .slice(0, limit)
+    .map(({ value }) => value);
+}
+
+/** A stable sample of one whole cell, bounded before entering the query cache. */
+export function sampleCatalogueCellSystems(
+  systems: readonly CatalogueViewportSystem[],
+  limit: number,
+): readonly CatalogueViewportSystem[] {
+  return sampleByPosition(
+    systems,
+    limit,
+    (system) => system,
+    (system) => system.id64,
+  );
+}
+
 /** Normalised distance from the galactic centre in the disk plane (1 == rim). */
 export function galaxyDiskNormalizedRadius(x: number, z: number): number {
   const dx = (x - GALACTIC_CENTRE_LY.x) / GALACTIC_DISK_RADIUS_LY;
@@ -89,44 +135,32 @@ export function withinGalaxyDisk(x: number, z: number): boolean {
 export function galaxyStarViewport(
   camera: CameraState | null,
   previousMode: GalaxyDetailMode = 'wide',
+  viewport: GalaxyCameraViewport = { width: 1, height: 1 },
 ): GalaxyStarViewport | null {
   if (!camera) return null;
-  if (galaxyDetailMode(camera.distanceLy, previousMode) === 'wide') {
-    // Wide view: use the authoritative region-plane extent, but keep Y
-    // constrained to the galactic disk so the sample reads as a galaxy rather
-    // than a full rectangular point cloud. This is a real-system sample lane,
-    // not a procedural star field.
-    return {
-      minX: -50_000,
-      maxX: 52_000,
-      minY: -2_400,
-      maxY: 2_400,
-      minZ: -25_000,
-      maxZ: 78_000,
-      limit: GALAXY_WIDE_STAR_LIMIT,
-      cameraDistanceLy: camera.distanceLy,
-      wide: true,
-    };
-  }
-  const horizontalRadius = Math.max(
-    LOCAL_STAR_MIN_RADIUS_LY,
-    Math.min(LOCAL_STAR_MAX_HORIZONTAL_RADIUS_LY, camera.distanceLy * 0.82),
-  );
+  const wide = galaxyDetailMode(camera.distanceLy, previousMode) === 'wide';
   const verticalRadius = Math.max(
     LOCAL_STAR_MIN_RADIUS_LY,
     Math.min(LOCAL_STAR_MAX_VERTICAL_RADIUS_LY, camera.distanceLy * 0.34),
   );
-  const limit = galaxyLocalStarLimit(camera.distanceLy);
+  // Preserve the existing Y bands and budgets; only the horizontal request
+  // follows the actual camera. Aggregated density owns the Galaxy overview.
+  const minY = wide ? -2_400 : camera.focusLy.y - verticalRadius;
+  const maxY = wide ? 2_400 : camera.focusLy.y + verticalRadius;
+  const footprint = galaxyStarFootprint(camera, viewport, minY, maxY);
   return {
-    minX: camera.focusLy.x - horizontalRadius,
-    maxX: camera.focusLy.x + horizontalRadius,
-    minY: camera.focusLy.y - verticalRadius,
-    maxY: camera.focusLy.y + verticalRadius,
-    minZ: camera.focusLy.z - horizontalRadius,
-    maxZ: camera.focusLy.z + horizontalRadius,
-    limit,
+    minX: footprint.minX,
+    maxX: footprint.maxX,
+    minY,
+    maxY,
+    minZ: footprint.minZ,
+    maxZ: footprint.maxZ,
+    footprint,
+    limit: wide
+      ? GALAXY_WIDE_STAR_LIMIT
+      : galaxyLocalStarLimit(camera.distanceLy),
     cameraDistanceLy: camera.distanceLy,
-    wide: false,
+    wide,
   };
 }
 
@@ -134,15 +168,78 @@ export function createCatalogueStarsContribution(
   systems: readonly CatalogueViewportSystem[],
   revision: number,
   truncated: boolean,
+  reservedSystems: readonly GalaxySystemPoint[] = [],
+  limit = Infinity,
+  previous?: SpatialContribution | null,
 ): SpatialContribution {
-  const points: GalaxySystemPoint[] = systems.map((system) => ({
-    systemId64: system.id64,
-    name: system.name,
-    positionLy: { x: system.x, y: system.y, z: system.z },
-    ...(system.mainStarClass && {
-      primaryStar: { type: system.mainStarClass },
-    }),
-  }));
+  const reserved = new Map<string, GalaxySystemPoint>();
+  const background = new Map<string, GalaxySystemPoint>();
+  for (const point of reservedSystems) {
+    const existing = reserved.get(point.systemId64);
+    reserved.set(point.systemId64, {
+      ...point,
+      ...existing,
+      ...((point.primaryStar || existing?.primaryStar) && {
+        primaryStar: { ...point.primaryStar, ...existing?.primaryStar },
+      }),
+      ...((point.summary || existing?.summary) && {
+        summary: { ...point.summary, ...existing?.summary },
+      }),
+      reserved: true,
+    });
+  }
+  for (const system of systems) {
+    const point: GalaxySystemPoint = {
+      systemId64: system.id64,
+      name: system.name,
+      positionLy: { x: system.x, y: system.y, z: system.z },
+      ...(system.mainStarClass && {
+        primaryStar: { type: system.mainStarClass },
+      }),
+    };
+    const known = reserved.get(system.id64);
+    if (known) {
+      // Catalogue metadata can fill an unknown star class, but the known
+      // target's position and richer domain summary retain precedence.
+      reserved.set(system.id64, {
+        ...point,
+        ...known,
+        ...((point.primaryStar || known.primaryStar) && {
+          primaryStar: { ...point.primaryStar, ...known.primaryStar },
+        }),
+      });
+    } else if (!background.has(system.id64)) {
+      background.set(system.id64, point);
+    }
+  }
+  const backgroundLimit = Math.max(0, Math.floor(limit) - reserved.size);
+  const candidates = [...background.values()];
+  const points = [
+    ...[...reserved.values()].sort((a, b) =>
+      a.systemId64.localeCompare(b.systemId64),
+    ),
+    ...sampleByPosition(
+      candidates,
+      backgroundLimit,
+      (point) => point.positionLy,
+      (point) => point.systemId64,
+    ),
+  ];
+  const isTruncated = truncated || candidates.length > backgroundLimit;
+  const previousLayer = previous?.layers[0];
+  const previousPoints = (
+    previousLayer?.payload as GalaxySystemsPayload | undefined
+  )?.systems;
+  if (
+    previous &&
+    previousLayer?.truncated === isTruncated &&
+    previousPoints?.length === points.length &&
+    points.every((point, index) =>
+      sameCataloguePoint(point, previousPoints[index]),
+    )
+  ) {
+    return previous;
+  }
   return {
     id: 'catalogue-viewport-stars',
     owner: 'CATALOGUE',
@@ -154,8 +251,31 @@ export function createCatalogueStarsContribution(
         representation: 'AUTHORITATIVE',
         payload: { systems: points },
         targetCount: points.length,
-        truncated,
+        truncated: isTruncated,
       },
     ],
   };
+}
+
+function sameCataloguePoint(
+  a: GalaxySystemPoint,
+  b: GalaxySystemPoint,
+): boolean {
+  return (
+    a.systemId64 === b.systemId64 &&
+    a.name === b.name &&
+    a.reserved === b.reserved &&
+    a.positionLy.x === b.positionLy.x &&
+    a.positionLy.y === b.positionLy.y &&
+    a.positionLy.z === b.positionLy.z &&
+    a.primaryStar?.type === b.primaryStar?.type &&
+    a.primaryStar?.subtype === b.primaryStar?.subtype &&
+    a.summary?.distanceLy === b.summary?.distanceLy &&
+    a.summary?.population === b.summary?.population &&
+    a.summary?.primaryEconomy === b.summary?.primaryEconomy &&
+    a.summary?.secondaryEconomy === b.summary?.secondaryEconomy &&
+    a.summary?.security === b.summary?.security &&
+    a.summary?.allegiance === b.summary?.allegiance &&
+    a.summary?.government === b.summary?.government
+  );
 }

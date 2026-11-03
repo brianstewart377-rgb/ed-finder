@@ -20,6 +20,7 @@ import {
   GALACTIC_CENTRE_LY,
   GALACTIC_DISK_RADIUS_LY,
 } from './galaxy-star-stream';
+import { withinGalaxyStarFootprint } from './galaxy-star-footprint';
 import { stellarPresentation } from './stellar-presentation';
 
 const camera = (distanceLy: number) => ({
@@ -93,12 +94,47 @@ describe('real catalogue star streaming policy', () => {
     expect(viewport.maxY - viewport.minY).toBeLessThan(
       GALAXY_STAR_API_CUBE_BOUND_LY,
     );
-    expect(viewport.maxX - viewport.minX).toBeGreaterThan(
+    expect(viewport.maxX - viewport.minX).toBeLessThanOrEqual(
       GALAXY_STAR_API_CUBE_BOUND_LY,
     );
-    expect(viewport.maxZ - viewport.minZ).toBeGreaterThan(
+    expect(viewport.maxZ - viewport.minZ).toBeLessThanOrEqual(
       GALAXY_STAR_API_CUBE_BOUND_LY,
     );
+    expect(viewport.footprint.polygon.length).toBeGreaterThanOrEqual(3);
+    expect(viewport.footprint).toMatchObject({
+      minX: viewport.minX,
+      maxX: viewport.maxX,
+      minZ: viewport.minZ,
+      maxZ: viewport.maxZ,
+    });
+    expect(withinGalaxyStarFootprint(viewport.footprint, 100, 300)).toBe(true);
+    expect(withinGalaxyStarFootprint(viewport.footprint, 20_000, 300)).toBe(
+      false,
+    );
+    expect([viewport.minY, viewport.maxY]).toEqual([-2_400, 2_400]);
+  });
+
+  it('uses the actual viewport aspect while preserving its detail budget and Y band', () => {
+    const state = { ...camera(1_000), pitchRad: Math.PI / 2 };
+    const square = galaxyStarViewport(state, 'local', {
+      width: 900,
+      height: 900,
+    })!;
+    const ultrawide = galaxyStarViewport(state, 'local', {
+      width: 2100,
+      height: 900,
+    })!;
+    expect(ultrawide.maxX - ultrawide.minX).toBeCloseTo(
+      ((square.maxX - square.minX) * 21) / 9,
+    );
+    expect(ultrawide.maxZ - ultrawide.minZ).toBeCloseTo(
+      square.maxZ - square.minZ,
+    );
+    expect([ultrawide.minY, ultrawide.maxY, ultrawide.limit]).toEqual([
+      square.minY,
+      square.maxY,
+      square.limit,
+    ]);
   });
 
   it('maps only returned catalogue positions and preserves truncation', () => {

@@ -271,6 +271,35 @@ describe('SpatialCanvas', () => {
     expect(adapter.runtimes[1]?.dispose).toHaveBeenCalledOnce();
   });
 
+  it.each([false, true])(
+    'leaves no hover dismissal timer after unmount (pending hover: %s)',
+    async (pendingHover) => {
+      const view = render(SpatialCanvas);
+      await waitFor(() =>
+        expect(screen.getByRole('status')).toHaveAttribute(
+          'data-renderer-state',
+          'ready',
+        ),
+      );
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      if (pendingHover) {
+        view.container
+          .querySelector('.spatial-canvas')!
+          .dispatchEvent(new PointerEvent('pointerleave', { bubbles: true }));
+        // Flush Svelte's delegated-event cleanup; keep the delayed hover work.
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      expect(vi.getTimerCount()).toBe(pendingHover ? 1 : 0);
+
+      view.unmount();
+      expect(adapter.runtimes[0]?.dispose).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+      adapter.runtimes[0]!.dispatch.mockClear();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(adapter.runtimes[0]?.dispatch).not.toHaveBeenCalled();
+    },
+  );
+
   it('loads product scenes, focuses targets, and forwards neutral picks from the stable host', async () => {
     const scene: SpatialSceneContract = {
       kind: 'galaxy',
