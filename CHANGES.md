@@ -11,6 +11,16 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## Unreleased
+
+- UI redesign P5b adds Plan's non-modal Review & export pop-out with separate
+  Now/After Tier 2 and Tier 3 balances, per-item links for unknown slots, missing
+  body data, prediction-only surface slots and build-order checks, and **Export
+  DRAFT plan** downloads named `colony-plan-DRAFT-<systemId>.json`. The
+  `cpe_plan_export_v1` format and import of pre-P5b files are unchanged; Home now
+  identifies Review & export as available in Plan. Product E2E/visual acceptance
+  remains required before promotion; this change is not deployed.
+
 ## 2026-11-03 — UI redesign P5a: Plan tabs and facility preview
 
 The Plan workspace now has accessible System layout / Build order tabs with

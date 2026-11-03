@@ -102,7 +102,7 @@
       <p>
         <ClipboardCheck size={18} aria-hidden="true" /><strong
           >Review & export</strong
-        ><span>Coming later</span>
+        ><span>Available in Plan</span>
       </p>
     </div>
   </section>

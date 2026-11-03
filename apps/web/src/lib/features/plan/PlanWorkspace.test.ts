@@ -1,3 +1,4 @@
+import { Blob as NativeBlob } from 'node:buffer';
 import {
   cleanup,
   fireEvent,
@@ -25,6 +26,7 @@ import { PERSISTENCE_KEYS } from '$lib/persistence/storage';
 import {
   emptyPlan,
   exportPlan,
+  importPlan,
   plannerToRecord,
   recordToPlanner,
   MAX_IMPORT_BYTES,
@@ -32,6 +34,7 @@ import {
 } from './model';
 import PlanWorkspaceTestHost from './PlanWorkspaceTestHost.svelte';
 import ravenLayout from './__fixtures__/raven-workspace-layout.json';
+import preP5bExport from './__fixtures__/pre-p5b-plan-export.json';
 
 vi.mock('$lib/api/client', async (loadOriginal) => ({
   ...(await loadOriginal<typeof import('$lib/api/client')>()),
@@ -911,6 +914,425 @@ describe('Plan task tabs', () => {
     expect(body).toHaveClass('selected');
     expect(body.querySelector('.body-name')).toHaveFocus();
   });
+});
+
+describe('Review and DRAFT export', () => {
+  function seedReviewPlan() {
+    const reviewBodies: PlanBodiesV1 = {
+      ...bodyData,
+      bodies: [
+        ...bodyData.bodies,
+        {
+          ...bodyData.bodies[0],
+          body_id: '2',
+          name: 'Test System A 1',
+          direct_parent_body_id: '1',
+          body_type: 'planet',
+          is_main_star: false,
+          is_landable: true,
+          radius_km: 2000,
+          predicted_surface_slots: 3,
+          prediction_status: 'predicted',
+          prediction_version: 'surface_slots_v1',
+          missing_inputs: [],
+        },
+        {
+          ...bodyData.bodies[0],
+          body_id: '3',
+          name: 'Test System A 2',
+          direct_parent_body_id: '1',
+          body_type: 'planet',
+          is_main_star: false,
+          is_landable: null,
+          radius_km: null,
+          prediction_status: 'unknown',
+          missing_inputs: ['is_landable', 'radius_km'],
+        },
+      ],
+    };
+    vi.mocked(listV3PlanBodies).mockResolvedValue(reviewBodies);
+    queryClient.setQueryData(['ed-finder', 'plan-bodies', '42'], reviewBodies);
+    const result = blockedPrimary();
+    result.now = { t2: 17, t3: 9 };
+    result.after_plan = { t2: -2, t3: 6 };
+    vi.mocked(evaluateV3Plan).mockResolvedValue(result);
+    seedPrimary();
+  }
+
+  async function openReview() {
+    const opener = screen.getByRole('button', { name: 'Review & export' });
+    opener.focus();
+    await fireEvent.click(opener);
+    await advance(0);
+    return screen.getByRole('dialog', { name: 'Review & export' });
+  }
+
+  it.each(['Close', 'Escape'] as const)(
+    'opens Review from the header without another request, and %s returns focus to its opener',
+    async (action) => {
+      seedReviewPlan();
+      render(PlanWorkspaceTestHost);
+      await advance(300);
+      const requests = [
+        getV3PlanCatalogue,
+        listV3PlanBodies,
+        getPlanSystem,
+        evaluateV3Plan,
+      ].map((fn) => vi.mocked(fn).mock.calls.length);
+      const before = localStorage.getItem(PERSISTENCE_KEYS.colonyProjects);
+      const review = await openReview();
+      expect(review).toHaveAttribute('aria-modal', 'false');
+      expect(review).toHaveTextContent('Test System');
+      expect(review).toHaveTextContent('Unknown orbital slots: Test System A');
+      expect(review).toHaveTextContent(
+        'Prediction-only surface slots: Test System A 1',
+      );
+      expect(review).toHaveTextContent('Missing body data: Test System A 2');
+      expect(review).toHaveTextContent('Blocked build: Primary port');
+      expect(review).not.toHaveTextContent(/eligible|approved|ready to build/i);
+      if (action === 'Close')
+        await fireEvent.click(
+          within(review).getByRole('button', { name: /close/i }),
+        );
+      else await fireEvent.keyDown(review, { key: 'Escape' });
+      await advance(0);
+      expect(
+        screen.queryByRole('dialog', { name: 'Review & export' }),
+      ).toBeNull();
+      expect(
+        screen.getByRole('button', { name: 'Review & export' }),
+      ).toHaveFocus();
+      expect(localStorage.getItem(PERSISTENCE_KEYS.colonyProjects)).toBe(
+        before,
+      );
+      expect(
+        [
+          getV3PlanCatalogue,
+          listV3PlanBodies,
+          getPlanSystem,
+          evaluateV3Plan,
+        ].map((fn) => vi.mocked(fn).mock.calls.length),
+      ).toEqual(requests);
+    },
+  );
+
+  it('links each unresolved item to its exact visible task control while keeping Review open', async () => {
+    seedReviewPlan();
+    const ontabchange = vi.fn();
+    render(PlanWorkspaceTestHost, { ontabchange });
+    await advance(300);
+    const review = await openReview();
+    const cases = [
+      {
+        link: '[data-review-kind="unknown-slot"][data-body-ref="1"][data-slot-kind="orbital"]',
+        target: '[data-plan-body="1"] [data-slot-kind="orbital"]',
+        tab: 'system-layout',
+      },
+      {
+        link: '[data-review-kind="prediction"][data-body-ref="2"]',
+        target: '[data-plan-body="2"] [data-slot-kind="surface"]',
+        tab: 'system-layout',
+      },
+      {
+        link: '[data-review-kind="missing-data"][data-body-ref="3"]',
+        target: '[data-plan-body="3"] .body-name',
+        tab: 'system-layout',
+      },
+      {
+        link: '[data-review-kind="build"][data-site-id="imported-port"]',
+        target: '#plan-step-imported-port',
+        tab: 'build-order',
+      },
+    ];
+    for (const { link, target, tab } of cases) {
+      // Start on the other task so every link must activate its destination.
+      await fireEvent.click(
+        tab === 'system-layout' ? buildOrderTab() : systemLayoutTab(),
+      );
+      const control = document.querySelector<HTMLElement>(target)!;
+      const scrollIntoView = vi.fn();
+      Object.defineProperty(control, 'scrollIntoView', {
+        value: scrollIntoView,
+        configurable: true,
+      });
+      await fireEvent.click(review.querySelector<HTMLElement>(link)!);
+      await advance(0);
+      expect(ontabchange).toHaveBeenLastCalledWith(tab);
+      expect(control).toBeVisible();
+      expect(control).toHaveFocus();
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+      expect(review).toBeVisible();
+      expect(document.activeElement?.closest('[hidden], [inert]')).toBeNull();
+    }
+
+    // The existing Summary shortcuts still use the same destinations.
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'First blocked step: Primary port' }),
+    );
+    expect(document.getElementById('plan-step-imported-port')).toHaveFocus();
+    await fireEvent.click(
+      screen.getByRole('button', {
+        name: '1 body has builds with unknown slot counts',
+      }),
+    );
+    expect(
+      document.querySelector('[data-plan-body="1"] .body-name'),
+    ).toHaveFocus();
+    expect(review).toBeVisible();
+  });
+
+  it('keeps unresolved links disabled until the task editors load, then enables their focus destinations', async () => {
+    seedReviewPlan();
+    const catalogueRequest = deferred<typeof catalogue>();
+    queryClient.removeQueries({ queryKey: ['ed-finder', 'plan-catalogue'] });
+    vi.mocked(getV3PlanCatalogue).mockReturnValue(catalogueRequest.promise);
+    render(PlanWorkspaceTestHost);
+    await advance(300);
+    const review = await openReview();
+    const unresolved = within(review).getByRole('list', {
+      name: 'Unresolved information',
+    });
+    const links = within(unresolved).getAllByRole('button');
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) expect(link).toBeDisabled();
+    expect(review).toHaveTextContent(
+      'Body and build editors are unavailable until planner data loads successfully.',
+    );
+    expect(
+      within(review).getByRole('button', { name: 'Export DRAFT plan' }),
+    ).toBeEnabled();
+    expect(screen.queryByRole('tabpanel')).toBeNull();
+
+    catalogueRequest.resolve(catalogue);
+    await advance(0);
+    for (const link of links) expect(link).toBeEnabled();
+    const orbital = within(unresolved).getByRole('button', {
+      name: 'Unknown orbital slots: Test System A',
+    });
+    await fireEvent.click(orbital);
+    await advance(0);
+    expect(systemLayoutTab()).toHaveAttribute('aria-selected', 'true');
+    expect(
+      document.querySelector('[data-plan-body="1"] [data-slot-kind="orbital"]'),
+    ).toHaveFocus();
+    expect(review).toBeVisible();
+  });
+
+  it('updates unresolved slots in the open Review from the current browser plan', async () => {
+    seedReviewPlan();
+    render(PlanWorkspaceTestHost);
+    await advance(300);
+    const review = await openReview();
+    await fireEvent.click(
+      review.querySelector<HTMLElement>(
+        '[data-review-kind="unknown-slot"][data-body-ref="1"]',
+      )!,
+    );
+    const slot = document.activeElement!;
+    await fireEvent.click(slot);
+    const editor = screen.getByRole('dialog', {
+      name: 'Orbital slots on Test System A',
+    });
+    await fireEvent.click(
+      within(editor).getByRole('button', { name: 'Increase orbital slots' }),
+    );
+    expect(
+      review.querySelector(
+        '[data-review-kind="unknown-slot"][data-body-ref="1"]',
+      ),
+    ).toBeNull();
+    await fireEvent.keyDown(editor, { key: 'Escape' });
+    await advance(0);
+    expect(editor).not.toBeInTheDocument();
+    expect(slot).toHaveFocus();
+    expect(review).toBeVisible();
+    await fireEvent.keyDown(slot, { key: 'Escape' });
+    await advance(0);
+    expect(review).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Review & export' }),
+    ).toHaveFocus();
+  });
+
+  it('links a reported invalid build to Build order and clears the issue after a successful reevaluation', async () => {
+    seedReviewPlan();
+    vi.mocked(evaluateV3Plan).mockRejectedValueOnce(
+      new ApiError(400, '/api/v1/plan/evaluate', {
+        error: 'plan_invalid',
+        issues: [
+          {
+            code: 'INVALID_LOCATION',
+            site_id: 'imported-port',
+            message: 'This build location needs checking.',
+          },
+        ],
+      }),
+    );
+    render(PlanWorkspaceTestHost);
+    await advance(300);
+    const review = await openReview();
+    const invalid = within(review).getByRole('button', {
+      name: /Invalid build: Primary port/,
+    });
+    expect(invalid.closest('li')).toHaveTextContent(
+      'This build location needs checking.',
+    );
+    const step = document.getElementById('plan-step-imported-port')!;
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(step, 'scrollIntoView', { value: scrollIntoView });
+    await fireEvent.click(invalid);
+    await advance(0);
+    expect(buildOrderTab()).toHaveAttribute('aria-selected', 'true');
+    expect(step).toBeVisible();
+    expect(step).toHaveFocus();
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+    expect(review).toBeVisible();
+
+    vi.mocked(evaluateV3Plan).mockResolvedValue(evaluated(23));
+    await fireEvent.click(systemLayoutTab());
+    await editOrbitalSlots();
+    await advance(300);
+    expect(
+      within(review).queryByRole('button', { name: /Invalid build:/ }),
+    ).toBeNull();
+    expect(
+      within(review).queryByText('This build location needs checking.'),
+    ).toBeNull();
+    expect(review).toBeVisible();
+  });
+
+  it('closes only the topmost Why tool before Review on Escape', async () => {
+    seedReviewPlan();
+    render(PlanWorkspaceTestHost);
+    await advance(300);
+    const review = await openReview();
+    await fireEvent.click(
+      review.querySelector<HTMLElement>('[data-review-kind="build"]')!,
+    );
+    const why = screen.getByRole('button', { name: 'Why? Primary port' });
+    why.focus();
+    await fireEvent.click(why);
+    const drawer = screen.getByRole('dialog', {
+      name: 'Step 1: Primary port',
+    });
+    expect(drawer).toHaveFocus();
+    await fireEvent.keyDown(drawer, { key: 'Escape' });
+    await advance(0);
+    expect(drawer).not.toBeInTheDocument();
+    expect(review).toBeVisible();
+    expect(why).toHaveFocus();
+    await fireEvent.keyDown(why, { key: 'Escape' });
+    await advance(0);
+    expect(review).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Review & export' }),
+    ).toHaveFocus();
+  });
+
+  it('imports a pre-P5b export without changing its model', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(PlanWorkspaceTestHost);
+    await upload(JSON.stringify(preP5bExport));
+    const records = Object.values(get(colonyProjects).value.state.projects);
+    expect(records).toHaveLength(1);
+    expect(recordToPlanner(records[0])).toEqual({
+      system_id64: preP5bExport.system_id64,
+      sites: preP5bExport.sites,
+      slots: preP5bExport.slots,
+    });
+  });
+
+  it('closes facility preview, picker and Review in order on consecutive Escape presses', async () => {
+    seedReviewPlan();
+    render(PlanWorkspaceTestHost);
+    await advance(300);
+    const review = await openReview();
+    const add = screen.getByRole('button', {
+      name: 'Add a build on Test System A',
+    });
+    add.focus();
+    await fireEvent.click(add);
+    const facility = screen.getByRole('button', { name: 'Installation' });
+    await fireEvent.click(facility);
+    const preview = screen.getByRole('heading', {
+      name: 'Preview: Installation',
+    });
+    expect(preview).toHaveFocus();
+    await fireEvent.keyDown(preview, { key: 'Escape' });
+    await advance(0);
+    expect(preview).not.toBeInTheDocument();
+    expect(facility).toHaveFocus();
+    expect(review).toBeVisible();
+    await fireEvent.keyDown(facility, { key: 'Escape' });
+    await advance(0);
+    expect(screen.queryByRole('button', { name: 'Close picker' })).toBeNull();
+    expect(add).toHaveFocus();
+    expect(review).toBeVisible();
+    await fireEvent.keyDown(add, { key: 'Escape' });
+    await advance(0);
+    expect(review).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Review & export' }),
+    ).toHaveFocus();
+  });
+
+  it.each(['header', 'Review'] as const)(
+    'exports DRAFT from %s with the exact filename and imports the unchanged V1 model',
+    async (source) => {
+      const original = importPlan(JSON.stringify(preP5bExport), '42');
+      const record = plannerToRecord(original);
+      colonyProjects.set({
+        version: 3,
+        state: { projects: { [record.id]: record } },
+      });
+      // Native Blob exposes text() without FileReader's task timers, so the
+      // evaluator's debounce stays under the test's fake-clock control.
+      vi.stubGlobal('Blob', NativeBlob);
+      const createObjectURL = vi.fn<(blob: Blob | MediaSource) => string>(
+        () => 'blob:plan-draft',
+      );
+      const revokeObjectURL = vi.fn();
+      vi.stubGlobal(
+        'URL',
+        class extends URL {
+          static createObjectURL = createObjectURL;
+          static revokeObjectURL = revokeObjectURL;
+        },
+      );
+      const downloads: string[] = [];
+      vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(
+        function (this: HTMLAnchorElement) {
+          downloads.push(this.download);
+          expect(this.href).toBe('blob:plan-draft');
+        },
+      );
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      render(PlanWorkspaceTestHost);
+      const scope = source === 'Review' ? within(await openReview()) : screen;
+      const action = scope.getByRole('button', { name: 'Export DRAFT plan' });
+      expect(action).toHaveTextContent('Export DRAFT plan');
+      expect(action).toHaveAttribute('aria-label', 'Export DRAFT plan');
+      await fireEvent.click(action);
+      expect(downloads).toEqual(['colony-plan-DRAFT-42.json']);
+      expect(createObjectURL).toHaveBeenCalledOnce();
+      const blob = createObjectURL.mock.calls[0][0];
+      if (!(blob instanceof NativeBlob))
+        throw new Error('Expected a downloaded JSON Blob');
+      expect(blob.type).toBe('application/json');
+      const exported = await blob.text();
+      expect(JSON.parse(exported)).toEqual(preP5bExport);
+      expect(importPlan(exported, '42')).toEqual(original);
+      await fireEvent.click(
+        screen.getByRole('button', { name: 'Abandon plan' }),
+      );
+      await upload(exported);
+      const restored = Object.values(get(colonyProjects).value.state.projects);
+      expect(restored).toHaveLength(1);
+      expect(recordToPlanner(restored[0])).toEqual(original);
+      await advance(1000);
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:plan-draft');
+    },
+  );
 });
 
 describe('planner workspace evaluation and browser state', () => {

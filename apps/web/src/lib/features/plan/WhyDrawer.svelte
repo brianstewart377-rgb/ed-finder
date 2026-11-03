@@ -1,5 +1,9 @@
 <script lang="ts">
   import type { PlanEvaluationV1, PlanFacilityV1, PlanStepV1 } from '$lib/api';
+  import {
+    isTopmostPopout,
+    registerPopout,
+  } from '$lib/components/popout-stack';
 
   type Props = {
     step?: PlanStepV1;
@@ -28,7 +32,7 @@
 
   const id = $props.id();
   const ruleIds = $derived(economy?.ruleIds ?? step?.rule_ids ?? []);
-  let dialog: HTMLDivElement;
+  let dialog = $state<HTMLDivElement>();
   let returnFocus: HTMLElement | null = null;
   const labels: Record<PlanStepV1['result'], string> = {
     OK: '✓ OK',
@@ -76,9 +80,10 @@
   }
 
   function keydown(event: KeyboardEvent) {
+    if (!dialog || !isTopmostPopout(dialog)) return;
     if (event.key === 'Escape') {
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
       close();
       return;
     }
@@ -120,6 +125,11 @@
       document.body.style.overflow = previousOverflow;
       restoreFocus();
     };
+  });
+
+  $effect(() => {
+    if (!dialog) return;
+    return registerPopout(dialog);
   });
 </script>
 

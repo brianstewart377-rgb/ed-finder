@@ -69,7 +69,8 @@ describe('ED-Finder V3 shell', () => {
         name: 'Plan Lay out a colony body by body, check construction points and economies, and import a Raven Colonial layout.',
       }),
     ).toHaveAttribute('href', '/plan');
-    expect(screen.getAllByText('Coming later')).toHaveLength(1);
+    expect(screen.queryByText('Coming later')).not.toBeInTheDocument();
+    expect(screen.getByText('Available in Plan')).toBeInTheDocument();
     expect(screen.getByText('Review & export')).toBeInTheDocument();
     expect(screen.queryByText('Colony planning')).not.toBeInTheDocument();
   });

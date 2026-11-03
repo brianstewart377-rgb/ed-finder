@@ -11,6 +11,7 @@
     type PlanEvaluationV1,
     type PlanFacilityV1,
     type PlanInvalidV1,
+    type PlanIssueV1,
   } from '$lib/api';
   import type { Id64 } from '$lib/domain/id64';
   import { colonyProjects } from '$lib/persistence/stores';
@@ -45,6 +46,7 @@
   import SystemPane from './SystemPane.svelte';
   import BuildOrder from './BuildOrder.svelte';
   import SummaryPane from './SummaryPane.svelte';
+  import ReviewExport from './ReviewExport.svelte';
   import WhyDrawer from './WhyDrawer.svelte';
   import EconomyBars from './EconomyBars.svelte';
   import { PLAN_TABS, type PlanTab } from './tabs';
@@ -97,6 +99,13 @@
         : `System ${systemId}`),
   );
   const facilities = $derived(catalogue.data?.facilities ?? []);
+  const plannerDataAvailable = $derived(
+    !!bodies.data &&
+      !bodies.isPending &&
+      !bodies.isError &&
+      !catalogue.isPending &&
+      !catalogue.isError,
+  );
   const locations = $derived(
     bodies.data ? resolvePlanLocations(bodies.data) : [],
   );
@@ -108,6 +117,7 @@
   let evaluation = $state<PlanEvaluationV1 | null>(null);
   let evaluatedRequest = $state('');
   let evaluationError = $state('');
+  let evaluationIssues = $state<PlanIssueV1[]>([]);
   let canRetry = $state(false);
   let retryAt = $state(0);
   let retrySeconds = $state(0);
@@ -123,6 +133,8 @@
   let filter = $state('All');
   let fileInput = $state<HTMLInputElement>();
   let ravenFileInput = $state<HTMLInputElement>();
+  let reviewOpen = $state(false);
+  let reviewTrigger = $state<HTMLButtonElement>();
   let importNotes = $state<{ code: string; detail: string }[]>([]);
   let active = true;
   onDestroy(() => {
@@ -241,6 +253,7 @@
     if (snapshot.sites.length === 0) {
       pending = false;
       evaluationError = '';
+      evaluationIssues = [];
       announcement = '';
       return;
     }
@@ -248,10 +261,12 @@
     let current = true;
     pending = true;
     evaluationError = '';
+    evaluationIssues = [];
     announcement = '';
     const evaluate = (): void => {
       pending = true;
       evaluationError = '';
+      evaluationIssues = [];
       canRetry = false;
       retryAt = 0;
       void evaluateV3Plan(snapshot, controller.signal)
@@ -267,10 +282,13 @@
             error instanceof ApiError && error.status === 400
               ? (error.body as PlanInvalidV1)
               : null;
-          evaluationError =
+          evaluationIssues =
             invalid?.error === 'plan_invalid' && Array.isArray(invalid.issues)
-              ? invalid.issues.map((issue) => issue.message).join(' ')
-              : 'The plan could not be evaluated. Try again shortly.';
+              ? invalid.issues
+              : [];
+          evaluationError = evaluationIssues.length
+            ? evaluationIssues.map((issue) => issue.message).join(' ')
+            : 'The plan could not be evaluated. Try again shortly.';
           const status = error instanceof ApiError ? error.status : 0;
           canRetry =
             status === 0 || status === 429 || (status >= 500 && status < 600);
@@ -390,14 +408,22 @@
       document.getElementById(`plan-tab-${activeTab}`)?.focus();
     }
   }
-  async function selectBody(ref: string): Promise<void> {
+  async function selectBody(
+    ref: string,
+    kind?: 'orbital' | 'surface',
+  ): Promise<void> {
     selectedBody = ref;
     selectTab('system-layout');
     await tick();
+    if (!active) return;
     const row = [
       ...document.querySelectorAll<HTMLElement>('[data-plan-body]'),
     ].find((element) => element.dataset.planBody === ref);
-    row?.querySelector<HTMLElement>('.body-name')?.focus();
+    const target = row?.querySelector<HTMLElement>(
+      kind ? `[data-slot-kind="${kind}"]` : '.body-name',
+    );
+    target?.focus();
+    target?.scrollIntoView?.({ block: 'nearest' });
   }
   function insertPayer(facilityId: string): void {
     const facility = facilities.find((item) => item.id === facilityId);
@@ -420,7 +446,7 @@
     );
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `colony-plan-${systemId}.json`;
+    anchor.download = `colony-plan-DRAFT-${systemId}.json`;
     anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
@@ -580,9 +606,17 @@
             onclick={() => (view = 'after_plan')}>After the plan</button
           >
         </div>
-        <button type="button" onclick={download}>Export plan</button><button
+        <button
+          bind:this={reviewTrigger}
           type="button"
-          onclick={() => fileInput?.click()}>Import plan</button
+          aria-haspopup="dialog"
+          aria-expanded={reviewOpen}
+          aria-controls={reviewOpen ? 'plan-review-export' : undefined}
+          onclick={() => (reviewOpen = !reviewOpen)}>Review &amp; export</button
+        ><button type="button" aria-label="Export DRAFT plan" onclick={download}
+          >Export DRAFT plan</button
+        ><button type="button" onclick={() => fileInput?.click()}
+          >Import plan</button
         ><button type="button" onclick={() => ravenFileInput?.click()}
           >Import from Raven</button
         ><button
@@ -732,6 +766,25 @@
       onwhy={showEconomyWhy}
     />
   {/if}
+  <ReviewExport
+    open={reviewOpen}
+    trigger={reviewTrigger}
+    {model}
+    bodies={bodies.data}
+    {facilities}
+    {locations}
+    {systemName}
+    {evaluation}
+    {pending}
+    {stale}
+    error={evaluationError}
+    issues={evaluationIssues}
+    canNavigate={plannerDataAvailable}
+    onclose={() => (reviewOpen = false)}
+    onexport={download}
+    onstep={jumpToStep}
+    onbody={selectBody}
+  />
   {#if older.length}<details class="plan-pane older-items">
       <summary>Older plan items (read-only) · {older.length}</summary>
       <ul>

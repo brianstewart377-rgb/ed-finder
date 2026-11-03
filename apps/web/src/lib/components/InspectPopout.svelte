@@ -1,18 +1,6 @@
-<script lang="ts" module>
-  // All Inspect tools share an Escape/outside-click stack, including when an
-  // Inspect is embedded in an overlay. Inactive task panels leave the stack.
-  const panels: {
-    element: HTMLElement;
-    setLayer: (value: number) => void;
-  }[] = [];
-
-  function updateLayers() {
-    panels.forEach((entry, index) => entry.setLayer(30 + index));
-  }
-</script>
-
 <script lang="ts">
   import { tick, type Snippet } from 'svelte';
+  import { isTopmostPopout, registerPopout } from './popout-stack';
 
   let {
     id,
@@ -22,6 +10,7 @@
     trigger,
     describedby,
     kind,
+    closeOnOutside = true,
     onclose,
     children,
   }: {
@@ -31,7 +20,8 @@
     active?: boolean;
     trigger?: HTMLButtonElement;
     describedby?: string;
-    kind: 'sources' | 'evidence';
+    kind: 'sources' | 'evidence' | 'review';
+    closeOnOutside?: boolean;
     onclose: () => void;
     children: Snippet;
   } = $props();
@@ -99,7 +89,7 @@
   }
 
   function topmost(): boolean {
-    return open && active && panel === panels.at(-1)?.element;
+    return open && active && !!panel && isTopmostPopout(panel);
   }
 
   function keydown(event: KeyboardEvent) {
@@ -111,7 +101,8 @@
   }
 
   function outsideClick(event: MouseEvent) {
-    if (!topmost() || !(event.target instanceof Node)) return;
+    if (!closeOnOutside || !topmost() || !(event.target instanceof Node))
+      return;
     const element =
       event.target instanceof Element
         ? event.target
@@ -125,7 +116,7 @@
 
   $effect(() => {
     if (!open || !trigger) return;
-    context = trigger.closest('[data-system-id64]');
+    context = trigger.closest('[data-system-id64], .plan-workspace');
     // Read active only after the tick: returning to a tab reveals the retained
     // tool without moving focus away from the tab that the user just selected.
     void tick().then(() => {
@@ -138,9 +129,7 @@
   $effect(() => {
     const element = panel;
     if (!open || !active || !element) return;
-    const entry = { element, setLayer: (value: number) => (layer = value) };
-    panels.push(entry);
-    updateLayers();
+    const unregister = registerPopout(element, (value) => (layer = value));
     positionPanel();
     const observer =
       typeof ResizeObserver === 'undefined'
@@ -160,9 +149,7 @@
     viewport?.addEventListener('resize', positionPanel);
     viewport?.addEventListener('scroll', positionPanel);
     return () => {
-      const index = panels.indexOf(entry);
-      if (index !== -1) panels.splice(index, 1);
-      updateLayers();
+      unregister();
       observer?.disconnect();
       window.removeEventListener('keydown', keydown, true);
       window.removeEventListener('click', outsideClick);
@@ -180,6 +167,7 @@
     {id}
     class="inspect-popout {kind}-dialog"
     data-evidence-popout={kind === 'evidence' ? '' : undefined}
+    data-review-export={kind === 'review' ? '' : undefined}
     role="dialog"
     aria-modal="false"
     aria-labelledby={`${id}-title`}
@@ -215,7 +203,7 @@
     border: 1px solid var(--neon);
     border-radius: var(--radius, 0.7rem);
     background: var(--panel);
-    box-shadow: 0 0.6rem 2rem #0008;
+    box-shadow: var(--shadow-panel);
     font-size: 0.85rem;
     font-weight: normal;
     line-height: 1.45;
