@@ -26,9 +26,6 @@ const renderPage = () => render(TestShell);
 describe('ED-Finder V3 shell', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-  });
-  afterEach(cleanup);
-  it('renders accessible journey navigation and guest status', async () => {
     mockedGetHealth.mockResolvedValue({
       status: 'ok',
       database: 'connected',
@@ -40,6 +37,9 @@ describe('ED-Finder V3 shell', () => {
       user: null,
       owner_claim_available: false,
     });
+  });
+  afterEach(cleanup);
+  it('renders accessible journey navigation and guest status', async () => {
     renderPage();
     expect(
       screen.getByRole('heading', { name: /search the galaxy/i }),
@@ -58,20 +58,78 @@ describe('ED-Finder V3 shell', () => {
       screen.getByRole('button', { name: 'Sign in with Frontier' }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('link', { name: 'Explore the galaxy' }),
-    ).toHaveAttribute('href', '/explore');
-    const tools = within(
-      screen.getByRole('region', { name: 'A galaxy of possibilities.' }),
+      screen.getByText(
+        'Explore freely. Sign in with Frontier when you need your commander account.',
+      ),
+    ).toBeInTheDocument();
+  });
+  it('preserves the hero actions followed by exactly three journey cards', () => {
+    renderPage();
+    const main = screen.getByRole('main');
+    const primary = within(main).getByRole('link', {
+      name: 'Explore the galaxy',
+    });
+    const secondary = within(main).getByRole('link', {
+      name: 'Inspect a system',
+    });
+    expect(primary).toHaveAttribute('href', '/explore');
+    expect(secondary).toHaveAttribute('href', '/inspect');
+
+    const tools = screen.getByRole('region', {
+      name: 'A galaxy of possibilities.',
+    });
+    const cards = Array.from(
+      tools.querySelectorAll<HTMLAnchorElement>('.tool-card'),
     );
-    expect(tools.getAllByRole('link')).toHaveLength(3);
+    expect(cards).toHaveLength(3);
+    const journey = [
+      { label: 'Explore', href: '/explore' },
+      { label: 'Inspect', href: '/inspect' },
+      { label: 'Plan', href: '/plan' },
+    ];
+    journey.forEach(({ label, href }, index) => {
+      expect(cards[index]).toHaveAttribute('href', href);
+      expect(
+        within(cards[index]).getByRole('heading', {
+          name: label,
+          level: 3,
+        }),
+      ).toBeInTheDocument();
+    });
+    expect(within(main).getAllByRole('link').slice(0, 5)).toEqual([
+      primary,
+      secondary,
+      ...cards,
+    ]);
+    for (const link of [primary, secondary, ...cards]) {
+      expect(link).not.toHaveAttribute('tabindex');
+    }
+  });
+  it('keeps the decorative compass and orbits out of the accessible content', () => {
+    renderPage();
+    const main = screen.getByRole('main');
+    const art = main.querySelector('.galaxy-motif');
+    expect(art).toHaveAttribute('aria-hidden', 'true');
+    expect(art?.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
     expect(
-      tools.getByRole('link', {
-        name: 'Plan Lay out a colony body by body, check construction points and economies, and import a Raven Colonial layout.',
-      }),
-    ).toHaveAttribute('href', '/plan');
+      art?.querySelectorAll('a, button, input, select, textarea, [tabindex]'),
+    ).toHaveLength(0);
+    expect(within(main).queryByRole('img')).not.toBeInTheDocument();
+  });
+  it('points review and export to Plan without introducing a fourth tool', () => {
+    renderPage();
+    const tools = screen.getByRole('region', {
+      name: 'A galaxy of possibilities.',
+    });
+    const availability = within(tools).getByRole('link', {
+      name: 'Available in Plan',
+    });
+    expect(availability).toHaveAttribute('href', '/plan');
+    expect(availability.closest('.tool-card')).toBeNull();
+    expect(availability.parentElement).toHaveTextContent('Review & export');
+    expect(within(tools).getAllByRole('link')).toHaveLength(4);
+    expect(within(tools).getAllByRole('heading', { level: 3 })).toHaveLength(3);
     expect(screen.queryByText('Coming later')).not.toBeInTheDocument();
-    expect(screen.getByText('Available in Plan')).toBeInTheDocument();
-    expect(screen.getByText('Review & export')).toBeInTheDocument();
     expect(screen.queryByText('Colony planning')).not.toBeInTheDocument();
   });
   it('reports failed bootstrap requests without hiding the shell', async () => {

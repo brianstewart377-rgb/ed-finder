@@ -149,7 +149,7 @@ No slice needs a SQL migration or new backend contract.
 | P4 | Inspect **Overview / Bodies / Stations** tabs; evidence explanation pop-out and retained Sources & freshness; **implemented (#1002)** | No | Yes |
 | P5a | Plan **System layout / Build order** tabs; facility preview pop-out with explicit **Add to plan**; **implemented (#1003)** | No | Yes |
 | P5b | Review/export pop-out over the plan, per-item unresolved-information links and explicit **DRAFT** export; **implemented in this PR** | No | Yes |
-| P6a | Home polish: existing hero actions and three tool cards adopt the kit; truthful Review/export entry wording completed in P5b | No | Yes |
+| P6a | Home polish: existing hero actions and three tool cards adopt the kit; truthful Review/export entry wording completed in P5b; **implemented in this PR** | No | Yes |
 | P6b | Final visual sweep across the complete journey, responsive layouts and all tool states | No | Yes |
 
 ### Phase 1 — shared design kit

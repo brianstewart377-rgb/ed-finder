@@ -28,10 +28,34 @@ describe('ED-Finder V3 foundation', () => {
       cy.get('.upcoming-tools p')
         .should('have.length', 1)
         .and('contain.text', 'Review & export');
-      cy.get('.upcoming-tools p > span').should(
-        'have.text',
-        'Available in Plan',
-      );
+      cy.get('.upcoming-tools p > a')
+        .should('have.text', 'Available in Plan')
+        .and('have.attr', 'href', '/plan');
+      cy.get('.galaxy-motif')
+        .should('have.attr', 'aria-hidden', 'true')
+        .find('a, button, [tabindex="0"]')
+        .should('not.exist');
+      cy.get('.hero-actions a').should(($actions) => {
+        expect(
+          $actions.toArray().map((action) => action.getAttribute('href')),
+        ).to.deep.equal(['/explore', '/inspect']);
+        const [primary, secondary] = $actions
+          .toArray()
+          .map((action) => action.getBoundingClientRect());
+        $actions.toArray().forEach((action) => {
+          const bounds = action.getBoundingClientRect();
+          expect(action.scrollWidth).to.be.at.most(action.clientWidth);
+          expect(bounds.left).to.be.at.least(0);
+          expect(bounds.right).to.be.at.most(width);
+        });
+        expect(
+          secondary.left >= primary.right || secondary.top >= primary.bottom,
+          'Hero actions do not overlap',
+        ).to.equal(true);
+        if (width === 390) {
+          expect(secondary.top).to.be.at.least(primary.bottom);
+        }
+      });
       cy.get('.tool-card').should(($cards) => {
         const cards = $cards.toArray();
         const bounds = cards.map((card) => card.getBoundingClientRect());
@@ -40,14 +64,35 @@ describe('ED-Finder V3 foundation', () => {
           expect(bounds[index].left).to.be.at.least(0);
           expect(bounds[index].right).to.be.at.most(width);
           if (index === 0) return;
-          if (width > 1100) {
+          if (width > 900) {
             expect(bounds[index].top).to.equal(bounds[0].top);
+            expect(bounds[index].height).to.equal(bounds[0].height);
             expect(bounds[index].left).to.be.at.least(bounds[index - 1].right);
           } else {
+            expect(bounds[index].left).to.equal(bounds[0].left);
+            expect(bounds[index].width).to.equal(bounds[0].width);
             expect(bounds[index].top).to.be.at.least(bounds[index - 1].bottom);
           }
         });
       });
+      cy.get('.tool-card p').should(($descriptions) => {
+        $descriptions.toArray().forEach((description) => {
+          const lineHeight = Number.parseFloat(
+            getComputedStyle(description).lineHeight,
+          );
+          expect(
+            description.getBoundingClientRect().height,
+            `Single-line description: ${description.textContent}`,
+          ).to.be.at.most(lineHeight + 1);
+        });
+      });
+      cy.contains('.hero-actions a', 'Explore the galaxy').focus();
+      cy.press(Cypress.Keyboard.Keys.TAB);
+      cy.contains('.hero-actions a', 'Inspect a system').should('be.focused');
+      for (const tool of ['Explore', 'Inspect', 'Plan']) {
+        cy.press(Cypress.Keyboard.Keys.TAB);
+        cy.contains('.tool-card', tool).should('be.focused');
+      }
       cy.injectAxe();
       cy.checkA11y();
       cy.document().should((document) => {
@@ -158,5 +203,45 @@ describe('ED-Finder V3 foundation', () => {
     cy.visit('/explroe', { failOnStatusCode: false });
     cy.contains('Chart a promising system').should('not.exist');
     cy.contains(/not found/i).should('be.visible');
+  });
+});
+
+describe('Home reduced motion', { browser: { family: 'chromium' } }, () => {
+  afterEach(() => {
+    cy.then(() =>
+      Cypress.automation('remote:debugger:protocol', {
+        command: 'Emulation.setEmulatedMedia',
+        params: { features: [] },
+      }),
+    );
+  });
+
+  it('keeps home actions and cards still when keyboard focused', () => {
+    cy.then(() =>
+      Cypress.automation('remote:debugger:protocol', {
+        command: 'Emulation.setEmulatedMedia',
+        params: {
+          features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+        },
+      }),
+    );
+    cy.visit('/');
+    cy.window().should((window) => {
+      expect(
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+      ).to.equal(true);
+    });
+    cy.get('.hero-actions a, .tool-card').each(($action) => {
+      cy.wrap($action)
+        .focus()
+        .should('be.focused')
+        .should(($focused) => {
+          const style = getComputedStyle($focused[0]);
+          expect(style.animationName).to.equal('none');
+          expect(style.transitionDuration).to.equal('0s');
+        });
+    });
+    cy.injectAxe();
+    cy.checkA11y();
   });
 });

@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as api from '$lib/api/client';
 import { queryClient } from '$lib/api/query';
 import { auth } from '$lib/auth/auth';
+import WorkspaceHeader from '$lib/components/WorkspaceHeader.svelte';
 import { parseId64 } from '$lib/domain/id64';
 import ExploreWorkspaceTestHost from '$lib/features/explore/ExploreWorkspaceTestHost.svelte';
 
@@ -369,13 +370,45 @@ describe('design-kit action opt-in', () => {
     ).toBe(resolveToken('--radius-pill'));
   });
 
+  it.each(['/', '/explore', '/inspect', '/plan'])(
+    'keeps the shared header action and active journey underline consistent on %s',
+    async (pathname) => {
+      mockedPage.url = new URL(`http://localhost${pathname}`);
+      vi.mocked(api.getAuthSession).mockResolvedValue({
+        authenticated: false,
+        user: null,
+      });
+      await auth.bootstrap();
+      // The live header sits outside #main-content and must receive the kit
+      // through its account-controls scope, independently of the route body.
+      main.removeAttribute('id');
+      render(WorkspaceHeader, { target: main });
+      const signIn = screen.getByRole('button', {
+        name: 'Sign in with Frontier',
+      });
+      const signInStyle = getComputedStyle(signIn);
+      expect(signInStyle.borderRadius).toBe(resolveToken('--radius-pill'));
+      expect(signInStyle.backgroundImage).toContain('linear-gradient');
+      expect(signInStyle.borderTopColor).toBe('rgb(255, 122, 20)');
+      expect(signInStyle.color).toBe('rgb(26, 13, 2)');
+
+      const nav = screen.getByRole('navigation', { name: 'Product journey' });
+      const activeLinks = nav.querySelectorAll('a[aria-current="page"]');
+      expect(activeLinks).toHaveLength(pathname === '/' ? 0 : 1);
+      if (pathname !== '/') {
+        const activeLink = activeLinks[0];
+        expect(activeLink).toHaveAttribute('href', pathname);
+        const activeStyle = getComputedStyle(activeLink);
+        expect(activeStyle.textDecorationLine).toBe('underline');
+        expect(activeStyle.textDecorationColor).toBe(resolveToken('--accent'));
+        expect(activeStyle.textDecorationThickness).toBe('2px');
+      }
+    },
+  );
+
   it.each([
     ['home CTA', '<a class="primary-button" href="/explore">Explore</a>'],
     ['Plan CTA', '<button class="primary-button">Start a plan</button>'],
-    [
-      'header Sign in',
-      '<header><div class="account-controls"><button class="primary-button">Sign in</button></div></header>',
-    ],
     [
       'camera toolbar',
       '<div class="camera-toolbar"><button data-map-interactive>Reset camera</button></div>',
@@ -389,10 +422,8 @@ describe('design-kit action opt-in', () => {
       'watchlist action',
       '<section class="saved-systems"><button class="kit-pill">Watch</button></section>',
     ],
-  ])('retains the pill skin for an opted-in %s', (name, markup) => {
+  ])('retains the pill skin for an opted-in %s', (_name, markup) => {
     main.innerHTML = markup;
-    // The application header is outside #main-content in the live layout.
-    if (name === 'header Sign in') main.removeAttribute('id');
     const action = main.querySelector('button, a')!;
     expect(getComputedStyle(action).borderRadius).toBe(
       resolveToken('--radius-pill'),
