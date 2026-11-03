@@ -364,6 +364,28 @@ rollback artifact. It does not require product READY, receipts, counts,
 (apply run 39113822236) and the 18 Search constraints are validated. The first
 F2d release, source `f667bb4d` (release run 39149556699), was accepted by
 promotion run 39149980927 and remains the minimum schema-compatible image.
+**Status (2026-11-03).** The tenth F2d release, source `96644cad` (release run
+41606910682), passed preflight run 41607843491 and was accepted by promotion
+run 41617007185 at 2026-11-03T10:11:14Z to slot blue. App-only, no migration,
+no database writes; the operator-code identity `7008c681…` is unchanged. It is
+the third release on the installed through-023 schema and the first with the
+UI design kit: it carries the 2026-11-01/02 map review fixes (#987, #990,
+#991, #992, #994, #995, #996, #997, #999), Planner economy bars (#1000), the
+design kit (#998), Inspect tabs (#1002), Plan tabs and facility preview
+(#1003), the route-owned Explore view state (#1005), the Review & export
+pop-out with DRAFT export (#1004) and Finder control polish (#1006). The only
+backend change is the read-only density heatmap level choice in
+`coverage=complete` mode (#999). An earlier candidate from `108aed71` (release
+run 41596390207, preflight run 41606689793) was refused by the deployer's
+exact-main check after further merges and never reached the host. Its
+attestation is the accepted release in `deploy/v3-production/target-authority.json`,
+with the `9ff456e0` backend as the recorded rollback artifact. Public checks:
+health reports `96644cad`; the Ratings V4 public smoke passed 8/8 from the
+owner's machine on CPython 3.14.8
+(`docs/operations/evidence/2026-11-03-v3-ratings-v4-public-smoke-96644cad.json`).
+Receipts:
+`docs/operations/evidence/2026-11-03-v3-production-preflight-receipt-run-41607843491.json`
+and `docs/operations/evidence/2026-11-03-v3-production-promotion-receipt-run-41617007185.json`.
 **Status (2026-11-02, second release).** The ninth F2d release, source `9ff456e0`
 (release run 41502217984), passed preflight run 41502956031 and was accepted by
 promotion run 41503170717 at 2026-11-02T18:43:49Z to slot green. App-only, no
@@ -373,9 +395,9 @@ anchor (#983, #988), the density/local-star hand-off with its density error
 state (#982), Finder markers rendered separately from catalogue stars (#984),
 and System Map factual planet classes with body-family materials and a legend,
 including the additive `body_class` field on the V1 bodies route (#986). Its
-attestation is the accepted release in `deploy/v3-production/target-authority.json`,
-with the `a8d1b794` backend as the recorded rollback artifact. Public checks:
-health reports `9ff456e0`; autocomplete returns within a second; the live Sol
+attestation was the accepted release in `deploy/v3-production/target-authority.json`
+until the tenth release above superseded it, with the `a8d1b794` backend as the
+recorded rollback artifact. Public checks: health reported `9ff456e0`; autocomplete returns within a second; the live Sol
 bodies route reports factual planet classes; the Ratings V4 public smoke passed
 8/8 (`docs/operations/evidence/2026-11-02-ratings-v4-public-smoke-9ff456e0.json`).
 Receipts:

@@ -1,9 +1,9 @@
 # ED-Finder V3 Roadmap
 
-## Where things stand (2026-11-02)
+## Where things stand (2026-11-03)
 
-- **Production:** app `9ff456e0`, the ninth F2d release, was accepted on
-  2026-11-02 in slot green; rollback artifact `a8d1b794`. The Finder archetype UI
+- **Production:** app `96644cad`, the tenth F2d release, was accepted on
+  2026-11-03 in slot blue; rollback artifact `9ff456e0`. The Finder archetype UI
   is **ON**, per owner decision #974 ([release evidence](operations/v3-production-application-release.md#f3-finder-cutover--product-publish-promotion-gate)).
 - **Database:** installed schema is [through-023](operations/evidence/2026-11-02-v3-production-migration-apply-023-receipt-run-41449682997.json)
   (023 = the Search name-prefix index, applied 2026-11-02).
@@ -401,6 +401,19 @@ newer dated source wins).
   then the post-go-live work recorded in the 2026-10-21 entries. Known
   follow-ups: the dense-window development sort is slow near the galactic core,
   and the PR #877 visual polish list.
+- **Production app promoted to `96644cad`, the tenth F2d release (2026-11-03).**
+  Owner-approved. Release run 41606910682, preflight run 41607843491, promote
+  run 41617007185 (receipt `created_at` `2026-11-03T10:11:14Z`, active slot
+  green→blue, `status: accepted`); app-only, no migration, no database writes.
+  A first candidate built from `108aed71` (run 41596390207) was refused by the
+  deployer because main had moved on; nothing was promoted from it. Carries the
+  2026-11-01/02 map review fixes (M03 #996, M06 #999, M08 #992, M10 #991, M11
+  #987, M13 #997, Layers #990, A02 #994, A04 #995), Planner economy bars S5c
+  (#1000), the UI design kit (#998) and redesign phases P4 (#1002), P5a
+  (#1003), P2a (#1005), P5b (#1004) and P3 (#1006). The only backend change is
+  the read-only density heatmap level choice (#999). The `9ff456e0` backend is
+  the recorded rollback artifact. Public Ratings V4 smoke 8/8. Receipts under
+  `docs/operations/evidence/2026-11-03-v3-production-*-run-416*`.
 - **Production app promoted to `9ff456e0`, the ninth F2d release (2026-11-02).**
   Owner-approved. Release run 41502217984, preflight run 41502956031, promote
   run 41503170717 (receipt `created_at` `2026-11-02T18:43:49Z`, active slot

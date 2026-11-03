@@ -31,17 +31,22 @@ release `0dddc78d` 2026-10-19; third F2d release `a031c2da` 2026-10-23; fourth F
 release `1e748c9d` 2026-10-29; fifth F2d release `3fd8e719` 2026-11-01; sixth F2d
 release `181f6fed` 2026-11-01; seventh F2d release `293bc72b` 2026-11-01, the first
 with the Finder archetype UI on; eighth F2d release `a8d1b794` 2026-11-02, the first
-on the through-023 schema; ninth F2d release `9ff456e0` 2026-11-02, per the accepted-release
+on the through-023 schema; ninth F2d release `9ff456e0` 2026-11-02; tenth F2d release
+`96644cad` 2026-11-03, the first with the design kit, per the accepted-release
 attestation), with exact CPython
 3.14.7 installed on the host. Deploys
 still run **only** through the governed application-promotion workflow and its
 fail-closed target authority — being authorized is not blanket permission to
-promote. Current programme status (prod app on `9ff456e0`, the ninth F2d release, which carries the
+promote. Current programme status (prod app on `96644cad`, the tenth F2d release, which carries the
 restored live system-name search (migration `023` + the V3 autocomplete route), spectral star colours, the
-honest nebula inventory, the density hand-off, the Finder/catalogue star split and System Map planet classes
-on the maps, Explore body-count filters with a refresh-safe anchor, the Finder archetype UI (F4a–F4c, F4e) switched on, the Colony Planner
-`/plan` page through S5b with S3b slot predictions, Raven layout import and the floating facility picker, and the
-2026-10-31 audit fixes; the
+honest nebula inventory, nebula clouds, camera-following density, viewport-aware catalogue streaming, hover
+cards and labels, vertical travel and touch navigation, the Finder/catalogue star split, System Map planet
+classes and body hierarchy on the maps, Explore body-count filters with a refresh-safe anchor, scope text and
+bounded radius, the Layers pop-out, the Finder archetype UI (F4a–F4c, F4e) switched on with the P3 control
+polish, the UI design kit with Inspect Overview / Bodies / Stations tabs and a freshness pop-out, the Colony
+Planner `/plan` page through S5c (economy bars) with S3b slot predictions, Raven layout import, the floating
+facility picker with preview and explicit Add to plan, System layout / Build order tabs and the Review & export
+pop-out with DRAFT export, the route-owned Explore view state (P2a) and the 2026-10-31 audit fixes; the
 **Finder is LIVE** — both products published 2026-10-23 09:45 UTC; it carries the
 `bed755b9` watchlist/pins/compare + Galaxy Impact scoreboard + map fixes; density swirl LIVE;
 identity/journal shipped; both Finder products (`system_search`, `system_archetype`) are
