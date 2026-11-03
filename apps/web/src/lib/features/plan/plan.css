@@ -9,6 +9,10 @@
 .plan-workspace input,
 .plan-workspace select {
   font: inherit;
+  color: inherit;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  background: var(--panel-raised);
   padding: 0.45rem 0.65rem;
   min-width: 0;
   max-width: 100%;
@@ -44,11 +48,40 @@
   margin-bottom: 1.5rem;
 }
 .plan-title h1 {
+  font-family: var(--font-hud, inherit);
   margin: 0.15rem 0;
   font-size: clamp(1.6rem, 3vw, 2.5rem);
 }
 .plan-title p {
   margin: 0.3rem 0;
+}
+.plan-task-tabs[role='tablist'] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  padding: 0.35rem;
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.plan-task-tabs [role='tab'] {
+  min-height: 44px;
+  font-family: var(--font-hud, inherit);
+  border-radius: var(--radius-sm);
+  border-color: transparent;
+  color: var(--text-muted);
+}
+.plan-task-tabs [role='tab'][aria-selected='true'] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--neon) 10%, var(--panel-raised));
+}
+.plan-task-tabs [role='tab']:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
 }
 .plan-columns {
   display: grid;
@@ -65,7 +98,7 @@
   box-shadow: var(--shadow-panel);
   padding: 0.65rem;
 }
-.plan-pane[hidden] {
+.plan-workspace [hidden] {
   display: none;
 }
 .plan-import-notes {
@@ -81,6 +114,7 @@
   justify-content: space-between;
 }
 .plan-pane h2 {
+  font-family: var(--font-hud, inherit);
   font-size: 1.1rem;
   margin: 0;
 }
@@ -193,7 +227,7 @@
   border-color: color-mix(in srgb, var(--accent) 60%, var(--line)) !important;
 }
 .stale {
-  opacity: 0.5;
+  /* Keep pending/last-good text readable; opacity breaks text contrast. */
   filter: grayscale(1);
 }
 .negative,
@@ -297,12 +331,6 @@
 @media (min-width: 1400px) {
   .plan-columns {
     grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
-  }
-  .plan-columns.build-order-open {
-    grid-template-columns: minmax(0, 1fr) minmax(360px, 0.9fr) minmax(
-        260px,
-        320px
-      );
   }
   .system-pane,
   .build-order-pane {

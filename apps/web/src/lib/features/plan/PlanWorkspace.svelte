@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createQuery } from '@tanstack/svelte-query';
-  import { onDestroy, onMount, tick } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
   import { resolve } from '$app/paths';
   import {
     ApiError,
@@ -47,13 +47,22 @@
   import SummaryPane from './SummaryPane.svelte';
   import WhyDrawer from './WhyDrawer.svelte';
   import EconomyBars from './EconomyBars.svelte';
+  import { PLAN_TABS, type PlanTab } from './tabs';
   import {
     economyRuleIds,
     type EconomyWhySelection,
   } from './economy-presentation';
   import './plan.css';
 
-  let { systemId }: { systemId: Id64 } = $props();
+  let {
+    systemId,
+    activeTab = $bindable('system-layout'),
+    ontabchange,
+  }: {
+    systemId: Id64;
+    activeTab?: PlanTab;
+    ontabchange?: (tab: PlanTab) => void;
+  } = $props();
   const catalogue = createQuery(() => ({
     queryKey: ['ed-finder', 'plan-catalogue'],
     queryFn: ({ signal }) => getV3PlanCatalogue(signal),
@@ -106,10 +115,6 @@
   let actionError = $state('');
   let pending = $state(false);
   let announcement = $state('');
-  const buildOrderPreferenceKey = 'ed-finder.plan.buildOrderOpen';
-  let buildOrderOpen = $state(false);
-  let wideLayout = $state(false);
-  let buildOrderToggle = $state<HTMLButtonElement>();
   let view = $state<'now' | 'after_plan'>('after_plan');
   let selectedBody = $state<string | null>(null);
   let selectedSite = $state<string | null>(null);
@@ -152,69 +157,58 @@
       : [],
   );
 
-  onMount(() => {
-    // CSS owns the layout breakpoint; mirror it for hidden panes and focus.
-    const media =
-      typeof window.matchMedia === 'function'
-        ? window.matchMedia('(min-width: 1400px)')
-        : null;
-    wideLayout = media?.matches ?? false;
-    try {
-      buildOrderOpen =
-        window.localStorage.getItem(buildOrderPreferenceKey) === 'true';
-    } catch {
-      buildOrderOpen = false;
+  function selectTab(tab: PlanTab, focus = false): void {
+    if (activeTab !== tab) {
+      activeTab = tab;
+      ontabchange?.(tab);
     }
-    async function updateLayout(event: MediaQueryListEvent): Promise<void> {
-      const hidingFocus =
-        !event.matches &&
-        buildOrderOpen &&
-        document.activeElement?.closest('.system-pane');
-      wideLayout = event.matches;
-      await tick();
-      if (active && hidingFocus && buildOrderOpen && !wideLayout)
-        document.getElementById('plan-order-title')?.focus();
-    }
-    media?.addEventListener?.('change', updateLayout);
-    return () => media?.removeEventListener?.('change', updateLayout);
-  });
-
-  function setBuildOrderOpen(open: boolean): void {
-    if (buildOrderOpen === open) return;
-    buildOrderOpen = open;
-    try {
-      window.localStorage.setItem(buildOrderPreferenceKey, String(open));
-    } catch {
-      // A viewer preference must never prevent use of the planner.
-    }
-    announcement = open ? 'Build order opened' : 'Build order closed';
+    if (focus)
+      document
+        .getElementById(`plan-tab-${tab}`)
+        ?.focus({ preventScroll: true });
   }
-  function closeBuildOrder(): void {
-    setBuildOrderOpen(false);
-    buildOrderToggle?.focus();
+  function tabKeydown(event: KeyboardEvent, tab: PlanTab): void {
+    const index = PLAN_TABS.findIndex((item) => item.id === tab);
+    const next =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? PLAN_TABS.length - 1
+          : event.key === 'ArrowRight'
+            ? (index + 1) % PLAN_TABS.length
+            : event.key === 'ArrowLeft'
+              ? (index + PLAN_TABS.length - 1) % PLAN_TABS.length
+              : null;
+    if (next === null) return;
+    event.preventDefault();
+    selectTab(PLAN_TABS[next].id, true);
   }
-  async function toggleBuildOrder(): Promise<void> {
-    if (buildOrderOpen) {
-      closeBuildOrder();
-      return;
-    }
-    setBuildOrderOpen(true);
-    await tick();
-    if (active && buildOrderOpen)
-      document.getElementById('plan-order-title')?.focus();
-  }
-  function paneKeydown(event: KeyboardEvent): void {
+  const panelScroll: Record<PlanTab, number> = {
+    'system-layout': 0,
+    'build-order': 0,
+  };
+  let renderedTab: PlanTab | undefined;
+  $effect.pre(() => {
+    // URL/history changes can hide the panel that currently owns focus.
+    const tab = activeTab;
+    if (renderedTab === tab) return;
+    if (renderedTab)
+      panelScroll[renderedTab] =
+        document.getElementById(`plan-${renderedTab}`)?.scrollTop ?? 0;
+    renderedTab = tab;
+    const other = tab === 'system-layout' ? 'build-order' : 'system-layout';
     if (
-      event.key === 'Escape' &&
-      buildOrderOpen &&
-      !((whyStep || whyEconomy) && whyBuild && evaluation) &&
-      event.target instanceof Element &&
-      event.target.closest('#plan-build-order')
-    ) {
-      event.preventDefault();
-      closeBuildOrder();
-    }
-  }
+      document.getElementById(`plan-${other}`)?.contains(document.activeElement)
+    )
+      document
+        .getElementById(`plan-tab-${tab}`)
+        ?.focus({ preventScroll: true });
+    void tick().then(() => {
+      if (!active || activeTab !== tab) return;
+      const panel = document.getElementById(`plan-${tab}`);
+      if (panel) panel.scrollTop = panelScroll[tab];
+    });
+  });
 
   $effect(() => {
     const deadline = retryAt;
@@ -337,10 +331,14 @@
       name: '',
     };
   }
-  function add(facility: PlanFacilityV1, ref: string): void {
+  function add(facility: PlanFacilityV1, ref: string): boolean {
     const site = makeSite(facility, ref);
     change((current) => addSite(current, site));
-    selectedSite = site.site_id;
+    // Storage failures can retain a usable in-memory plan. Announce only if
+    // the site actually exists; a rejected model/version change adds nothing.
+    const added = model.sites.some((item) => item.site_id === site.site_id);
+    if (added) selectedSite = site.site_id;
+    return added;
   }
   function isPort(facilityId: string): boolean {
     return facilities.some(
@@ -360,7 +358,7 @@
     if (active) announcement = 'Plan abandoned.';
   }
   async function jumpToStep(id: string): Promise<void> {
-    setBuildOrderOpen(true);
+    selectTab('build-order');
     selectedSite = id;
     filter = 'All';
     await tick();
@@ -383,19 +381,18 @@
     whySite = null;
     whyEconomy = null;
     await tick();
-    // Resizing can hide the System chip that the drawer would return to.
+    // A task change can hide the opener that the drawer would return to.
     if (
       active &&
       (document.activeElement === document.body ||
         document.activeElement?.closest('[hidden]'))
     ) {
-      if (buildOrderOpen) document.getElementById('plan-order-title')?.focus();
-      else buildOrderToggle?.focus();
+      document.getElementById(`plan-tab-${activeTab}`)?.focus();
     }
   }
   async function selectBody(ref: string): Promise<void> {
     selectedBody = ref;
-    if (!wideLayout) setBuildOrderOpen(false);
+    selectTab('system-layout');
     await tick();
     const row = [
       ...document.querySelectorAll<HTMLElement>('[data-plan-body]'),
@@ -555,8 +552,6 @@
   }
 </script>
 
-<svelte:window onkeydown={paneKeydown} />
-
 <main class="plan-workspace product-page">
   <header class="plan-header">
     <nav aria-label="Planner breadcrumbs">
@@ -585,22 +580,6 @@
             onclick={() => (view = 'after_plan')}>After the plan</button
           >
         </div>
-        <button
-          bind:this={buildOrderToggle}
-          type="button"
-          aria-expanded={buildOrderOpen}
-          aria-controls="plan-build-order"
-          disabled={bodies.isPending ||
-            catalogue.isPending ||
-            bodies.isError ||
-            catalogue.isError ||
-            !bodies.data}
-          onclick={toggleBuildOrder}
-          >Build order ({model.sites.length}) {#if evaluation && !stale && model.sites.length > 0 && evaluation.summary.BLOCKED > 0}<span
-              class="build-order-blocked"
-              >· {evaluation.summary.BLOCKED} blocked</span
-            >{/if}</button
-        >
         <button type="button" onclick={download}>Export plan</button><button
           type="button"
           onclick={() => fileInput?.click()}>Import plan</button
@@ -665,9 +644,34 @@
       >
     </section>
   {:else if bodies.data}
-    <div class="plan-columns" class:build-order-open={buildOrderOpen}>
+    <div class="plan-task-tabs" role="tablist" aria-label="Plan tasks">
+      {#each PLAN_TABS as tab (tab.id)}
+        <button
+          type="button"
+          role="tab"
+          id={`plan-tab-${tab.id}`}
+          aria-label={tab.label}
+          aria-selected={activeTab === tab.id}
+          aria-controls={`plan-${tab.id}`}
+          tabindex={activeTab === tab.id ? 0 : -1}
+          onclick={() => selectTab(tab.id, true)}
+          onkeydown={(event) => tabKeydown(event, tab.id)}
+        >
+          {tab.label}
+          {#if tab.id === 'build-order'}
+            <span>({model.sites.length})</span>
+            {#if evaluation && !stale && model.sites.length > 0 && evaluation.summary.BLOCKED > 0}
+              <span class="build-order-blocked"
+                >· {evaluation.summary.BLOCKED} blocked</span
+              >
+            {/if}
+          {/if}
+        </button>
+      {/each}
+    </div>
+    <div class="plan-columns">
       <SystemPane
-        hidden={buildOrderOpen && !wideLayout}
+        hidden={activeTab !== 'system-layout'}
         bodies={bodies.data}
         {model}
         {systemName}
@@ -682,9 +686,8 @@
         onadd={add}
       />
       <BuildOrder
-        hidden={!buildOrderOpen}
+        hidden={activeTab !== 'build-order'}
         bodies={bodies.data}
-        onclose={closeBuildOrder}
         {model}
         {facilities}
         {locations}

@@ -54,7 +54,7 @@
       kind: 'orbital' | 'surface',
       value: number | null,
     ) => void;
-    onadd: (facility: PlanFacilityV1, ref: string) => void;
+    onadd: (facility: PlanFacilityV1, ref: string) => boolean | void;
   } = $props();
   let showNames = $state(true);
   let picker = $state<string | null>(null);
@@ -62,6 +62,8 @@
   const pickerId = `${id}-facility-picker`;
   let pickerTrigger = $state<HTMLButtonElement>();
   let pickerPanel = $state<HTMLDivElement>();
+  let pickerComponent = $state<{ dismissPreview: () => boolean }>();
+  let addition = $state('');
   let pickerLeft = $state(8);
   let pickerTop = $state(8);
   // The visible height can be smaller than the layout viewport while a
@@ -179,6 +181,12 @@
   function closePicker() {
     picker = null;
     pickerTrigger?.focus({ preventScroll: true });
+    void tick().then(() => {
+      if (pickerTrigger?.disabled)
+        document
+          .getElementById('plan-tab-system-layout')
+          ?.focus({ preventScroll: true });
+    });
   }
 
   async function togglePicker(
@@ -204,7 +212,7 @@
     if (picker && event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
-      closePicker();
+      if (!pickerComponent?.dismissPreview()) closePicker();
     }
   }
 
@@ -333,10 +341,14 @@
   {/each}
 {/snippet}
 
-<section
+<div
   class="plan-pane system-pane"
-  aria-labelledby="plan-system-title"
+  role="tabpanel"
+  tabindex="-1"
+  id="plan-system-layout"
+  aria-labelledby="plan-tab-system-layout"
   {hidden}
+  inert={hidden}
 >
   <div class="pane-heading">
     <h2 id="plan-system-title">System</h2>
@@ -387,29 +399,28 @@
               >{/each}
           </div>
           <div class="body-slots">
-            {#if !hidden}
-              <SlotEditor
+            <SlotEditor
+              {hidden}
+              label={location.name}
+              kind="orbital"
+              used={used.orbital_slots}
+              value={slots?.orbital_slots ?? null}
+              onchange={(value) => onslot(location.body_ref, 'orbital', value)}
+            />
+            {#if location.kind !== 'belt'}<SlotEditor
+                {hidden}
                 label={location.name}
-                kind="orbital"
-                used={used.orbital_slots}
-                value={slots?.orbital_slots ?? null}
+                kind="surface"
+                used={used.surface_slots}
+                value={slots?.surface_slots ?? null}
+                source={model.slots[location.body_ref]?.surface_slots != null
+                  ? 'entered by you'
+                  : 'predicted'}
+                prediction={surfaceSlotPrediction(location.body)}
+                disabled={location.is_landable === false}
                 onchange={(value) =>
-                  onslot(location.body_ref, 'orbital', value)}
-              />
-              {#if location.kind !== 'belt'}<SlotEditor
-                  label={location.name}
-                  kind="surface"
-                  used={used.surface_slots}
-                  value={slots?.surface_slots ?? null}
-                  source={model.slots[location.body_ref]?.surface_slots != null
-                    ? 'entered by you'
-                    : 'predicted'}
-                  prediction={surfaceSlotPrediction(location.body)}
-                  disabled={location.is_landable === false}
-                  onchange={(value) =>
-                    onslot(location.body_ref, 'surface', value)}
-                />{/if}
-            {/if}
+                  onslot(location.body_ref, 'surface', value)}
+              />{/if}
           </div>
           <button
             type="button"
@@ -446,6 +457,15 @@
   {#if model.sites.length >= MAX_SITES}<p role="status">
       300-site limit reached. Remove a site before adding another.
     </p>{/if}
+  <p
+    class="plan-addition"
+    role="status"
+    aria-live="polite"
+    aria-atomic="true"
+    data-plan-addition
+  >
+    {addition}
+  </p>
   {#if pickerLocation && !hidden}
     <div
       bind:this={pickerPanel}
@@ -463,21 +483,26 @@
     >
       {#key pickerLocation.body_ref}
         <FacilityPicker
+          bind:this={pickerComponent}
           location={pickerLocation}
           {facilities}
           {model}
           {bodies}
           titleId={`${pickerId}-title`}
           onclose={closePicker}
-          onadd={(facility) => {
-            onadd(facility, pickerLocation.body_ref);
+          onadd={async (facility) => {
+            const locationName = pickerLocation.name;
+            if (onadd(facility, pickerLocation.body_ref) === false) return;
             closePicker();
+            addition = '';
+            await tick();
+            addition = `${facility.name} added to plan on ${locationName}.`;
           }}
         />
       {/key}
     </div>
   {/if}
-</section>
+</div>
 
 <style>
   .facility-picker-dialog {
@@ -488,6 +513,18 @@
     width: min(34rem, calc(100% - 1rem));
     max-height: min(38rem, calc(100dvh - 1rem));
     overflow: hidden;
+    border: 1px solid var(--neon);
+    border-radius: var(--radius);
+    background: var(--panel);
+    box-shadow: var(--shadow-panel);
+  }
+  .plan-addition {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .plan-body-tree {
     margin: 0.5rem 0 0;

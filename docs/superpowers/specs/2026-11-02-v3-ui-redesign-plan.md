@@ -4,9 +4,10 @@
 
 **2026-11-02 — implementation plan; no deployment authority.** Phase 1 is
 **done-pending-merge in [PR #998](../../../../../pull/998)**. Phase 4 is
-**implemented in this PR**, with visual validation still required before
-promotion. The other phases below retain their recorded status; implementation
-is not a claim of deployed behaviour.
+**implemented (#1002)** and P5a is **implemented in this PR**, each pending
+Product E2E/visual acceptance before promotion; neither is deployed. The other
+phases below retain their recorded status; implementation is not a claim of
+shipped behaviour. P5b Review/export remains a separate later PR.
 
 The approved 1 November 2026 concept pack is not in this repository. This plan
 records the owner's supplied direction; it does not reconstruct unseen images
@@ -144,8 +145,8 @@ No slice needs a SQL migration or new backend contract.
 | P2b | M09: on-demand map window, **Show on map**, **Expand**, close/reopen and state preservation using the existing canvas | No | Yes |
 | P2c | Explore main-task tabs and shared movable/dockable tool behaviour; keep Layers and map controls accessible in the window | No | Yes |
 | P3 | Finder control polish: archetype/results priority, existing count-group tabs, persistent chips and truthful scope gaps; no missing count fields to add today | No | Yes |
-| P4 | Inspect **Overview / Bodies / Stations** tabs; evidence explanation pop-out and retained Sources & freshness; **implemented in this PR** | No | Yes |
-| P5a | Plan **System layout / Build order** tabs; facility preview pop-out with explicit **Add to plan** | No | Yes |
+| P4 | Inspect **Overview / Bodies / Stations** tabs; evidence explanation pop-out and retained Sources & freshness; **implemented (#1002)** | No | Yes |
+| P5a | Plan **System layout / Build order** tabs; facility preview pop-out with explicit **Add to plan**; **implemented in this PR** | No | Yes |
 | P5b | Review/export pop-out over the plan, per-item unresolved-information links and explicit **DRAFT** export | No | Yes |
 | P6a | Home polish: existing hero actions and three tool cards adopt the kit; truthful Review/export entry wording | No | Yes |
 | P6b | Final visual sweep across the complete journey, responsive layouts and all tool states | No | Yes |

@@ -102,7 +102,7 @@
   {#if stale && evaluation}<p class="plan-muted">
       Last good evaluation — awaiting a valid current result.
     </p>{/if}
-  <div class:stale>
+  <div class:stale={stale && !!evaluation}>
     {#if totals && evaluation}
       <dl class="plan-totals">
         <div class:negative={totals.t2 < 0}>
