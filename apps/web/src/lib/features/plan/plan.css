@@ -55,6 +55,93 @@
 .plan-title p {
   margin: 0.3rem 0;
 }
+/* On wide screens the title and the actions share one row, as in the concept;
+   the buttons are a little more compact so seven of them fit beside the name.
+   Narrower screens keep the wrapped layout. */
+@media (min-width: 1340px) {
+  .plan-title {
+    flex-wrap: nowrap;
+  }
+  .plan-title > div:first-child {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  .plan-header-actions {
+    flex: 1 1 auto;
+    justify-content: flex-end;
+  }
+  .plan-header-actions > button,
+  .plan-view > button,
+  .plan-import summary {
+    padding: 0.35rem 0.6rem;
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+}
+/* Import is a disclosure with the two file choices inside it. */
+.plan-import {
+  position: relative;
+}
+.plan-import summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  background: var(--panel-raised);
+  cursor: pointer;
+  list-style: none;
+}
+.plan-import summary::-webkit-details-marker {
+  display: none;
+}
+.plan-import summary::after {
+  content: '';
+  width: 0.4rem;
+  height: 0.4rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-0.15rem) rotate(45deg);
+}
+.plan-import[open] summary {
+  border-color: var(--neon);
+}
+.plan-import summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.plan-import-panel {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 0.25rem;
+  min-width: 12rem;
+  padding: 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  box-shadow: var(--shadow-panel);
+}
+.plan-import-panel button {
+  text-align: left;
+  white-space: nowrap;
+}
+/* Review & export is the page's one primary action. The kit's orange skin loses
+   to the workspace's own button rule above, so it is set here. */
+.plan-header-actions .plan-review-button {
+  border-color: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--accent-hi));
+  color: var(--accent-text);
+  font-weight: 650;
+}
+.plan-header-actions .plan-review-button:hover,
+.plan-header-actions .plan-review-button:focus-visible {
+  border-color: var(--accent-hi);
+  box-shadow: var(--accent-glow);
+}
 .plan-task-tabs[role='tablist'] {
   display: flex;
   flex-wrap: wrap;

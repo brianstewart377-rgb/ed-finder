@@ -925,6 +925,7 @@ describe('Colony planner browser-kept main path', () => {
       });
       cy.contains('button', /^Abandon plan$/).click();
       cy.get('[data-plan-build-order] [data-plan-site]').should('not.exist');
+      cy.contains('summary', /^Import$/).click();
       cy.contains('button', /^Import plan$/).click();
       cy.get('input[aria-label="Import plan file"]').selectFile(draftPath, {
         force: true,
@@ -991,6 +992,7 @@ describe('Colony planner browser-kept main path', () => {
       cy.window().then((window) => {
         cy.stub(window, 'confirm').as('confirmRaven').returns(true);
       });
+      cy.contains('summary', /^Import$/).click();
       cy.contains('button', /^Import from Raven$/).click();
       cy.get(
         'input[aria-label="Import Raven Colonial layout file"]',
