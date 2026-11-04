@@ -11,6 +11,12 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-04 — UI redesign: Plan two-column layout from 1100px
+
+The Plan page already had a two-column layout (the system or build-order pane on the left, the summary on the right, as in the concept image), but it only switched on at 1400px wide, so a 1280px screen got one long stacked column. It now switches on at 1100px. Nothing else changes: same panes, same order, same behaviour, and phones and narrow windows keep the single column. Web only; no API, SQL, workflow or provenance change, and nothing is deployed.
+
+Checked with the product Plan browser tests run locally at 1280x900 (all five pass, including the facility picker staying inside the viewport) and by looking at the System layout and Build order screenshots.
+
 ## 2026-11-03 — UI redesign: home page to concept
 
 The home page opens with “Find your next frontier.” in the condensed HUD font
