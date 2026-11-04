@@ -55,6 +55,19 @@
 .plan-title p {
   margin: 0.3rem 0;
 }
+/* Review & export is the page's one primary action. The kit's orange skin loses
+   to the workspace's own button rule above, so it is set here. */
+.plan-header-actions .plan-review-button {
+  border-color: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--accent-hi));
+  color: var(--accent-text);
+  font-weight: 650;
+}
+.plan-header-actions .plan-review-button:hover,
+.plan-header-actions .plan-review-button:focus-visible {
+  border-color: var(--accent-hi);
+  box-shadow: var(--accent-glow);
+}
 .plan-task-tabs[role='tablist'] {
   display: flex;
   flex-wrap: wrap;
