@@ -286,6 +286,25 @@ describe('Inspect tab URL state', () => {
 });
 
 describe('Inspect Explore navigation', () => {
+  it('places the action row above the system card', async () => {
+    render(InspectPageTestHost);
+    const actions = screen.getByRole('navigation', { name: 'System actions' });
+    const card = await waitFor(() => {
+      const found = document.querySelector('[data-system-id64]');
+      expect(found).not.toBeNull();
+      return found as Element;
+    });
+    // Back to Explore leads the row; the forward actions follow it.
+    expect(
+      [...actions.querySelectorAll('a')].map((link) =>
+        link.textContent?.trim(),
+      ),
+    ).toEqual(['Back to Explore', 'Open in Explore', 'Continue to Plan']);
+    expect(
+      actions.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it('keeps the default-off links unchanged even with originating Finder context', () => {
     arriveFrom('archetype=flexible&min-tier=A&page_size=1&offset=2', {
       anchor,
