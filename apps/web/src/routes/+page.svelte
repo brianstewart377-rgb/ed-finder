@@ -93,12 +93,14 @@
         action={resolve('/explore')}
         onsubmit={submit}
       >
-        <ReferenceSystemCombobox
-          bind:this={referenceInput}
-          bind:selected
-          {invalid}
-          describedBy={invalid ? 'home-reference-error' : undefined}
-        />
+        <div class="reference-field">
+          <ReferenceSystemCombobox
+            bind:this={referenceInput}
+            bind:selected
+            {invalid}
+            describedBy={invalid ? 'home-reference-error' : undefined}
+          />
+        </div>
         {#if FINDER_F4_ENABLED}
           <div class="archetype-field">
             <label for="home-archetype">Colony archetype</label>
@@ -265,8 +267,15 @@
     margin-top: 2rem;
   }
 
-  .home-find-form.with-archetype {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  .reference-field {
+    min-width: 0;
+  }
+
+  /* With the archetype choice on, the reference system gets a full-width row of
+     its own so the box stays wide enough to read; the archetype choice and the
+     button share the row below. */
+  .home-find-form.with-archetype .reference-field {
+    grid-column: 1 / -1;
   }
 
   .archetype-field {
@@ -431,33 +440,44 @@
     margin: 1.25rem 0 0;
   }
 
-  @media (max-width: 1100px) {
-    .home-find-form.with-archetype {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .with-archetype button {
-      grid-column: 1 / -1;
-    }
-  }
-
   @media (max-width: 900px) {
+    /* The black hole becomes a clear band above the copy, which then sits on the
+       solid page background, so no scrim is needed and text contrast is the
+       plain text-on-page contrast. Only a bottom fade blends the band in. */
     .home-hero {
-      padding-inline: 2rem;
+      display: block;
+      min-height: 0;
+      padding: 0 2rem 3rem;
+    }
+
+    .hero-art {
+      position: relative;
+      z-index: 0;
+      inset: auto;
+      display: block;
+      height: clamp(13rem, 32svh, 26rem);
+      margin-inline: -2rem;
+    }
+
+    .hero-art::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, transparent 60%, var(--bg-void));
+    }
+
+    .hero-art img {
+      object-position: 53% 45%;
+    }
+
+    .home-hero::before {
+      display: none;
     }
 
     .hero-copy {
-      width: 70%;
-    }
-
-    /* Wider copy on tablets retains the same worst-case 94% token scrim. */
-    .home-hero::before {
-      background: linear-gradient(
-        90deg,
-        var(--bg-void),
-        color-mix(in srgb, var(--panel) 94%, transparent) 78%,
-        color-mix(in srgb, var(--bg-void) 45%, transparent)
-      );
+      width: 100%;
+      max-width: 40rem;
+      padding-top: 1.5rem;
     }
 
     .home-steps,
@@ -473,28 +493,11 @@
 
   @media (max-width: 640px) {
     .home-hero {
-      min-height: calc(100svh - 10rem);
-      padding: 3rem 1.5rem;
+      padding: 0 1.5rem 3rem;
     }
 
     .hero-art {
-      inset-inline-start: 0;
-    }
-
-    .hero-art img {
-      object-position: 60% center;
-    }
-
-    .home-hero::before {
-      background: linear-gradient(
-        90deg,
-        color-mix(in srgb, var(--bg-void) 97%, transparent),
-        color-mix(in srgb, var(--panel) 94%, transparent)
-      );
-    }
-
-    .hero-copy {
-      width: 100%;
+      margin-inline: -1.5rem;
     }
 
     .home-hero h1 {

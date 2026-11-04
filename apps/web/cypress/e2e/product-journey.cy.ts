@@ -546,9 +546,13 @@ describe('V3 home to Explore product journey', () => {
     }).as('homeSearch');
   };
 
-  for (const [width, height, screenshot] of [
-    [1280, 800, 'desktop'],
-    [390, 844, 'phone'],
+  // The fourth value is the narrowest the reference-system box may be: the
+  // owner found it cramped at laptop width, so it is pinned at every size.
+  for (const [width, height, screenshot, minReferenceWidth] of [
+    [1280, 800, 'desktop', 320],
+    [1024, 768, 'laptop', 280],
+    [768, 1024, 'tablet', 280],
+    [390, 844, 'phone', 280],
   ] as const) {
     it(`finds the chosen reference system from home at ${width}x${height}`, () => {
       cy.viewport(width, height);
@@ -618,6 +622,38 @@ describe('V3 home to Explore product journey', () => {
       });
       cy.document().then((document) => document.fonts.ready);
       cy.window().should((window) => {
+        const root = window.document.documentElement;
+        expect(root.scrollWidth, 'no sideways scroll').to.be.at.most(
+          root.clientWidth,
+        );
+        const input = window.document
+          .querySelector('.home-hero [role="combobox"]')!
+          .getBoundingClientRect();
+        expect(input.width, 'reference system box width').to.be.at.least(
+          minReferenceWidth,
+        );
+        const art = window.document
+          .querySelector('.hero-art')!
+          .getBoundingClientRect();
+        const copy = window.document
+          .querySelector('.hero-copy')!
+          .getBoundingClientRect();
+        if (width <= 900) {
+          // Tablets and phones show the black hole as a clear band above the
+          // copy, not behind it.
+          expect(art.height, 'black hole band height').to.be.at.least(200);
+          expect(art.bottom, 'band ends above the copy').to.be.at.most(
+            copy.top + 1,
+          );
+        } else {
+          // Wider screens keep the copy in the left half and the black hole on
+          // the right.
+          expect(copy.right, 'copy stays on the left').to.be.at.most(
+            width * 0.6,
+          );
+        }
+      });
+      cy.window().should((window) => {
         const heroRequests = window.performance
           .getEntriesByType('resource')
           .filter(({ name }) => name.includes('home-hero-black-hole-'));
@@ -647,7 +683,7 @@ describe('V3 home to Explore product journey', () => {
       });
       cy.scrollTo('top');
       cy.screenshot(`product/home-hero-${screenshot}`, {
-        capture: 'viewport',
+        capture: 'fullPage',
         overwrite: true,
       });
 
