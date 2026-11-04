@@ -328,7 +328,61 @@
   color: var(--text-muted);
 }
 .rulebook {
-  margin-top: 1.5rem;
+  margin: 0;
+}
+.review-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel-raised));
+}
+.review-banner p {
+  display: grid;
+  flex: 1;
+  margin: 0;
+}
+.review-banner span {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+.review-dialog :is(h3, h4) {
+  margin: 0.9rem 0 0.3rem;
+  color: var(--text);
+  font-weight: 700;
+}
+.review-dialog h3 {
+  font-size: 1.05rem;
+}
+.review-dialog h4 {
+  font-size: 0.95rem;
+}
+.review-layout {
+  display: grid;
+  gap: 0 1.5rem;
+}
+@media (min-width: 900px) {
+  .review-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+/* Export stays in view while the lists scroll. */
+.review-footer {
+  position: sticky;
+  bottom: -0.9rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 1rem -0.9rem -0.9rem;
+  padding: 0.75rem 0.9rem;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
 }
 .older-items {
   margin-top: 1rem;
