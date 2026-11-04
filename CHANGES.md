@@ -11,6 +11,14 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-04 — UI redesign: Inspect columns on wide screens
+
+Second slice of bringing the Inspect page closer to the concept image. Web only (layout CSS plus one wrapper element and a class name); no API, SQL, workflow or provenance change, and nothing is deployed.
+
+- **Overview.** From 1000 px wide, the system facts sit beside the economy potentials, so all seven economies show without scrolling. Narrower screens keep the single stacked column.
+- **Bodies.** From 1000 px wide, the catalogue list, the 3D system map and the selected-body card sit side by side. The map is sized to fit the tab panel, and its legend sits under it. The card now starts at the top of its column.
+- **Unchanged.** Every element, its order in the page, the tab behaviour, the keyboard behaviour and the data shown are the same; a new test pins the order of the parts so the columns cannot silently reorder them. The map still lives in the Bodies tab: moving it into Overview is a larger change that is not part of this slice.
+
 ## 2026-11-04 — UI redesign: Inspect action row and economy rows
 
 First slice of bringing the Inspect page closer to the concept image. Web only; no API, SQL, workflow or provenance change, and nothing is deployed.
