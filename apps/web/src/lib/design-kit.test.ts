@@ -56,27 +56,27 @@ const appCss = readFileSync(resolve(sourceRoot, 'app.css'), 'utf8');
 const stylesheet = parseCss(appCss);
 
 const tokens = {
-  '--bg-void': '#080d17',
-  '--bg-deep': '#0b1220',
-  '--panel': '#121c2e',
-  '--panel-raised': '#172539',
-  '--panel-sunken': '#0d1524',
+  '--bg-void': '#081728',
+  '--bg-deep': '#0b1a2b',
+  '--panel': '#152230',
+  '--panel-raised': '#1a2a3a',
+  '--panel-sunken': '#0c1a2a',
   '--panel-gloss':
     'linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,0) 38%)',
   '--line': '#26405f',
   '--line-strong': '#3a5a84',
   '--line-glow':
-    '0 0 0 1px rgba(61,165,255,.18), 0 0 24px rgba(61,165,255,.10)',
+    '0 0 0 1px rgba(44,155,246,.18), 0 0 24px rgba(44,155,246,.10)',
   '--text': '#e8eef7',
   '--text-muted': '#9fb0c7',
-  '--text-dim': '#6f84a0',
-  '--accent': '#ff7a14',
-  '--accent-hi': '#ff9a3c',
+  '--text-dim': '#7a8fab',
+  '--accent': '#fd6308',
+  '--accent-hi': '#fd8930',
   '--accent-text': '#1a0d02',
-  '--accent-glow': '0 0 22px rgba(255,122,20,.35)',
-  '--neon': '#3da5ff',
-  '--neon-hi': '#5ec8ff',
-  '--neon-soft': 'rgba(61,165,255,.16)',
+  '--accent-glow': '0 0 22px rgba(253,99,8,.35)',
+  '--neon': '#2c9bf6',
+  '--neon-hi': '#47c5ff',
+  '--neon-soft': 'rgba(44,155,246,.16)',
   '--ok': '#4ade80',
   '--warn': '#e9c46a',
   '--danger': '#f87171',
@@ -197,6 +197,71 @@ const adoptedComponents = [
 describe('shared design kit', () => {
   it.each(Object.entries(tokens))('defines %s in :root', (name, value) => {
     expect(normalize(rootDeclarations.get(name) ?? '')).toBe(normalize(value));
+  });
+
+  // WCAG 2.x contrast guard so a later palette change cannot quietly make
+  // text unreadable. Figures at the 2026-11-04 palette nudge: the lowest are
+  // --text-dim on --panel-raised (4.4) and --accent on --panel-raised (4.8).
+  describe('keeps text readable on every surface', () => {
+    const luminance = (hex: string): number => {
+      const channels = [1, 3, 5].map((index) => {
+        const value = Number.parseInt(hex.slice(index, index + 2), 16) / 255;
+        return value <= 0.03928
+          ? value / 12.92
+          : ((value + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+    };
+    const contrast = (foreground: string, background: string): number => {
+      const [light, dark] = [luminance(foreground), luminance(background)].sort(
+        (a, b) => b - a,
+      );
+      return (light + 0.05) / (dark + 0.05);
+    };
+    const token = (name: string): string => {
+      const value = resolveToken(name).trim();
+      expect(value, `${name} must be a six-digit hex colour`).toMatch(
+        /^#[0-9a-f]{6}$/i,
+      );
+      return value;
+    };
+    const surfaces = [
+      '--bg-void',
+      '--panel',
+      '--panel-raised',
+      '--panel-sunken',
+    ] as const;
+
+    it.each([
+      ['--text', 7],
+      ['--text-muted', 4.5],
+      ['--accent', 4.5],
+      ['--neon', 4.5],
+      ['--neon-hi', 4.5],
+    ] as const)('%s reaches %s:1 on every surface', (name, floor) => {
+      for (const surface of surfaces)
+        expect(
+          contrast(token(name), token(surface)),
+          `${name} on ${surface}`,
+        ).toBeGreaterThanOrEqual(floor);
+    });
+
+    it('keeps supporting text at least 4.5:1 on the base surfaces and 4:1 on raised panels', () => {
+      for (const surface of ['--bg-void', '--panel', '--panel-sunken'] as const)
+        expect(
+          contrast(token('--text-dim'), token(surface)),
+          `--text-dim on ${surface}`,
+        ).toBeGreaterThanOrEqual(4.5);
+      expect(
+        contrast(token('--text-dim'), token('--panel-raised')),
+      ).toBeGreaterThanOrEqual(4);
+    });
+
+    it('keeps button text readable on the accent', () => {
+      expect(
+        contrast(token('--accent-text'), token('--accent')),
+      ).toBeGreaterThanOrEqual(4.5);
+    });
   });
 
   it.each([
@@ -360,7 +425,7 @@ describe('design-kit action opt-in', () => {
     expect(inspectStyle.height).toBe('auto');
     expect(inspectStyle.backgroundColor).toBe('rgba(0, 0, 0, 0)');
     expect(inspectStyle.backgroundImage).toBe('none');
-    expect(inspectStyle.borderTopColor).toBe('rgb(61, 165, 255)');
+    expect(inspectStyle.borderTopColor).toBe('rgb(44, 155, 246)');
     // Positive control: an opted-in action really receives the mounted kit CSS.
     expect(
       getComputedStyle(
@@ -390,7 +455,7 @@ describe('design-kit action opt-in', () => {
       const signInStyle = getComputedStyle(signIn);
       expect(signInStyle.borderRadius).toBe(resolveToken('--radius-pill'));
       expect(signInStyle.backgroundImage).toContain('linear-gradient');
-      expect(signInStyle.borderTopColor).toBe('rgb(255, 122, 20)');
+      expect(signInStyle.borderTopColor).toBe('rgb(253, 99, 8)');
       expect(signInStyle.color).toBe('rgb(26, 13, 2)');
 
       const nav = screen.getByRole('navigation', { name: 'Product journey' });

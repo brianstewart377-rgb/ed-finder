@@ -11,7 +11,7 @@ export interface EconomyWhySelection {
 const ECONOMY_COLOURS: Readonly<Record<string, string>> = {
   Agriculture: 'var(--ok, var(--color-tier-b, #86d99c))',
   Extraction: 'var(--warn, var(--color-tier-c, #e9c46a))',
-  Industrial: 'var(--accent, var(--color-signal, #ff7a14))',
+  Industrial: 'var(--accent, var(--color-signal, #fd6308))',
   'High Tech': 'var(--neon, var(--color-cyan, #7dd3fc))',
   HighTech: 'var(--neon, var(--color-cyan, #7dd3fc))',
   Military:

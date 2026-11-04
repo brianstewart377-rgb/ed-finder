@@ -11,6 +11,30 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-04 — UI redesign: palette nudged to the concept
+
+At the owner's request, the shared colours move a little closer to the 1 November
+concept pack. The values were measured from the concept images: the orange is a
+touch deeper (`#ff7a14` to `#fd6308`), the neon blue a touch deeper (`#3da5ff` to
+`#2c9bf6`), and the dark navy a touch bluer and lighter (page `#080d17` to
+`#081728`, panels `#121c2e` to `#152230`, raised panels `#172539` to `#1a2a3a`).
+The faintest grey text is lightened a little (`#6f84a0` to `#7a8fab`) so it stays
+as readable on the lighter panels as it was before. Nothing else changes: layout,
+fonts, line colours, status colours and the maps (star, density, nebula and
+region colours) are untouched.
+
+Tier S badges keep their old orange (`#ff7a14`) on purpose, since tier colours are
+meant to stay fixed when the application palette changes. The map hover card's
+focus outline now follows the shared focus colour instead of a hard-coded orange.
+
+A new test checks text contrast against every surface so a later palette change
+cannot quietly make text unreadable. Current figures (WCAG ratio, void / panel /
+raised panel / sunken panel): main text 15.5 / 13.8 / 12.5 / 15.0; muted text
+8.2 / 7.3 / 6.6 / 7.9; orange 6.0 / 5.3 / 4.8 / 5.8; neon blue 6.1 / 5.5 / 5.0 /
+6.0; bright neon 9.2 / 8.2 / 7.4 / 8.9; faint grey 5.5 / 4.9 / 4.4 / 5.3; dark
+button text on orange 6.3. Product E2E/visual acceptance remains required before
+promotion; not deployed.
+
 ## 2026-11-03 — UI redesign: home page to concept
 
 The home page opens with “Find your next frontier.” in the condensed HUD font
