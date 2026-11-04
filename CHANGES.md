@@ -11,6 +11,15 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-04 — UI redesign: Review & export tabs and export notes
+
+Second slice of the Review & export pop-out, stacked on the layout slice above. Web only; no API, SQL, workflow or provenance change, and nothing is deployed.
+
+- **Three tabs.** The pop-out now has Overview, Build order and Export tabs. Overview holds what the pop-out showed before (plan summary, unresolved items, plan checks). Every panel stays mounted, only the selected one is shown, and the pop-out opens on Overview each time. The tabs use the arrow keys, Home and End, with only the selected tab in the tab order. "Go to first item" switches back to Overview before it moves focus.
+- **Build order table.** Lists each build in plan order with its location, status and check result. A build the API has not checked yet reads "Not evaluated", and a plan with no builds says so instead of showing an empty table. Locations use the same wording as the Build order task (a shared helper, so the two cannot drift).
+- **Before you export.** The Export tab says in plain words what the DRAFT file holds (the system ID64, the planned builds in order with their status, and the slot counts you have entered) and what it leaves out (the catalogue facts, the Overview points and the unresolved items), that the plan stays in this browser, and the file name. These statements match what `exportPlan` writes and use no eligibility wording.
+- **Unchanged.** The "Export DRAFT plan" button, its label and the downloaded file are the same, and the button stays in the footer on every tab.
+
 ## 2026-11-04 — UI redesign: Review & export pop-out layout
 
 First slice of bringing the Colony Planner's Review & export pop-out closer to the concept image. Web only; no API, SQL, workflow or provenance change, and nothing is deployed.
