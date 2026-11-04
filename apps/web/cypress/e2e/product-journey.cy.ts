@@ -1,4 +1,5 @@
 import { GALAXY_REGION_NAMES } from '../../src/lib/spatial/galaxy-regions';
+import { ARCHETYPES } from '../../src/lib/features/explore/archetypes';
 import type {
   RankingIdentity,
   SystemArchetypeExplanationResponse,
@@ -466,6 +467,243 @@ const captureFinder = (state: 'any' | 'flexible' | 'flexible-explanation') => {
   }
   cy.viewport(1280, 800);
 };
+
+describe('V3 home to Explore product journey', () => {
+  const referenceId = '9007199254740993';
+  const referenceName = 'V3 Lossless Reach';
+  const frontierCredit =
+    'ED-Finder was created using assets and imagery from Elite Dangerous, with the permission of Frontier Developments plc, for non-commercial purposes. It is not endorsed by nor reflects the views or opinions of Frontier Developments and no employee of Frontier Developments was involved in the making of it.';
+
+  // Successful, ordinary API contracts isolate the home form from the seeded
+  // map checkpoint below. No review-only runtime or failure state is used.
+  const installHomeFixtures = () => {
+    cy.intercept('GET', '/api/health', {
+      status: 'ok',
+      database: 'connected',
+      version: 'test',
+      build_sha: 'home-product-fixture',
+    }).as('homeHealth');
+    cy.intercept('GET', '/api/v1/auth/session', {
+      authenticated: false,
+      user: null,
+      owner_claim_available: false,
+    }).as('homeSession');
+    cy.intercept('GET', '/api/v2/watchlist/*', (request) => {
+      request.reply({
+        sync_key: new URL(request.url).pathname.split('/').at(-1),
+        watchlist: [],
+      });
+    });
+    cy.intercept('GET', '/api/local/autocomplete*', {
+      results: [
+        { id64: referenceId, name: referenceName, x: 10, y: 20, z: 30 },
+      ],
+    }).as('homeAutocomplete');
+    cy.intercept('GET', '/api/v1/generation', {
+      generation_id: 'home-product-generation',
+      generation_key: 'home-product',
+      publication_sequence: '1',
+      published_at: '2026-11-03T00:00:00Z',
+    });
+    cy.intercept('GET', `/api/v1/systems/${referenceId}`, {
+      id64: referenceId,
+      name: referenceName,
+      x_ly: 10,
+      y_ly: 20,
+      z_ly: 30,
+      source_body_count: 0,
+      loaded_body_count: 0,
+      lifecycle_state: 'ACTIVE',
+      source_updated_at: null,
+    });
+    for (const resource of ['bodies', 'rings', 'stations']) {
+      cy.intercept('GET', `/api/v1/systems/${referenceId}/${resource}`, []);
+    }
+    cy.intercept('POST', '/api/local/search', {
+      results: [
+        {
+          id64: referenceId,
+          name: referenceName,
+          coords: { x: 10, y: 20, z: 30 },
+          distance: 0,
+          overall_development_potential: 100,
+          archetype_score: 100,
+          archetype_tier: 'S',
+          tags: [],
+        },
+      ],
+      count: 1,
+      total: 1,
+      ranking: {
+        ranking_version: 'home-product-ranking',
+        ranking_sha256: 'home-product-ranking-sha',
+        derived_generation_id: 'home-product-generation',
+        publication_sequence: 1,
+        archetype_version: 'home-product-archetype',
+        archetype_manifest_sha256: 'home-product-manifest-sha',
+        archetype_model_sha256: 'home-product-model-sha',
+      },
+    }).as('homeSearch');
+  };
+
+  for (const [width, height, screenshot] of [
+    [1280, 800, 'desktop'],
+    [390, 844, 'phone'],
+  ] as const) {
+    it(`finds the chosen reference system from home at ${width}x${height}`, () => {
+      cy.viewport(width, height);
+      const apiRequests: string[] = [];
+      cy.intercept({ pathname: '/api/**', middleware: true }, (request) => {
+        apiRequests.push(new URL(request.url).pathname);
+      });
+      installHomeFixtures();
+      cy.visit('/');
+      cy.wait(['@homeHealth', '@homeSession'], { requestTimeout: 20_000 });
+      cy.get('h1')
+        .should('have.length', 1)
+        .and('have.text', 'Find your next frontier.');
+      cy.contains('.home-hero', 'Your colony starts here').should('be.visible');
+      cy.contains('.home-hero', 'Discover promising systems.').should(
+        'be.visible',
+      );
+      cy.contains(
+        '.home-hero',
+        'Compare colony potential. Plan what comes next.',
+      ).should('be.visible');
+      cy.get('form[aria-label="Find a system"]').within(() => {
+        cy.contains('label', 'Reference system').should('be.visible');
+        cy.get('[role="combobox"]')
+          .should('have.attr', 'aria-expanded', 'false')
+          .and('be.visible');
+        // The product CI build opts in to F4. A local default-off build can
+        // exercise its counterpart with --env finderF4Enabled=false.
+        if (Cypress.env('finderF4Enabled') !== false) {
+          cy.contains('label', 'Colony archetype').should('be.visible');
+          cy.get('select option').should(($options) => {
+            expect(
+              $options.toArray().map((option) => option.textContent),
+            ).to.deep.equal([
+              'Any archetype',
+              ...ARCHETYPES.map(({ label }) => label),
+            ]);
+          });
+        } else {
+          cy.get('select').should('not.exist');
+          cy.contains('label', 'Colony archetype').should('not.exist');
+        }
+      });
+      cy.get('.journey-step').should(($steps) => {
+        expect(
+          $steps.toArray().map((step) => ({
+            href: step.getAttribute('href'),
+            heading: step.querySelector('h2')?.textContent?.trim(),
+          })),
+        ).to.deep.equal([
+          { href: '/explore', heading: 'Find your system' },
+          { href: '/inspect', heading: 'Understand its potential' },
+          { href: '/plan', heading: 'Plan your colony' },
+        ]);
+      });
+      cy.get('footer').should(($footer) => {
+        expect($footer.text().replace(/\s+/g, ' ')).to.contain(frontierCredit);
+      });
+      cy.get('.home-hero img').should(($image) => {
+        const image = $image[0] as HTMLImageElement;
+        expect(image.alt).to.equal('');
+        expect(image.getAttribute('aria-hidden')).to.equal('true');
+        expect(image.naturalWidth).to.be.greaterThan(0);
+        expect(image.currentSrc).to.include(
+          `home-hero-black-hole-${width <= 640 ? '960' : '1920'}.webp`,
+        );
+      });
+      cy.document().then((document) => document.fonts.ready);
+      cy.window().should((window) => {
+        const heroRequests = window.performance
+          .getEntriesByType('resource')
+          .filter(({ name }) => name.includes('home-hero-black-hole-'));
+        expect(heroRequests).to.have.length(1);
+        // Auth is the existing shared shell bootstrap; the hero adds no data
+        // request until the visitor has typed a two-character query.
+        expect([...new Set(apiRequests)].sort()).to.deep.equal([
+          '/api/health',
+          '/api/v1/auth/session',
+        ]);
+      });
+      cy.injectAxe();
+      cy.checkA11y();
+      cy.get(
+        '.home-hero input, .home-hero select, .home-hero button, .home-hero a, .journey-step',
+      ).each(($control) => {
+        cy.wrap($control)
+          .focus()
+          .should(($focused) => {
+            const style = getComputedStyle($focused[0]);
+            expect(style.animationName).to.equal('none');
+            expect(style.transitionDuration, $focused[0].outerHTML).to.equal(
+              '0s',
+            );
+          })
+          .blur();
+      });
+      cy.scrollTo('top');
+      cy.screenshot(`product/home-hero-${screenshot}`, {
+        capture: 'viewport',
+        overwrite: true,
+      });
+
+      cy.contains('button', 'Find a system').click();
+      cy.get('[role="alert"]').should(
+        'have.text',
+        'Choose a system from the list',
+      );
+      cy.get('.home-hero [role="combobox"]').should('be.focused').type('V');
+      cy.get('@homeAutocomplete.all').should('have.length', 0);
+      cy.checkA11y();
+      cy.get('.home-hero [role="combobox"]').type('3 Lossless');
+      cy.wait('@homeAutocomplete');
+      cy.contains('[role="option"]', referenceName).should('be.visible');
+      cy.checkA11y();
+      if (width <= 640) {
+        cy.get('.home-hero [role="combobox"]')
+          .type('{downArrow}')
+          .should(($input) => {
+            const activeId = $input.attr('aria-activedescendant');
+            expect(activeId).to.be.a('string').and.not.equal('');
+            expect(
+              $input[0].ownerDocument
+                .getElementById(activeId!)
+                ?.getAttribute('role'),
+            ).to.equal('option');
+          });
+        cy.get('.home-hero [role="combobox"]').type('{enter}');
+      } else {
+        cy.contains('[role="option"]', referenceName).click();
+      }
+      cy.location('pathname').should('eq', '/');
+      cy.get('.home-hero [role="combobox"]').should(
+        'have.value',
+        referenceName,
+      );
+      cy.get('[role="listbox"]').should('not.exist');
+      cy.get('[role="alert"]').should('not.exist');
+      cy.contains('button', 'Find a system').click();
+      cy.location('pathname').should('eq', '/explore');
+      cy.location('search').should('eq', `?near=${referenceId}`);
+      cy.wait('@homeSearch')
+        .its('request.body.reference_coords')
+        .should('deep.equal', {
+          x: 10,
+          y: 20,
+          z: 30,
+        });
+      cy.get(`[data-system-result="${referenceId}"]`).should(
+        'contain.text',
+        referenceName,
+      );
+      cy.get('h1').should('contain.text', 'Chart a promising system');
+    });
+  }
+});
 
 describe('V3 Explore to Inspect product checkpoint', () => {
   it('requests complete density for the camera bounds as the view narrows', () => {

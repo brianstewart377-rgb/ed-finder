@@ -23,40 +23,50 @@ describe('ED-Finder V3 foundation', () => {
           { href: '/plan', label: 'Plan' },
         ]);
       });
-      cy.get('.tool-grid .tool-card').should('have.length', 3);
-      cy.contains('.tool-card', 'Plan').should('have.attr', 'href', '/plan');
-      cy.get('.upcoming-tools p')
+      cy.get('h1')
         .should('have.length', 1)
-        .and('contain.text', 'Review & export');
-      cy.get('.upcoming-tools p > a')
-        .should('have.text', 'Available in Plan')
-        .and('have.attr', 'href', '/plan');
-      cy.get('.galaxy-motif')
+        .and('have.text', 'Find your next frontier.');
+      cy.get('.journey-step').should('have.length', 3);
+      cy.contains('.journey-step', 'Plan your colony').should(
+        'have.attr',
+        'href',
+        '/plan',
+      );
+      cy.get('.home-hero img')
+        .should('have.attr', 'alt', '')
         .should('have.attr', 'aria-hidden', 'true')
-        .find('a, button, [tabindex="0"]')
-        .should('not.exist');
-      cy.get('.hero-actions a').should(($actions) => {
-        expect(
-          $actions.toArray().map((action) => action.getAttribute('href')),
-        ).to.deep.equal(['/explore', '/inspect']);
-        const [primary, secondary] = $actions
-          .toArray()
-          .map((action) => action.getBoundingClientRect());
-        $actions.toArray().forEach((action) => {
-          const bounds = action.getBoundingClientRect();
-          expect(action.scrollWidth).to.be.at.most(action.clientWidth);
-          expect(bounds.left).to.be.at.least(0);
-          expect(bounds.right).to.be.at.most(width);
+        .should(($image) => {
+          const image = $image[0] as HTMLImageElement;
+          expect(image.currentSrc).to.include(
+            width <= 640
+              ? 'home-hero-black-hole-960.webp'
+              : 'home-hero-black-hole-1920.webp',
+          );
         });
-        expect(
-          secondary.left >= primary.right || secondary.top >= primary.bottom,
-          'Hero actions do not overlap',
-        ).to.equal(true);
-        if (width === 390) {
-          expect(secondary.top).to.be.at.least(primary.bottom);
-        }
-      });
-      cy.get('.tool-card').should(($cards) => {
+      cy.get('form[aria-label="Find a system"]')
+        .should(($form) => {
+          expect(($form[0] as HTMLFormElement).method).to.equal('get');
+        })
+        .within(() => {
+          cy.contains('label', 'Reference system').should('be.visible');
+          cy.get('[role="combobox"]').should('be.visible');
+          cy.contains('button', 'Find a system').should('be.visible');
+        });
+      cy.contains('a', 'Or open Explore without a reference system').should(
+        'have.attr',
+        'href',
+        '/explore',
+      );
+      cy.get('.home-hero input, .home-hero select, .home-hero button').should(
+        ($controls) => {
+          $controls.toArray().forEach((control) => {
+            const bounds = control.getBoundingClientRect();
+            expect(bounds.left).to.be.at.least(0);
+            expect(bounds.right).to.be.at.most(width);
+          });
+        },
+      );
+      cy.get('.journey-step').should(($cards) => {
         const cards = $cards.toArray();
         const bounds = cards.map((card) => card.getBoundingClientRect());
         cards.forEach((card, index) => {
@@ -64,7 +74,7 @@ describe('ED-Finder V3 foundation', () => {
           expect(bounds[index].left).to.be.at.least(0);
           expect(bounds[index].right).to.be.at.most(width);
           if (index === 0) return;
-          if (width > 900) {
+          if (width > 640) {
             expect(bounds[index].top).to.equal(bounds[0].top);
             expect(bounds[index].height).to.equal(bounds[0].height);
             expect(bounds[index].left).to.be.at.least(bounds[index - 1].right);
@@ -75,23 +85,38 @@ describe('ED-Finder V3 foundation', () => {
           }
         });
       });
-      cy.get('.tool-card p').should(($descriptions) => {
-        $descriptions.toArray().forEach((description) => {
-          const lineHeight = Number.parseFloat(
-            getComputedStyle(description).lineHeight,
-          );
-          expect(
-            description.getBoundingClientRect().height,
-            `Single-line description: ${description.textContent}`,
-          ).to.be.at.most(lineHeight + 1);
-        });
+      cy.contains(
+        'footer',
+        'ED-Finder was created using assets and imagery',
+      ).should(($footer) => {
+        const credit = $footer.text().replace(/\s+/g, ' ');
+        expect(credit).to.contain(
+          'with the permission of Frontier Developments plc',
+        );
+        expect(credit).to.contain(
+          'no employee of Frontier Developments was involved',
+        );
       });
-      cy.contains('.hero-actions a', 'Explore the galaxy').focus();
+      cy.get('.home-hero [role="combobox"]').focus();
       cy.press(Cypress.Keyboard.Keys.TAB);
-      cy.contains('.hero-actions a', 'Inspect a system').should('be.focused');
-      for (const tool of ['Explore', 'Inspect', 'Plan']) {
+      cy.get('.home-hero').then(($hero) => {
+        if ($hero.find('select').length) {
+          cy.get('.home-hero select').should('be.focused');
+          cy.press(Cypress.Keyboard.Keys.TAB);
+        }
+      });
+      cy.contains('button', 'Find a system').should('be.focused');
+      cy.press(Cypress.Keyboard.Keys.TAB);
+      cy.contains('a', 'Or open Explore without a reference system').should(
+        'be.focused',
+      );
+      for (const tool of [
+        'Find your system',
+        'Understand its potential',
+        'Plan your colony',
+      ]) {
         cy.press(Cypress.Keyboard.Keys.TAB);
-        cy.contains('.tool-card', tool).should('be.focused');
+        cy.contains('.journey-step', tool).should('be.focused');
       }
       cy.injectAxe();
       cy.checkA11y();
@@ -103,7 +128,7 @@ describe('ED-Finder V3 foundation', () => {
         overwrite: true,
       });
 
-      cy.contains('.tool-card', 'Plan').click();
+      cy.contains('.journey-step', 'Plan your colony').click();
       cy.location('pathname').should('eq', '/plan');
       cy.contains('h1', 'Colony planner').should('be.visible');
       cy.get('.workspace-header nav a[aria-current="page"]')
@@ -146,7 +171,9 @@ describe('ED-Finder V3 foundation', () => {
     cy.intercept('/api/health').as('health');
     cy.intercept('/api/v1/auth/session').as('session');
     cy.visit('/');
-    cy.get('h1').should('contain.text', 'Search the galaxy').and('be.visible');
+    cy.get('h1')
+      .should('have.text', 'Find your next frontier.')
+      .and('be.visible');
     cy.wait('@health').its('response.statusCode').should('eq', 200);
     cy.wait('@session').its('response.statusCode').should('eq', 200);
     cy.contains('dd', 'Connected').should('be.visible');
@@ -223,7 +250,7 @@ describe('Home reduced motion', { browser: { family: 'chromium' } }, () => {
     );
   });
 
-  it('keeps home actions and cards still when keyboard focused', () => {
+  it('keeps home controls and journey steps still when keyboard focused', () => {
     cy.then(() =>
       Cypress.automation('remote:debugger:protocol', {
         command: 'Emulation.setEmulatedMedia',
@@ -238,7 +265,9 @@ describe('Home reduced motion', { browser: { family: 'chromium' } }, () => {
         window.matchMedia('(prefers-reduced-motion: reduce)').matches,
       ).to.equal(true);
     });
-    cy.get('.hero-actions a, .tool-card').each(($action) => {
+    cy.get(
+      '.home-hero input, .home-hero select, .home-hero button, .home-hero a, .journey-step',
+    ).each(($action) => {
       cy.wrap($action)
         .focus()
         .should('be.focused')

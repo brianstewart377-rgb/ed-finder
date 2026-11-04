@@ -11,6 +11,30 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-03 — UI redesign: home page to concept
+
+The home page opens with “Find your next frontier.” in the condensed HUD font
+(Saira Semi Condensed), over the owner's black hole screenshot. The supplied
+960 px image serves phones and the 1920 px image serves larger screens; the
+image is decorative, with reserved hero space and no animation. The Orbis
+mockup stays out of the repository, and no image or provenance file changes.
+
+A reference-system autocomplete carries the chosen catalogue ID into Explore.
+The colony archetype choice appears only where the Finder archetype UI is on;
+other builds send only the reference. Three numbered links lead to finding a
+system, understanding its potential and planning a colony. The footer now
+shows the official Frontier imagery credit.
+
+The token-only scrim stays at least 94% opaque over the copy, including on
+phones. Using its lightest token (`--panel`), WCAG relative luminance and even
+a white underlying image pixel, the worst-case composited sRGB background is
+(32.22, 41.62, 58.54): contrast is
+6.55:1 for `--text-muted`, 12.41:1 for `--text`, and 5.54:1 for `--accent`.
+All exceed AA for normal text. The footer credit uses 0.75rem muted text on the
+page background (8.80:1 against `--bg-void`). Product screenshots and keyboard,
+accessibility and form tests cover the home-to-Explore hand-off; visual approval
+remains a separate promotion gate. Not deployed.
+
 ## 2026-11-03 — UI redesign P2d: map window to concept
 
 Explore's map window follows the owner's concept pack for placement and styling:
