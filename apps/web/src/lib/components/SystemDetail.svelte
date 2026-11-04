@@ -397,6 +397,7 @@
     <!-- Keep every query, map, selection and scroll container mounted. -->
     <div
       bind:this={overviewPanel}
+      class="overview-panel"
       id={`${tabId}-panel-overview`}
       role="tabpanel"
       aria-labelledby={`${tabId}-tab-overview`}
@@ -520,10 +521,12 @@
             canonical catalogue. Display sizes and positions are schematic;
             physical scale and present orbital phase are not shown.
           </p>
-          <SpatialCanvas
-            scene={systemScene}
-            onRuntimeEvent={handleSystemMapEvent}
-          />
+          <div class="system-map-stage">
+            <SpatialCanvas
+              scene={systemScene}
+              onRuntimeEvent={handleSystemMapEvent}
+            />
+          </div>
           <aside class="system-map-legend" aria-label="System map legend">
             <p>
               Faint circles guide known child orbits around each parent; unknown
@@ -808,6 +811,87 @@
 
   .detail-grid {
     margin-top: 0;
+  }
+
+  /* Wide screens follow the concept: on Overview the facts sit beside the
+     economy potentials so all seven show without scrolling; on Bodies the
+     catalogue list, system map and selected-body card sit side by side. Narrow
+     screens keep the single stacked column. Only layout changes: every element,
+     its order in the page and its behaviour are the same. */
+  @media (min-width: 1000px) {
+    .overview-panel:not([hidden]) {
+      display: grid;
+      grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+      gap: 1.5rem;
+      align-items: start;
+    }
+
+    .overview-panel .detail-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    /* The tab panel is a fixed-height scroller (70dvh), so the map is sized to
+       fit inside it beside the list and the selected-body card; the legend
+       below it scrolls with the panel. */
+    .system-map-panel {
+      --inspect-map-height: clamp(20rem, calc(70dvh - 16rem), 40rem);
+      display: grid;
+      grid-template-columns:
+        minmax(10rem, 12rem) minmax(0, 1fr)
+        minmax(12rem, 15rem);
+      grid-template-areas:
+        'heading heading heading'
+        'note note note'
+        'list stage card'
+        'list legend card';
+      align-items: start;
+      margin-top: 0;
+    }
+
+    .system-map-panel :global(.spatial-canvas) {
+      height: var(--inspect-map-height);
+    }
+
+    .system-map-heading {
+      grid-area: heading;
+    }
+
+    .system-map-truth-note {
+      grid-area: note;
+    }
+
+    .system-map-stage {
+      grid-area: stage;
+      min-width: 0;
+    }
+
+    .system-map-legend {
+      grid-area: legend;
+      min-width: 0;
+    }
+
+    .system-map-browser {
+      display: contents;
+    }
+
+    /* As tall as the toolbar, help line and map beside it, then it scrolls. */
+    .system-map-browser > ol {
+      grid-area: list;
+      max-height: calc(var(--inspect-map-height) + 5.5rem);
+      border-top: 1px solid var(--line);
+    }
+
+    .system-body-card,
+    .system-body-empty {
+      grid-area: card;
+      align-self: start;
+      border-top: 1px solid var(--line);
+      border-left: 1px solid var(--line);
+    }
+
+    .system-body-card dl {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 
   .system-map-legend {
