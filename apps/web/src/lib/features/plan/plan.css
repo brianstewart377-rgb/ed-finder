@@ -75,7 +75,9 @@
   color: var(--text-muted);
 }
 .plan-task-tabs [role='tab'][aria-selected='true'] {
-  color: var(--accent);
+  /* The brighter orange keeps this text at 4.5:1 on the neon-tinted fill below;
+     design-kit.test.ts pins that ratio. */
+  color: var(--accent-hi);
   border-color: var(--accent);
   background: color-mix(in srgb, var(--neon) 10%, var(--panel-raised));
 }
