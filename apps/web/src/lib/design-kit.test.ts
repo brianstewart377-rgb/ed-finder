@@ -257,6 +257,22 @@ describe('shared design kit', () => {
       ).toBeGreaterThanOrEqual(4);
     });
 
+    it('keeps the selected Plan task tab readable on its tinted fill', () => {
+      const channel = (hex: string, index: number): number =>
+        Number.parseInt(hex.slice(index, index + 2), 16);
+      const neon = token('--neon');
+      const raised = token('--panel-raised');
+      // plan.css fills the selected tab with 10% neon over the raised panel.
+      const fill = `#${[1, 3, 5]
+        .map((index) =>
+          Math.round(channel(neon, index) * 0.1 + channel(raised, index) * 0.9)
+            .toString(16)
+            .padStart(2, '0'),
+        )
+        .join('')}`;
+      expect(contrast(token('--accent-hi'), fill)).toBeGreaterThanOrEqual(4.5);
+    });
+
     it('keeps button text readable on the accent', () => {
       expect(
         contrast(token('--accent-text'), token('--accent')),

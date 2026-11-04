@@ -23,7 +23,7 @@ as readable on the lighter panels as it was before. Nothing else changes: layout
 fonts, line colours, status colours and the maps (star, density, nebula and
 region colours) are untouched.
 
-Tier S badges keep their old orange (`#ff7a14`) on purpose, since tier colours are
+The selected tab on the Plan page ("System layout" / "Build order") now uses the brighter orange (`#fd8930`) for its text, because the deeper orange on that tab's blue-tinted fill measured 4.18:1 and the product browser test rightly refused it; the brighter orange measures 5.3:1 and a test pins that. Tier S badges keep their old orange (`#ff7a14`) on purpose, since tier colours are
 meant to stay fixed when the application palette changes. The map hover card's
 focus outline now follows the shared focus colour instead of a hard-coded orange.
 
