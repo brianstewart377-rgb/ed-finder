@@ -11,6 +11,15 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-04 — UI redesign: Review & export pop-out layout
+
+First slice of bringing the Colony Planner's Review & export pop-out closer to the concept image. Web only; no API, SQL, workflow or provenance change, and nothing is deployed.
+
+- **Wider, two columns.** On screens 900 px and wider the pop-out is wider and sets the plan summary beside the unresolved items and plan checks, so the unresolved list is no longer far down a long scroll. Narrower screens keep one column.
+- **Unresolved banner.** When the review lists unresolved items, an orange banner at the top gives the same count as the "Unresolved information" heading and a "Go to first item" button that only moves keyboard focus to the first listed item; it opens and changes nothing. The button is absent while the body and build editors are unavailable. The wording says "unresolved", not "needs information", because the list also includes blocked and invalid builds.
+- **Export stays in view.** The "Export DRAFT plan" button and the rulebook line sit in a footer that stays at the bottom of the pop-out while the lists scroll. The button, its label and the DRAFT download are unchanged.
+- **Not in this slice.** The concept's Overview / Build order / Export tabs inside the pop-out, the "Before you export" notes and the schematic are not built: they need wording and content decisions that are not made yet.
+
 ## 2026-11-03 — UI redesign: home page to concept
 
 The home page opens with “Find your next frontier.” in the condensed HUD font
@@ -1025,11 +1034,11 @@ every one of the 432 timed runs used a generic plan (receipt
 `docs/operations/evidence/2026-10-31-v3-finder-slice1c-rankings-scale-proof-receipt.json`,
 buffer-cold):
 
-| Query | Warm (budget) | Cold (budget) |
-|---|---|---|
-| First page | 3.5–6.9 ms (300 ms) | 9.2–22.4 ms (1,500 ms) |
+| Query             | Warm (budget)         | Cold (budget)            |
+| ----------------- | --------------------- | ------------------------ |
+| First page        | 3.5–6.9 ms (300 ms)   | 9.2–22.4 ms (1,500 ms)   |
 | Near-ceiling page | 39.5–72.4 ms (600 ms) | 70.7–169.0 ms (2,500 ms) |
-| Count | 37.0–65.6 ms (600 ms) | 62.8–138.1 ms (2,500 ms) |
+| Count             | 37.0–65.6 ms (600 ms) | 62.8–138.1 ms (2,500 ms) |
 
 ## 2026-10-31 — Purge complete: body and vector relations done, step P COMPLETED
 
@@ -1038,6 +1047,7 @@ The governed purge of `ratings_v4_prod_p4` and `ratings_v4_prod_p4_opt1`
 approved by the owner in chat.
 
 **`body_mechanics`:**
+
 - **Copy:** run 41206570787 copied all 577,709,320 survivors (5,778 chunks in
   6,862.9 s), built the indexes in 517 s and froze the copy in 1,537 s.
 - **Verify:** run 41218286633 verified it in 1,208 s.
@@ -1048,6 +1058,7 @@ approved by the owner in chat.
   free space from 433.1 GB to 643.3 GB.
 
 **`system_rating_vector`:**
+
 - **Copy:** run 41228458030 copied all 198,528,286 survivors, built the indexes
   in 321 s and froze the copy in 1,278 s.
 - **Verify:** run 41239134283 verified it in 605 s.
@@ -1687,6 +1698,7 @@ production. Migration 019 is unchanged.
 - Tests: `tests/test_v3_purge_copy_operator.py` and
   `tests/test_v3_purge_copy_operator_pg18.py`; existing purge, fence, workflow
   and backup tests updated to the new contract.
+
 ## 2026-10-26 — Edge real-client address applied on production (owner-run)
 
 The edge half of #896 is live: the reviewed `public-auth-edge.nginx.conf`
@@ -1710,7 +1722,7 @@ peers.
   when it parses as an IP; loopback and public callers key on themselves.
   `get_remote_address` is gone.
 - **Edge** (`deploy/v3-production/public-auth-edge.nginx.conf`): `real_ip_header
-  CF-Connecting-IP` with `set_real_ip_from` for exactly Cloudflare's published
+CF-Connecting-IP` with `set_real_ip_from` for exactly Cloudflare's published
   ranges (https://www.cloudflare.com/ips/, last updated 2023-09-28; checked
   2026-10-26), no recursion. A direct connection to the origin keeps its own
   address and cannot pick another visitor's key.
@@ -1722,6 +1734,7 @@ an owner-run host step after merge (copy the reviewed file over the edge's
 mounted config, `nginx -t`, reload), recorded afterwards. Until the edge step,
 limits key on the Cloudflare node address, which is already finer than one
 site-wide bucket.
+
 ## 2026-10-26 — Sweep hardening: security headers, https share links, secret comparisons, ratings 503s
 
 Findings S4, S6, S8 and S9 of the 2026-10-26 external repository sweep, each
@@ -1731,8 +1744,8 @@ read-only checks: no security headers; `og:url` advertised `http://`).
 - **S8, web slot headers** (`apps/web/nginx/default.conf.template`): every
   response, including proxied API responses and errors (`always`), now carries
   `X-Frame-Options: SAMEORIGIN`, `Content-Security-Policy: frame-ancestors
-  'self'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy:
-  strict-origin-when-cross-origin` and a `Permissions-Policy` that denies
+'self'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy:
+strict-origin-when-cross-origin` and a `Permissions-Policy` that denies
   camera, microphone, geolocation, payment and USB (the app uses none). HSTS is
   left to the TLS terminator; a full CSP comes later, report-only first.
 - **S6, share links**: the web slot now forwards the edge's
@@ -1765,6 +1778,7 @@ the copy-and-drop route (statement timeouts must be set per call by the
 operator; long phases need the watchdog, gate 2 and resumability; the vector
 swap's per-lock timeout must be short; `n_distinct` recalibrates at the
 opportunity swap; a backup heartbeat must alert before step 1).
+
 ## 2026-10-25 — Inspect shows Ratings V4, ring hotspots and station economies
 
 Web only. No API, migration or generated-client change: every field shown was
@@ -1848,12 +1862,14 @@ was run against production.
 **Evidence.** Added
 `docs/operations/evidence/2026-10-24-v3-derived-purge-rehearsal-receipt-run-40074011789.json`,
 the 1% rehearsal receipt from run 40074011789.
+
 - It was copied byte for byte, so its seal still verifies: `content_sha256`
   `94a522dd…73dd`, checked with
   `v3_purge_rehearsal_receipt.load_reviewed`.
 - It was scanned for secrets before committing.
 
 **`docs/ROADMAP.md`.** A new entry dated 2026-10-24 records:
+
 - that the rehearsal passed;
 - its production-scale projections: about 147 h of deletes, rewrite peaks of
   134.5–224.8 GB, and a 4.2 h Search outage that needs 267.8 GB free when about
@@ -1863,6 +1879,7 @@ the 1% rehearsal receipt from run 40074011789.
 
 **`docs/development/v3-purge-copy-and-drop-design.md`** (proposed, not accepted)
 describes option B:
+
 - For each relation, copy only the published survivor rows into a table built
   from the live catalog. Build its indexes, verify counts, digests and the
   catalog, then swap it in with a short catalog-only transaction. Drop the old
@@ -1952,8 +1969,7 @@ disposable 1% rehearsal fixture seeded none, so its `system_search`
 ## 2026-10-23 — Governed purge (P) readiness: postmaster binding, rehearsal transport, archetype survivor proof
 
 Code, tests and docs only. No migration (applied `016` is unchanged), nothing
-run against production, no rehearsal started. After go-live (publish run
-39933842811) the read-only purge `status` run 39962807193 succeeded, but `plan`
+run against production, no rehearsal started. After go-live (publish run 39933842811) the read-only purge `status` run 39962807193 succeeded, but `plan`
 run 39963522021 stopped on `data_directory_unresolved`.
 
 - Postmaster start binding (`scripts/operator/lib/v3_generation_purge.py`):
@@ -2059,7 +2075,7 @@ change, no response-shape change; the F2d operator-code identity is unchanged
 - `apps/api/src/ranking/ranking_sql.py`: every fenced view read now also names
   the current generation as an InitPlan constant
   (`… = (SELECT derived_generation_id FROM v3_meta.current_derived_generation
-  WHERE singleton)`); the views keep the full PUBLISHED/READY/published fence.
+WHERE singleton)`); the views keep the full PUBLISHED/READY/published fence.
   The galaxy and picked windows are now index-ordered `Limit → Index Scan`.
   Shapes the frozen probe would also have refused are fixed: the picked page
   fetches the final row from `v3_derived.system_archetype picked` (a view's
@@ -2118,6 +2134,7 @@ or `sql/v3/migrations/` change, and the F2d operator-code identity is unchanged.
   worker to the production deploy authority, grant/verify the role on the
   application login, make the worker refuse to run during the governed purge,
   then the first run.
+
 ## 2026-10-21 — Spansh delta measurement (canonical-refresh study step S1)
 
 Repository tooling only: no production access, no secrets, no database, no
@@ -2153,6 +2170,7 @@ unchanged.
   published 2026-08-24 base, 9 of 12 systems differ under `strict` but only 3
   under `stable` (real signal changes); the other 6 differ only in orbital
   position. `tests/test_ci_stall_detection.py` lists the new workflow.
+
 ## 2026-10-21 — Inspect, share preview and travel heatmap read V3 data
 
 Inspect (`/inspect?system=<id64>` and the Explore system pop-up), the share
@@ -2364,6 +2382,7 @@ component, picker, card or Product E2E opt-in is added; the build gate
 - Explore, in a default-off build, replace-strips F4 URL parameters
   (preserving `selected`, `system` and unrelated parameters) and keeps
   today's exact local-search request.
+
 ## 2026-10-21 — F3 slice 2b: `/api/search/galaxy` and `/api/search/cluster` on the V3 projections
 
 The last two Finder routes still reading the legacy V2 relations are
@@ -2374,7 +2393,7 @@ both Finder products are READY and published — request validation before any
 database access, parameterized generation-pinned SQL, no legacy relation).
 
 - **`POST /api/search/galaxy`** → `local_search.local_db_galaxy_search_v3`:
-  on V3 the galaxy search *is* the galaxy-wide Any-mode window of the ranked
+  on V3 the galaxy search _is_ the galaxy-wide Any-mode window of the ranked
   search (`local_db_search_v3` with `galaxy_wide=true`): same bounded access
   path (top 10,000 by `weighted_potential`), same ranking profile, same
   `SearchResponse` envelope with the ranking-identity block and the
@@ -2429,10 +2448,11 @@ database access, parameterized generation-pinned SQL, no legacy relation).
   generation, 503 until both products are published, cluster 503 naming the
   missing/unpublished/published-without-contract Finder run; whole-module AST
   string-literal guard for `routers/search.py`). `test_ranking_identity_and_
-  no_legacy.py` extends its scoped guard to the new functions and routes, adds
+no_legacy.py` extends its scoped guard to the new functions and routes, adds
   `cluster_summary` to the forbidden terms and the `routers/search.py` literal
   walk. Integration tests updated for the new read paths; `tests/test_cluster_
-  region_scope.py` (legacy slot resolver) removed; cache-version pin updated.
+region_scope.py` (legacy slot resolver) removed; cache-version pin updated.
+
 ## 2026-10-21 — API silent-failure follow-ups: status reason codes at the producer, alert rules for the #864 series
 
 Closes the two items PR #864 deferred. No request/response schema changed
@@ -2465,7 +2485,7 @@ Closes the two items PR #864 deferred. No request/response schema changed
   ≥ threshold − 1, warning — the positive guard matters at the allowed
   threshold of 1), `EddnSimulationIngestNoSuccessfulFlush` (no successful DB
   flush for 30 m while the ingest is enabled, has flushed at least once, and has
-  *started* a non-empty flush since that success — so a healthy relay that
+  _started_ a non-empty flush since that success — so a healthy relay that
   simply carries no relevant events is not a failure; critical),
   `SseBridgeUnhealthy` (bridge state ≠ subscribed for 10 m, warning) and
   `SseBridgeReconnecting` (reconnect rate > 0 for 15 m, warning), in the file's
@@ -2617,6 +2637,7 @@ Tests: `tests/test_eddn_simulation_ingest_flush_failures.py`,
 contract test now pins the 410 and the absence of a Docker shell-out.
 
 ---
+
 ## 2026-10-19 — F3 slice 2: `/rerank`, `/system/{id64}`, `/simulate`, `/profiles` on the V3 projections
 
 `apps/api/src/routers/archetypes.py` now reads only the published V3
@@ -2671,6 +2692,7 @@ blend. Tests: `tests/test_ranking_rerank.py` (pure),
 extended to the whole router, and the integration rerank tests now skip in the
 V2-only lane via `v3_derived_ready`. Operator code and the ranking profile are
 untouched.
+
 ## 2026-10-19 — DB lanes can no longer pass with zero tests run; known test flakes fixed
 
 Test hygiene only; no application, migration or operator-script change (the
@@ -2693,7 +2715,7 @@ F2d operator identity `c26d23d0…d6279` is unchanged).
   `test_frontier_auth_v3_postgres.py`, the Stage 19 readiness/constraint suites,
   `test_ratings_v4_resume_upgrade.py`, `test_measure_search_footprint.py`,
   `test_v3_canonical_bootstrap.py`, and `confirmed_target_or_skip`. Skips about
-  the *state* of a reachable database (V2-only schema, no published generation,
+  the _state_ of a reachable database (V2-only schema, no published generation,
   missing seed rows) and the integration `Redis not available` skip are lane
   conditions, keep their specific reasons, and are not affected by the flag.
 - **Flake fixes (tests only):** the deployment cancellation test's child now
@@ -2707,6 +2729,7 @@ F2d operator identity `c26d23d0…d6279` is unchanged).
   on a probed ephemeral port with EADDRINUSE retry and waits for an accepted
   connection instead of `sleep(0.1)` (`METRICS_PORT=0` disables the server, so
   port 0 cannot be used directly).
+
 ## 2026-10-19 — Svelte web dead-code trim
 
 Deletions only in `apps/web/`, no behaviour change. Removed the unreferenced
@@ -2810,6 +2833,7 @@ container's stderr in its receipt when the output is empty or invalid. Both
 scripts are in the F2d operator-code manifest, so the accepted release must be
 rebuilt and promoted with the new `f2d_operator_code_sha256`
 (`7d3f346d…`) before the complete read, capacity gate or builds run.
+
 ## 2026-10-18 — Deploy and publish gate fixes for the second F2d promotion
 
 Three gates audited ahead of the first re-promotion of an F2d release.
@@ -2827,6 +2851,7 @@ unordered locally, so both now test membership of the attested backend as the
 deployer does (both actions are in the F2d operator-code manifest). Tests
 cover the second-release attestation shape, the workflow refusals and the
 two-digest image case.
+
 ## 2026-10-18 — Complete read: resumable after a hard kill, retries, readable receipts
 
 Pre-production audit of the step 6′′ complete read. `_atomic_json` named its
@@ -2889,6 +2914,7 @@ production PostgreSQL 18 database, installing schema identity `d7efe689…`. The
 apply receipt is retained under `docs/operations/evidence/`. The roadmap records
 that the retired Storage Box leaves WAL archiving without a target and must be
 resolved before the Finder builds.
+
 ## 2026-10-18 — Storage Box restoration runbook
 
 `docs/operations/v3-storage-box-restoration.md` is the owner-run host procedure
@@ -2922,6 +2948,7 @@ their manifest digests preserved and verified, then checks the packages pull
 anonymously. A contract test keeps every executable `public.ecr.aws` reference
 on the mirror list. Switching CI, Review Lab and image builds to the mirror is
 a follow-up once the mirror is populated. No production operation is included.
+
 ## 2026-10-17 — Finder first, governed purge after go-live (owner decision)
 
 The owner restored the build-first order: the 2026-10-11 pre-build purge
@@ -2931,6 +2958,7 @@ governed purge of `ratings_v4_prod_p4`/`opt1` runs afterwards with its design
 and gates unchanged. A host disk upgrade waits for NVMe availability.
 `docs/ROADMAP.md`, `CLAUDE.md` and the capacity decision record carry the
 amendment. Documentation only; no production operation is included.
+
 ## 2026-10-17 — Purge ledger state queries scale with batch history
 
 The 1% disposable purge rehearsal stopped with `purge_state_query_failed`
@@ -3440,12 +3468,12 @@ Public and reconstructable galaxy data should be reimported or rebuilt through c
 
 A validated PostgreSQL custom-format dump is retained offsite solely as a selective source for genuinely irreplaceable/private/manual/history data:
 
-| Field | Value |
-|---|---|
-| Filename | `edfinder_20260823T021001Z.dump` |
-| Size | `75,931,356,521` bytes |
-| SHA-256 | `20ff06a2e3d2bca2dfa05fc01d38200ca90db028e4b1f4b530d5f394f97514c1` |
-| Recorded offsite sync | `2026-08-23T05:32:41Z` |
+| Field                 | Value                                                              |
+| --------------------- | ------------------------------------------------------------------ |
+| Filename              | `edfinder_20260823T021001Z.dump`                                   |
+| Size                  | `75,931,356,521` bytes                                             |
+| SHA-256               | `20ff06a2e3d2bca2dfa05fc01d38200ca90db028e4b1f4b530d5f394f97514c1` |
+| Recorded offsite sync | `2026-08-23T05:32:41Z`                                             |
 
 The dump is not the operating database, not a PostgreSQL 18 physical backup, and not a general disaster-recovery shortcut. Never attach or copy an older PostgreSQL physical data directory into PostgreSQL 18. Any extraction must identify the exact irreplaceable data, use reviewed migration tooling, verify the target, and validate the selected result.
 
