@@ -11,12 +11,13 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
-## 2026-11-04 — UI redesign: Plan header primary action
+## 2026-11-04 — UI redesign: Plan header primary action and one-row header
 
-Small slice of bringing the Colony Planner header closer to the concept image. Web only (one class name and a few CSS lines); no API, SQL, workflow or provenance change, and nothing is deployed.
+Small slice of bringing the Colony Planner header closer to the concept image. Web only (one class name and some CSS); no API, SQL, workflow or provenance change, and nothing is deployed.
 
 - **One primary action.** "Review & export" is now the orange button in the planner header, so the page's main next step stands out from the quieter Import, Export, Abandon and view buttons. Its label, behaviour and keyboard handling are unchanged.
-- **Not in this slice.** The concept's single-row header band, its Import menu and the system schematic are not built; they change how the other buttons are grouped and need a design decision.
+- **One row on wide screens.** From 1340 px wide the planner name and the header buttons share one row, with slightly more compact buttons so all seven fit beside the name. Narrower screens keep the title above the buttons, as before. Checked at 1280, 1366, 1440 and 1920 px: no button leaves the page and nothing scrolls sideways.
+- **Not in this slice.** The concept's Import menu and the system schematic change how the other buttons are grouped or add a new view, and need a design decision.
 
 ## 2026-11-03 — UI redesign: home page to concept
 
