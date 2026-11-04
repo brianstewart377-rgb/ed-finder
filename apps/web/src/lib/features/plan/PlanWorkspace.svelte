@@ -133,6 +133,27 @@
   let filter = $state('All');
   let fileInput = $state<HTMLInputElement>();
   let ravenFileInput = $state<HTMLInputElement>();
+  let importOpen = $state(false);
+  let importMenu = $state<HTMLDetailsElement>();
+
+  /** A file picker opens from the menu, which then closes behind it. */
+  function chooseImport(input: HTMLInputElement | undefined): void {
+    importOpen = false;
+    input?.click();
+  }
+
+  function importKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Escape' || !importOpen) return;
+    // Only the menu closes; an open tool keeps its own Escape.
+    event.stopPropagation();
+    importOpen = false;
+    importMenu?.querySelector('summary')?.focus();
+  }
+
+  function importOutside(event: MouseEvent): void {
+    if (importOpen && importMenu && !importMenu.contains(event.target as Node))
+      importOpen = false;
+  }
   let reviewOpen = $state(false);
   let reviewTrigger = $state<HTMLButtonElement>();
   let importNotes = $state<{ code: string; detail: string }[]>([]);
@@ -578,6 +599,8 @@
   }
 </script>
 
+<svelte:window onclick={importOutside} />
+
 <main class="plan-workspace product-page">
   <header class="plan-header">
     <nav aria-label="Planner breadcrumbs">
@@ -616,11 +639,28 @@
           onclick={() => (reviewOpen = !reviewOpen)}>Review &amp; export</button
         ><button type="button" aria-label="Export DRAFT plan" onclick={download}
           >Export DRAFT plan</button
-        ><button type="button" onclick={() => fileInput?.click()}
-          >Import plan</button
-        ><button type="button" onclick={() => ravenFileInput?.click()}
-          >Import from Raven</button
-        ><button
+        >
+        <details
+          class="plan-import"
+          bind:open={importOpen}
+          bind:this={importMenu}
+        >
+          <summary onkeydown={importKeydown}>Import</summary>
+          <div class="plan-import-panel">
+            <button
+              type="button"
+              onkeydown={importKeydown}
+              onclick={() => chooseImport(fileInput)}>Import plan</button
+            >
+            <button
+              type="button"
+              onkeydown={importKeydown}
+              onclick={() => chooseImport(ravenFileInput)}
+              >Import from Raven</button
+            >
+          </div>
+        </details>
+        <button
           type="button"
           disabled={!model.sites.length || primaryProtected}
           title={primaryProtected

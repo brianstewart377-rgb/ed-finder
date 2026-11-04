@@ -11,6 +11,13 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-04 — UI redesign: Plan Import menu
+
+Part of bringing the Colony Planner header closer to the concept image. Web only; no API, SQL, workflow or provenance change, and nothing is deployed.
+
+- **One Import menu.** "Import plan" and "Import from Raven" now sit inside a single "Import" menu in the planner header. The menu is a plain disclosure (it opens with Enter or Space, and closes after a choice, on Escape — returning focus to "Import" — or on a click elsewhere). The two choices, their file pickers, the confirmation prompts and what each import does are unchanged. The header is shorter, so it fits on one row at 1280 px as well.
+- **Not changed.** "Export DRAFT plan" and "Abandon plan" stay as separate buttons.
+
 ## 2026-11-04 — UI redesign: Plan header primary action and one-row header
 
 Small slice of bringing the Colony Planner header closer to the concept image. Web only (one class name and some CSS); no API, SQL, workflow or provenance change, and nothing is deployed.

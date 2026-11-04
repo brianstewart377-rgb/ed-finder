@@ -348,6 +348,7 @@ describe('Raven layout import', () => {
     render(PlanWorkspaceTestHost);
     const input = screen.getByLabelText('Import Raven Colonial layout file');
     const click = vi.spyOn(input, 'click');
+    await fireEvent.click(screen.getByText('Import'));
     await fireEvent.click(
       screen.getByRole('button', { name: 'Import from Raven' }),
     );
@@ -966,6 +967,45 @@ describe('Review and DRAFT export', () => {
     await advance(0);
     return screen.getByRole('dialog', { name: 'Review & export' });
   }
+
+  it('keeps both imports inside one Import menu that starts closed and closes after a choice, Escape or an outside click', async () => {
+    seedReviewPlan();
+    render(PlanWorkspaceTestHost);
+    await advance(300);
+    const menu = document.querySelector<HTMLDetailsElement>('.plan-import');
+    const summary = menu?.querySelector('summary') as HTMLElement;
+    expect(menu).not.toBeNull();
+    expect(menu?.open).toBe(false);
+    expect(summary).toHaveTextContent('Import');
+    expect(
+      [...(menu?.querySelectorAll('button') ?? [])].map((b) => b.textContent),
+    ).toEqual(['Import plan', 'Import from Raven']);
+
+    const open = async () => {
+      await fireEvent.click(summary);
+      await advance(0);
+      expect(menu?.open).toBe(true);
+    };
+    const planInput = screen.getByLabelText('Import plan file');
+    const pick = vi.spyOn(planInput, 'click').mockImplementation(() => {});
+    await open();
+    await fireEvent.click(screen.getByRole('button', { name: 'Import plan' }));
+    await advance(0);
+    expect(pick).toHaveBeenCalledOnce();
+    expect(menu?.open).toBe(false);
+
+    await open();
+    summary.focus();
+    await fireEvent.keyDown(summary, { key: 'Escape' });
+    await advance(0);
+    expect(menu?.open).toBe(false);
+    expect(summary).toHaveFocus();
+
+    await open();
+    await fireEvent.click(document.body);
+    await advance(0);
+    expect(menu?.open).toBe(false);
+  });
 
   it('marks Review & export as the one primary header action', async () => {
     seedReviewPlan();
