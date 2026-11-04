@@ -41,6 +41,44 @@ function siteButton(step: number) {
 
 afterEach(cleanup);
 
+describe('system schematic', () => {
+  it('draws the bodies and marks planned builds without adding controls', () => {
+    const fixture = compactPlanFixture(3, 2);
+    fixture.model.sites[0].body_ref = '2';
+    fixture.model.sites[1].body_ref = '3';
+    const { container } = renderSystem(fixture);
+    const schematic = container.querySelector('[data-plan-schematic]')!;
+    expect(schematic).toHaveTextContent('schematic not to scale');
+    expect(
+      [...schematic.querySelectorAll<HTMLElement>('[data-schematic-body]')].map(
+        (el) => el.dataset.schematicBody,
+      ),
+    ).toEqual(['1', '2', '3', 'belt:1', 'belt:2']);
+    expect(schematic).toHaveTextContent('Primary Port');
+    // Read-only: the picture adds no buttons or links to the page.
+    expect(schematic.querySelectorAll('button, a, input')).toHaveLength(0);
+  });
+
+  it('highlights the drawn body that holds the selected moon', () => {
+    const fixture = compactPlanFixture(4, 0);
+    fixture.bodies.bodies[3].direct_parent_body_id = '2';
+    const { container } = render(SystemPane, {
+      ...fixture,
+      selectedBody: '4',
+      stale: false,
+      onselectbody: vi.fn(),
+      onselectsite: vi.fn(),
+      onslot: vi.fn(),
+      onadd: vi.fn(),
+    });
+    const selected = container.querySelectorAll(
+      '[data-plan-schematic] .schematic-item.selected',
+    );
+    expect(selected).toHaveLength(1);
+    expect((selected[0] as HTMLElement).dataset.schematicBody).toBe('2');
+  });
+});
+
 describe('surface slot sources', () => {
   it.each([0, 5])(
     'labels an API surface prediction of %s, leaving orbital slots unknown',

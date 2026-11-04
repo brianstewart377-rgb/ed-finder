@@ -28,6 +28,8 @@
   import PlanIcon from './PlanIcon.svelte';
   import SlotEditor from './SlotEditor.svelte';
   import FacilityPicker from './FacilityPicker.svelte';
+  import SystemSchematic from './SystemSchematic.svelte';
+  import { buildSchematic, drawnRefResolver } from './schematic';
 
   let {
     bodies,
@@ -77,6 +79,10 @@
   const tree = $derived(flattenBodyTree(buildBodyTree(bodies)));
   const pickerLocation = $derived(
     tree.find((location) => location.body_ref === picker),
+  );
+  const schematic = $derived(buildSchematic(tree, model.sites, facilities));
+  const schematicSelected = $derived(
+    selectedBody ? drawnRefResolver(tree)(selectedBody) : null,
   );
   const facilityById = $derived(
     new Map(facilities.map((facility) => [facility.id, facility])),
@@ -374,6 +380,9 @@
     Surface slots are predicted unless entered by you. Enter orbital slots from
     Architect Mode. Unknown totals are shown as ?.
   </p>
+  {#if schematic.length}
+    <SystemSchematic items={schematic} selectedRef={schematicSelected} />
+  {/if}
   <ul class="plan-body-tree">
     {#each tree as location (location.body_ref)}
       {@const used = countLocationSlots(model, bodies, location.body_ref)}
