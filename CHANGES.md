@@ -11,6 +11,14 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-04 — UI redesign: Inspect action row and economy rows
+
+First slice of bringing the Inspect page closer to the concept image. Web only; no API, SQL, workflow or provenance change, and nothing is deployed.
+
+- **Actions at the top.** "Back to Explore" (left) and "Open in Explore" and "Continue to Plan" (right) now sit in one row above the system card instead of under it, so they are in view without scrolling. The links, labels and Finder-context behaviour are unchanged.
+- **Economy rows.** The seven economy potentials are now raised, rounded strips with a blue bar. The row whose "Why?" explanation is open is picked out with an orange bar and outline, so the pop-out and its row stay visibly linked. This marks only which row is open; it adds no score, ranking or eligibility claim, and the table, its columns and its keyboard behaviour are unchanged.
+- **Not in this slice.** The concept's three-column layout (bodies list, system map and economy bars side by side) is the next slice.
+
 ## 2026-11-03 — UI redesign: home page to concept
 
 The home page opens with “Find your next frontier.” in the condensed HUD font
