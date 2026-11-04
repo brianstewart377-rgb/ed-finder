@@ -3,6 +3,54 @@ type SpatialWindow = Window & { __spatialRuntimeFailures?: string[] };
 const canvasSelector = 'canvas[data-spatial-canvas]';
 const readySelector = '[role="status"][data-renderer-state="ready"]';
 
+const assertMapWindowLayout = (width: number, height: number) => {
+  cy.get('[data-explore-map-window]').should(($window) => {
+    const window = $window[0];
+    const bounds = window.getBoundingClientRect();
+    const canvas = window
+      .querySelector(canvasSelector)!
+      .getBoundingClientRect();
+    const controls = window
+      .querySelector('[aria-label="Galaxy camera controls"]')!
+      .getBoundingClientRect();
+    expect(window.scrollHeight, 'window has no inner scrollbar').to.be.at.most(
+      window.clientHeight,
+    );
+    const content = window.querySelector('.map-window-content')!;
+    expect(
+      content.scrollHeight,
+      'map content has no inner scrollbar',
+    ).to.be.at.most(content.clientHeight);
+    // Browser scroll offsets round independently of fractional CSS borders.
+    expect(bounds.top, 'window top fits viewport').to.be.at.least(-1);
+    expect(bounds.bottom, 'window bottom fits viewport').to.be.at.most(
+      height + 1,
+    );
+    expect(canvas.top, 'canvas starts inside window').to.be.at.least(
+      bounds.top,
+    );
+    expect(canvas.bottom, 'canvas ends inside window').to.be.at.most(
+      bounds.bottom,
+    );
+    expect(
+      canvas.height,
+      'canvas gets the main share of the workspace',
+    ).to.be.at.least(width < 700 ? height * 0.55 : bounds.height * 0.6);
+    expect(controls.top, 'camera controls sit below canvas').to.be.at.least(
+      canvas.bottom,
+    );
+  });
+};
+
+const assertNoHorizontalOverflow = () => {
+  cy.document().should((document) => {
+    expect(
+      document.documentElement.scrollWidth,
+      'page has no horizontal overflow',
+    ).to.be.at.most(document.documentElement.clientWidth);
+  });
+};
+
 const visitFoundation = () => {
   cy.visit('/spatial-foundation', {
     onBeforeLoad(window) {
@@ -103,6 +151,7 @@ for (const [width, height] of [
     let query = '';
     let bearing = '';
     let pitch = '';
+    const layoutRequestCounts = new Map<string, number>();
     const cameraTransitions: string[] = [];
     cy.viewport(width, height);
     cy.intercept('GET', '/api/archetypes/rankings*').as('windowRankings');
@@ -135,6 +184,7 @@ for (const [width, height] of [
     cy.get('@windowDensity.all').should('have.length', 0);
     cy.get('@windowCatalogue.all').should('have.length', 0);
     cy.get('@windowNebulae.all').should('have.length', 0);
+    assertNoHorizontalOverflow();
     cy.window().should((window) => {
       expect(
         window.matchMedia('(prefers-reduced-motion: reduce)').matches,
@@ -179,29 +229,24 @@ for (const [width, height] of [
       .should('be.visible')
       .and('have.attr', 'aria-modal', 'false');
     cy.get('[data-map-window-close]').should('be.focused');
-    if (width < 700) {
-      // The phone opens on the map itself, with its controls sharing the
-      // workspace; lengthy provenance/region context cannot push it offscreen.
-      cy.get(canvasSelector).should(($canvas) => {
-        const bounds = $canvas[0].getBoundingClientRect();
-        const windowBounds = $canvas[0]
-          .closest(mapWindow)!
-          .getBoundingClientRect();
-        const viewportHeight =
-          $canvas[0].ownerDocument.defaultView!.innerHeight;
-        const visibleHeight =
-          Math.min(bounds.bottom, windowBounds.bottom, viewportHeight) -
-          Math.max(bounds.top, windowBounds.top, 0);
-        expect(visibleHeight).to.be.at.least(bounds.height * 0.6);
-      });
-    }
+    cy.get(`${mapWindow} h2`).should('have.text', 'Achenar · Galaxy map');
+    cy.contains(`${mapWindow} a`, 'Inspect Achenar')
+      .should('be.visible')
+      .and('have.attr', 'href')
+      .and('include', `system=${selectedId}`);
+    cy.contains(`${mapWindow} a`, 'Plan here').should('be.visible');
+    assertMapWindowLayout(width, height);
+    assertNoHorizontalOverflow();
     // The same non-modal contract applies at phone width: focus can leave
     // the map and the surrounding application never becomes inert.
     cy.get('a.brand').parents('[inert]').should('have.length', 0);
     cy.get('a.brand').focus().should('be.focused');
-    cy.get(mapWindow).scrollIntoView();
+    cy.get(mapWindow).then(($window) => {
+      // Native nearest scrolling honours the window's scroll margin. Cypress's
+      // top-alignment can place its fractional border just above the viewport.
+      $window[0].scrollIntoView({ block: 'nearest' });
+    });
     assertRendererReady();
-    cy.get(canvasSelector).scrollIntoView();
     cy.get(canvasSelector).then(([canvas]) => {
       initialCanvas = canvas as HTMLCanvasElement;
     });
@@ -229,17 +274,145 @@ for (const [width, height] of [
           2,
         );
       });
-    cy.get(`${mapWindow} [aria-label="Rotate right"]`).click();
-    cy.contains(`${mapWindow} button`, /^Top down$/).click();
+    cy.get('[data-catalogue-star-count]', { timeout: 20_000 }).should(
+      'contain.text',
+      'exact stars',
+    );
+    // Measure the default selected-system camera after its initial catalogue
+    // load. Camera controls below intentionally change the spatial footprint.
+    cy.wait(500);
+    for (const alias of [
+      '@windowDensity.all',
+      '@windowCatalogue.all',
+      '@windowNebulae.all',
+    ]) {
+      cy.get(alias).then((requests) => {
+        layoutRequestCounts.set(alias, requests.length);
+      });
+    }
+    cy.get('[data-map-window-expand]').click({ scrollBehavior: false });
+    cy.get(mapWindow).should('have.attr', 'data-expanded', 'true');
+    assertMapWindowLayout(width, height);
+    cy.viewport(width - 20, height - 40);
+    cy.wait(500);
+    cy.viewport(width, height);
+    cy.get('[data-map-window-expand]').click({ scrollBehavior: false });
+    cy.get(mapWindow).should('have.attr', 'data-expanded', 'false');
+    cy.get(canvasSelector).should(([canvas]) => {
+      expect(canvas).to.equal(initialCanvas);
+    });
+    // Close from the expanded state as well, so reopening cannot reuse the
+    // disposed canvas's wider viewport footprint.
+    cy.get('[data-map-window-expand]').click({ scrollBehavior: false });
+    cy.get(mapWindow).should('have.attr', 'data-expanded', 'true');
+    cy.get('[data-map-window-close]').click({ scrollBehavior: false });
+    cy.get(canvasSelector).should('not.exist');
+    cy.get(opener).should('be.focused').click();
+    assertRendererReady();
+    cy.get(canvasSelector).then(([canvas]) => {
+      expect(canvas).not.to.equal(initialCanvas);
+      initialCanvas = canvas as HTMLCanvasElement;
+    });
+    cy.get('[data-catalogue-star-count]', { timeout: 20_000 }).should(
+      'contain.text',
+      'exact stars',
+    );
+    cy.wait(500);
+    cy.then(() => {
+      for (const [alias, count] of layoutRequestCounts)
+        cy.get(alias).should('have.length', count);
+    });
+    assertMapWindowLayout(width, height);
+    assertNoHorizontalOverflow();
+    cy.screenshot(
+      `product/explore-map-window-open-${Cypress.browser.name}-${width}x${height}`,
+      {
+        capture: 'viewport',
+        overwrite: true,
+        disableTimersAndAnimations: false,
+      },
+    );
+    cy.contains(`${mapWindow} button`, /^Galaxy$/).click({
+      scrollBehavior: false,
+    });
+    cy.get('[data-map-camera-preset="galaxy"]').should(
+      'have.attr',
+      'aria-pressed',
+      'true',
+    );
+    cy.get('[data-camera-distance]').should(($distance) => {
+      expect(Number($distance.attr('data-camera-distance'))).to.be.greaterThan(
+        10_000,
+      );
+    });
+    cy.get(`${mapWindow} .spatial-canvas`).should(
+      'have.attr',
+      'data-camera-transition-active',
+      'false',
+    );
+    cy.contains(`${mapWindow} button`, /^Local$/).click({
+      scrollBehavior: false,
+    });
+    cy.get('[data-map-camera-preset="local"]').should(
+      'have.attr',
+      'aria-pressed',
+      'true',
+    );
+    cy.get('[data-camera-distance]').should(
+      'have.attr',
+      'data-camera-distance',
+      '400',
+    );
+    cy.contains(`${mapWindow} button`, 'Centre on Achenar').should(
+      'be.visible',
+    );
+    cy.get('[data-map-regions-trigger]').click({ scrollBehavior: false });
+    cy.get('[data-map-regions-panel]')
+      .should('be.visible')
+      .and('have.attr', 'aria-modal', 'false');
+    cy.get('[data-galaxy-region-option]').should('have.length', 42);
+    cy.get('#explore-region-picker').select('18', { scrollBehavior: false });
+    cy.get('[data-selected-region-id="18"]').should(
+      'contain.text',
+      'Inner Orion Spur',
+    );
+    cy.contains('[data-map-regions-panel] button', 'All 42 regions').should(
+      'be.visible',
+    );
+    cy.contains('[data-map-regions-panel] button', 'View selected').should(
+      'be.enabled',
+    );
+    cy.press(Cypress.Keyboard.Keys.ESC);
+    cy.get('[data-map-regions-panel]').should('not.exist');
+    cy.get('[data-map-regions-trigger]').should('be.focused');
+    cy.get(mapWindow).should('be.visible');
+    cy.get('[data-map-sources-trigger]').click({ scrollBehavior: false });
+    cy.get('[data-map-sources-panel]')
+      .should('be.visible')
+      .and('have.attr', 'aria-modal', 'false')
+      .and('contain.text', 'exact catalogue coordinates')
+      .and('contain.text', 'pinned in-game source');
+    cy.injectAxe();
+    cy.checkA11y(mapWindow);
+    cy.press(Cypress.Keyboard.Keys.ESC);
+    cy.get('[data-map-sources-panel]').should('not.exist');
+    cy.get('[data-map-sources-trigger]').should('be.focused');
+    cy.get(mapWindow).should('be.visible');
+    cy.get(`${mapWindow} [aria-label="Rotate right"]`).click({
+      scrollBehavior: false,
+    });
+    cy.contains(`${mapWindow} button`, /^Top down$/).click({
+      scrollBehavior: false,
+    });
     cy.get(`${mapWindow} .spatial-canvas`).then(($canvas) => {
       bearing = $canvas.attr('data-camera-bearing') ?? '';
       pitch = $canvas.attr('data-camera-pitch') ?? '';
       expect(Number(pitch)).to.equal(Math.PI / 2);
     });
-    cy.get('[data-map-layers-toggle]').click();
+    cy.get('[data-map-layers-toggle]').click({ scrollBehavior: false });
     cy.get('[data-nebula-toggle]')
       .should('have.attr', 'aria-checked', 'true')
-      .click();
+      .click({ scrollBehavior: false });
     cy.injectAxe();
     cy.checkA11y(mapWindow);
     // Layers owns the first Escape; the parent window and its one runtime stay.
@@ -250,7 +423,9 @@ for (const [width, height] of [
     cy.get(canvasSelector).should(([canvas]) => {
       expect(canvas).to.equal(initialCanvas);
     });
-    cy.get('[data-map-window-expand]').click();
+    assertMapWindowLayout(width, height);
+    assertNoHorizontalOverflow();
+    cy.get('[data-map-window-expand]').click({ scrollBehavior: false });
     cy.get(mapWindow).should('have.attr', 'data-expanded', 'true');
     cy.get('.results-panel').should('not.be.visible');
     cy.get(canvasSelector).should(([canvas]) => {
@@ -267,16 +442,20 @@ for (const [width, height] of [
       });
     });
     cy.viewport(width, height);
+    assertMapWindowLayout(width, height);
+    assertNoHorizontalOverflow();
     cy.checkA11y(mapWindow);
     cy.screenshot(
       `product/explore-map-expanded-${Cypress.browser.name}-${width}x${height}`,
       {
         capture: 'viewport',
         overwrite: true,
-        disableTimersAndAnimations: true,
+        disableTimersAndAnimations: false,
       },
     );
-    cy.get('[data-map-window-close]').click();
+    cy.contains(`${mapWindow} button`, 'Back to results').click({
+      scrollBehavior: false,
+    });
     cy.get(mapWindow).should('not.exist');
     cy.get(canvasSelector).should('not.exist');
     cy.get(opener).should('be.focused');
@@ -327,7 +506,7 @@ for (const [width, height] of [
         .and('have.attr', 'data-camera-pitch', pitch)
         .and('have.attr', 'data-camera-transition-active', 'false');
     });
-    cy.get('[data-map-layers-toggle]').click();
+    cy.get('[data-map-layers-toggle]').click({ scrollBehavior: false });
     cy.get('[data-nebula-toggle]').should('have.attr', 'aria-checked', 'false');
     cy.press(Cypress.Keyboard.Keys.ESC);
     cy.get(mapWindow).should('be.visible');
@@ -343,3 +522,49 @@ for (const [width, height] of [
     cy.checkA11y();
   });
 }
+
+it('keeps the map within the tablet page width without lifecycle requests', () => {
+  const requests = { search: 0, catalogue: 0, density: 0, nebulae: 0 };
+  cy.intercept('POST', '/api/local/search', () => {
+    requests.search++;
+  });
+  cy.intercept('GET', '/api/map/systems*', () => {
+    requests.catalogue++;
+  });
+  cy.intercept('GET', '/api/map/heatmap*', () => {
+    requests.density++;
+  });
+  cy.intercept('GET', '/assets/edastro-mapcharts-nebulae.json', () => {
+    requests.nebulae++;
+  });
+  cy.viewport(768, 800);
+  cy.visit('/explore?archetype=flexible&page_size=3');
+  cy.get('[data-system-result]', { timeout: 20_000 }).should('have.length', 3);
+  cy.get('[data-system-result="10477373803000"] [data-result-select]').click();
+  assertNoHorizontalOverflow();
+  cy.get('[data-explore-map-open]').click();
+  assertRendererReady();
+  cy.get('[data-catalogue-star-count]', { timeout: 20_000 }).should(
+    'contain.text',
+    'exact stars',
+  );
+  cy.wait(500);
+  cy.then(() => {
+    const settled = { ...requests };
+    assertNoHorizontalOverflow();
+    cy.get('[data-map-window-expand]').click({ scrollBehavior: false });
+    assertNoHorizontalOverflow();
+    cy.viewport(748, 760);
+    cy.wait(500);
+    assertNoHorizontalOverflow();
+    cy.viewport(768, 800);
+    cy.get('[data-map-window-expand]').click({ scrollBehavior: false });
+    cy.get('[data-map-window-close]').click({ scrollBehavior: false });
+    assertNoHorizontalOverflow();
+    cy.get('[data-explore-map-open]').click();
+    assertRendererReady();
+    cy.wait(500);
+    cy.then(() => expect(requests).to.deep.equal(settled));
+    cy.get('[data-map-window-close]').click({ scrollBehavior: false });
+  });
+});

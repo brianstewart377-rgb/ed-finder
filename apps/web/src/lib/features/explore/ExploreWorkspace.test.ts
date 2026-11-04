@@ -11,6 +11,7 @@ import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import axe from 'axe-core';
 import { tick, type ComponentProps } from 'svelte';
+import { isTopmostPopout, registerPopout } from '$lib/components/popout-stack';
 import * as api from '$lib/api/client';
 import { queryClient, queryKeys } from '$lib/api/query';
 import { auth } from '$lib/auth/auth';
@@ -2837,7 +2838,7 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
     const tooltip = await screen.findByRole('tooltip', {
       name: `System ${star.name}`,
     });
-    expect(screen.getByRole('dialog', { name: 'Map window' })).toHaveAttribute(
+    expect(screen.getByRole('dialog', { name: /Galaxy map$/ })).toHaveAttribute(
       'data-hovered-system-id',
       star.id64,
     );
@@ -2869,6 +2870,9 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
     expect(
       within(selection).getByRole('heading', { name: star.name }),
     ).toBeInTheDocument();
+    await fireEvent.click(
+      within(selection).getByRole('button', { name: 'Details' }),
+    );
     expect(
       within(selection).getByText('G2', { exact: true }),
     ).toBeInTheDocument();
@@ -5358,6 +5362,21 @@ describe.each([false, true])(
 );
 
 describe.each([false, true])('M09 on-demand map with F4=%s', (enabled) => {
+  function regionFixture() {
+    return galaxyRegions.buildGalaxyRegionsPayload(
+      {
+        version: 1,
+        origin: { x: -49_985, z: -24_105 },
+        pixel_scale: 49.34939759036145,
+        regions: ['', ...galaxyRegions.GALAXY_REGION_NAMES],
+        regionmap: Array.from({ length: 2_048 }, (_, row) => [
+          [2_048, row === 0 ? 0 : Math.min(42, Math.floor(row / 49) + 1)],
+        ]),
+      },
+      galaxyRegions.GALAXY_REGION_SOURCE_SHA256,
+    );
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     queryClient.clear();
@@ -5414,7 +5433,7 @@ describe.each([false, true])('M09 on-demand map with F4=%s', (enabled) => {
     await tick();
     expect(screen.getByRole('combobox', { name: 'System name' })).toBeVisible();
     expect(
-      screen.queryByRole('dialog', { name: 'Map window' }),
+      screen.queryByRole('dialog', { name: /Galaxy map$/ }),
     ).not.toBeInTheDocument();
     expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(0);
     expect(runtimeAdapter.create).not.toHaveBeenCalled();
@@ -5427,7 +5446,11 @@ describe.each([false, true])('M09 on-demand map with F4=%s', (enabled) => {
     const opener = screen.getByRole('button', { name: 'Show on map' });
     opener.focus();
     await fireEvent.click(opener);
-    const map = await screen.findByRole('dialog', { name: 'Map window' });
+    const map = await screen.findByRole('dialog', { name: /Galaxy map$/ });
+    expect(map).toHaveAccessibleName('Galaxy map');
+    const local = within(map).getByRole('button', { name: 'Local' });
+    expect(local).toBeDisabled();
+    expect(local).toHaveAccessibleDescription(/select.*system/i);
     expect(map).toHaveAttribute('aria-modal', 'false');
     expect(document.querySelector('[inert]')).toBeNull();
     await waitFor(() => expect(runtimeAdapter.create).toHaveBeenCalledTimes(1));
@@ -5442,6 +5465,274 @@ describe.each([false, true])('M09 on-demand map with F4=%s', (enabled) => {
     expect(api.getArchetypeRankings).not.toHaveBeenCalled();
   });
 
+  it.each(['regions', 'sources'] as const)(
+    'keeps the %s tool non-modal with topmost Escape ownership and focus return',
+    async (tool) => {
+      renderEnabled('', {}, undefined, false);
+      await fireEvent.click(
+        screen.getByRole('button', { name: 'Show on map' }),
+      );
+      const map = await screen.findByRole('dialog', { name: 'Galaxy map' });
+      const trigger = map.querySelector<HTMLButtonElement>(
+        `[data-map-${tool}-trigger]`,
+      )!;
+      expect(trigger).toBeInTheDocument();
+      trigger.focus();
+      await fireEvent.click(trigger);
+      const panel = map.querySelector<HTMLElement>(`[data-map-${tool}-panel]`)!;
+      expect(panel).toHaveAttribute('role', 'dialog');
+      expect(panel).toHaveAttribute('aria-modal', 'false');
+      expect(trigger).toHaveAttribute('aria-expanded', 'true');
+      expect(trigger).toHaveAttribute('aria-controls', panel.id);
+      expect(isTopmostPopout(panel)).toBe(true);
+      expect(document.querySelector('[inert]')).toBeNull();
+      if (tool === 'sources') {
+        expect(panel).toHaveTextContent(
+          'Stars use exact catalogue coordinates',
+        );
+        expect(panel).toHaveTextContent(
+          'Region geometry is the pinned in-game source',
+        );
+      } else {
+        await waitFor(() =>
+          expect(panel).toHaveTextContent(
+            'The authoritative region resource failed validation.',
+          ),
+        );
+        expect(
+          within(panel).getByRole('button', { name: 'Retry regions' }),
+        ).toBeEnabled();
+      }
+      const accessibility = await axe.run(map, {
+        rules: { 'color-contrast': { enabled: false } },
+      });
+      expect(accessibility.violations).toEqual([]);
+      const later = document.createElement('div');
+      const unregister = registerPopout(later);
+      try {
+        await fireEvent.keyDown(window, { key: 'Escape' });
+        expect(panel).toBeInTheDocument();
+        expect(map).toBeInTheDocument();
+      } finally {
+        unregister();
+      }
+      await fireEvent.keyDown(window, { key: 'Escape' });
+      expect(panel).not.toBeInTheDocument();
+      expect(trigger).toHaveFocus();
+      expect(trigger).toHaveAttribute('aria-expanded', 'false');
+      expect(isTopmostPopout(map)).toBe(true);
+      expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(
+        1,
+      );
+      expect(runtimeAdapter.create).toHaveBeenCalledOnce();
+      expect(api.searchExploreSystems).not.toHaveBeenCalled();
+      expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+      await fireEvent.keyDown(window, { key: 'Escape' });
+      expect(map).not.toBeInTheDocument();
+    },
+  );
+
+  it('uses Local, Galaxy and Centre on as existing camera requests and retains region actions', async () => {
+    const regions = regionFixture();
+    vi.mocked(galaxyRegions.fetchAuthoritativeGalaxyRegions).mockResolvedValue(
+      regions,
+    );
+    const viewState = new ExploreViewState(
+      () => mockedPage,
+      enabled,
+      applicationStores,
+    );
+    renderEnabled(
+      `${enabled ? 'page_size=3&' : ''}near=${anchorA.id64}`,
+      { anchor: anchorA },
+      viewState,
+      false,
+    );
+    const results = await screen.findByRole('list', { name: 'System results' });
+    await fireEvent.click(
+      await within(results).findByRole('button', {
+        name: /Ranked 2.*9007199254741002/,
+      }),
+    );
+    await fireEvent.click(
+      within(results).getByRole('button', { name: 'Show on map' }),
+    );
+    const map = await screen.findByRole('dialog', {
+      name: 'Ranked 2 · Galaxy map',
+    });
+    await waitFor(() => expect(viewState.regionState).toBe('ready'));
+    await waitFor(() => expect(currentScene()).toBeDefined());
+    const selected = currentScene().selection;
+    const searchCount = vi.mocked(api.searchExploreSystems).mock.calls.length;
+    const url = mockedPage.url.href;
+    const local = within(map).getByRole('button', { name: 'Local' });
+    const galaxy = within(map).getByRole('button', { name: 'Galaxy' });
+    expect(local).toHaveAttribute('data-map-camera-preset', 'local');
+    expect(galaxy).toHaveAttribute('data-map-camera-preset', 'galaxy');
+    expect(local).toBeEnabled();
+    await fireEvent.click(galaxy);
+    expect(galaxy).toHaveAttribute('aria-pressed', 'true');
+    expect(local).toHaveAttribute('aria-pressed', 'false');
+    const overview = viewState.cameraRequest;
+    expect(overview?.pitchRad).toBe(Math.PI / 2);
+    expect(overview?.distanceLy).toBeGreaterThan(100_000);
+    await fireEvent.click(local);
+    expect(local).toHaveAttribute('aria-pressed', 'true');
+    expect(galaxy).toHaveAttribute('aria-pressed', 'false');
+    expect(viewState.cameraRequest).toMatchObject({
+      focusLy: rankedRows[1].coords,
+      distanceLy: 400,
+    });
+    expect(currentScene().kind).toBe('galaxy');
+    await fireEvent.click(galaxy);
+    await fireEvent.click(
+      within(map).getByRole('button', { name: 'Centre on Ranked 2' }),
+    );
+    expect(viewState.cameraRequest).toMatchObject({
+      focusLy: rankedRows[1].coords,
+      distanceLy: 400,
+    });
+    expect(currentScene().selection).toEqual(selected);
+    await fireEvent.click(
+      within(map).getByRole('button', { name: 'Regions 42' }),
+    );
+    const panel = map.querySelector<HTMLElement>('[data-map-regions-panel]')!;
+    expect(panel.querySelectorAll('[data-galaxy-region-option]')).toHaveLength(
+      42,
+    );
+    const picker = within(panel).getByRole('combobox', {
+      name: 'Galactic region',
+    });
+    const viewSelected = within(panel).getByRole('button', {
+      name: 'View selected',
+    });
+    expect(viewSelected).toBeDisabled();
+    await fireEvent.change(picker, { target: { value: '1' } });
+    expect(viewState.selectedRegionId).toBe('1');
+    expect(
+      panel.querySelector('[data-selected-region-id="1"]'),
+    ).toBeInTheDocument();
+    await fireEvent.click(viewSelected);
+    expect(viewState.cameraRequest).toMatchObject({
+      focusLy: regions.regions[0].labelLy,
+      distanceLy: 18_000,
+    });
+    await fireEvent.click(
+      within(panel).getByRole('button', { name: 'All 42 regions' }),
+    );
+    expect(viewState.cameraRequest).toMatchObject({
+      focusLy: overview!.focusLy,
+      distanceLy: overview!.distanceLy,
+      pitchRad: overview!.pitchRad,
+    });
+    expect(mockedPage.url.href).toBe(url);
+    expect(api.searchExploreSystems).toHaveBeenCalledTimes(searchCount);
+    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+    expect(
+      galaxyRegions.fetchAuthoritativeGalaxyRegions,
+    ).toHaveBeenCalledOnce();
+    expect(runtimeAdapter.create).toHaveBeenCalledOnce();
+    expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(1);
+  });
+
+  it('keeps an explicit Local camera choice when pending regions arrive after opening an unselected map', async () => {
+    let finishRegions!: (regions: galaxyRegions.GalaxyRegionsPayload) => void;
+    vi.mocked(galaxyRegions.fetchAuthoritativeGalaxyRegions).mockImplementation(
+      () => new Promise((resolve) => (finishRegions = resolve)),
+    );
+    vi.mocked(api.autocompleteSystems).mockResolvedValue({
+      results: [anchorA],
+    });
+    const viewState = new ExploreViewState(
+      () => mockedPage,
+      enabled,
+      applicationStores,
+    );
+    renderEnabled('', {}, viewState, false);
+    await fireEvent.click(screen.getByRole('button', { name: 'Show on map' }));
+    await waitFor(() => expect(currentScene()).toBeDefined());
+    expect(viewState.initialGalaxyViewRequested).toBe(false);
+    expect(viewState.regionState).toBe('loading');
+    await fireEvent.input(
+      screen.getByRole('combobox', { name: 'System name' }),
+      {
+        target: { value: 'Anchor A' },
+      },
+    );
+    await fireEvent.click(
+      await screen.findByRole('option', { name: /Anchor A/ }),
+    );
+    await fireEvent.click(
+      await screen.findByRole('button', {
+        name: /Ranked 2.*9007199254741002/,
+      }),
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Local' }));
+    const local = viewState.cameraRequest;
+    expect(local).toMatchObject({
+      focusLy: rankedRows[1].coords,
+      distanceLy: 400,
+    });
+    const revision = viewState.cameraRequestRevision;
+    finishRegions(regionFixture());
+    await waitFor(() => expect(viewState.regionState).toBe('ready'));
+    await tick();
+    expect(viewState.cameraRequest).toEqual(local);
+    expect(viewState.cameraRequestRevision).toBe(revision);
+    expect(screen.getByRole('button', { name: 'Local' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(runtimeAdapter.create).toHaveBeenCalledOnce();
+    expect(api.searchExploreSystems).toHaveBeenCalledOnce();
+    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+  });
+
+  it('keeps Inspect and Plan here reachable from the selected-system footer', async () => {
+    renderEnabled(
+      `${enabled ? 'page_size=3&' : ''}near=${anchorA.id64}`,
+      { anchor: anchorA },
+      undefined,
+      false,
+    );
+    const results = await screen.findByRole('list', { name: 'System results' });
+    await fireEvent.click(
+      await within(results).findByRole('button', {
+        name: /Ranked 2.*9007199254741002/,
+      }),
+    );
+    await fireEvent.click(
+      within(results).getByRole('button', { name: 'Show on map' }),
+    );
+    const map = await screen.findByRole('dialog', {
+      name: 'Ranked 2 · Galaxy map',
+    });
+    const origin = mockedPage.url.searchParams.toString();
+    const inspect = within(map).getByRole('link', { name: 'Inspect Ranked 2' });
+    const href = new URL(inspect.getAttribute('href')!, mockedPage.url);
+    expect(href.pathname).toBe('/inspect');
+    expect(href.searchParams.get('system')).toBe(rankedRows[1].id64);
+    expect(
+      within(map).getByRole('link', { name: 'Plan here' }),
+    ).toHaveAttribute('href', `/plan?system=${rankedRows[1].id64}`);
+    expect(
+      map.querySelector(`[data-selected-system-card="${rankedRows[1].id64}"]`),
+    ).toBeInTheDocument();
+    expect(map.querySelector('.selection-status')).toHaveAttribute(
+      'aria-live',
+      'polite',
+    );
+    if (enabled) {
+      mockedGoto.mockClear();
+      await fireEvent.click(inspect);
+      const destination = new URL(mockedGoto.mock.lastCall![0], mockedPage.url);
+      expect(destination.pathname).toBe('/inspect');
+      expect(destination.searchParams.get('system')).toBe(rankedRows[1].id64);
+      expect(destination.searchParams.get('from')).toBe(origin);
+      expect(mockedGoto.mock.lastCall![1].state.anchor).toEqual(anchorA);
+    }
+  });
+
   it.each(['loading', 'empty'] as const)(
     'dismisses %s autocomplete before closing the non-modal map on Escape',
     async (state) => {
@@ -5454,7 +5745,7 @@ describe.each([false, true])('M09 on-demand map with F4=%s', (enabled) => {
       renderEnabled('', {}, undefined, false);
       const opener = screen.getByRole('button', { name: 'Show on map' });
       await fireEvent.click(opener);
-      await screen.findByRole('dialog', { name: 'Map window' });
+      await screen.findByRole('dialog', { name: /Galaxy map$/ });
       const input = screen.getByRole('combobox', { name: 'System name' });
       input.focus();
       await fireEvent.input(input, { target: { value: 'Qzz' } });
@@ -5469,11 +5760,11 @@ describe.each([false, true])('M09 on-demand map with F4=%s', (enabled) => {
         screen.queryByRole('listbox', { name: 'System suggestions' }),
       ).not.toBeInTheDocument();
       expect(
-        screen.getByRole('dialog', { name: 'Map window' }),
+        screen.getByRole('dialog', { name: /Galaxy map$/ }),
       ).toBeInTheDocument();
       await fireEvent.keyDown(input, { key: 'Escape' });
       expect(
-        screen.queryByRole('dialog', { name: 'Map window' }),
+        screen.queryByRole('dialog', { name: /Galaxy map$/ }),
       ).not.toBeInTheDocument();
       expect(opener).toHaveFocus();
       expect(input).toHaveValue('Qzz');
@@ -5548,7 +5839,7 @@ describe.each([false, true])('M09 on-demand map with F4=%s', (enabled) => {
       screen.queryByRole('dialog', { name: 'Map layers' }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole('dialog', { name: 'Map window' }),
+      screen.getByRole('dialog', { name: /Galaxy map$/ }),
     ).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
     expect(viewState.mapExpanded).toBe(true);
@@ -5597,5 +5888,197 @@ describe.each([false, true])('M09 on-demand map with F4=%s', (enabled) => {
     expect(api.searchExploreSystems).toHaveBeenCalledTimes(beforeSearch);
     expect(api.getArchetypeRankings).not.toHaveBeenCalled();
     expect(mockedPage.url.href).toBe(committedUrl);
+  });
+
+  it('restores the measured normal-window size before reopening without fetching new catalogue cells', async () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(793);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(501);
+    vi.mocked(api.searchExploreSystems).mockResolvedValue({
+      ...finderPage(0, 1, 1),
+      results: [
+        {
+          ...rankedRows[0],
+          coords: { x: 67.5, y: -119.47, z: 24.84 },
+        },
+      ],
+    });
+    const viewState = new ExploreViewState(
+      () => mockedPage,
+      enabled,
+      applicationStores,
+    );
+    renderEnabled(
+      `near=${anchorA.id64}`,
+      { anchor: anchorA },
+      viewState,
+      false,
+    );
+    const results = await screen.findByRole('list', { name: 'System results' });
+    await fireEvent.click(
+      await within(results).findByRole('button', {
+        name: /Ranked 1.*9007199254741001/,
+      }),
+    );
+    const opener = within(results).getByRole('button', { name: 'Show on map' });
+    await fireEvent.click(opener);
+    await waitFor(() => expect(currentScene()).toBeDefined());
+    await waitForCatalogueCells();
+    expect(viewState.starViewportSize).toEqual({ width: 793, height: 501 });
+    expect(viewState.mapWindowViewportSize).toEqual({
+      width: 793,
+      height: 501,
+    });
+    const camera = viewState.retainedCamera!.camera;
+    expect(camera).toMatchObject({
+      focusLy: { x: 67.5, y: -119.47, z: 24.84 },
+      distanceLy: 400,
+    });
+    const catalogueCount = vi.mocked(api.getCatalogueViewportSystems).mock.calls
+      .length;
+    expect(catalogueCount).toBeGreaterThan(0);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
+    runtimeResizeObserverCallback(
+      [
+        {
+          contentRect: { width: 1205, height: 501 },
+        } as unknown as ResizeObserverEntry,
+      ],
+      {} as ResizeObserver,
+    );
+    await tick();
+    await waitForCatalogueCells();
+    expect(viewState.starViewportSize).toEqual({ width: 1205, height: 501 });
+    expect(viewState.mapWindowViewportSize).toEqual({
+      width: 793,
+      height: 501,
+    });
+    expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(
+      catalogueCount,
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Close map' }));
+    expect(viewState.starViewportSize).toEqual({ width: 793, height: 501 });
+    expect(viewState.retainedCamera?.camera).toEqual(camera);
+
+    // The adapter is created before SpatialCanvas reports its first DOM size.
+    // Reopening must not reactivate queries against the disposed expanded size.
+    const createRuntime = runtimeAdapter.create.getMockImplementation()!;
+    runtimeAdapter.create.mockImplementationOnce((canvas, onStatus) => {
+      expect(viewState.starViewportSize).toEqual({ width: 793, height: 501 });
+      expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(
+        catalogueCount,
+      );
+      return createRuntime(canvas, onStatus);
+    });
+    await fireEvent.click(opener);
+    await waitFor(() => expect(runtimeAdapter.create).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(viewState.starViewportSize).toEqual({ width: 793, height: 501 }),
+    );
+    await waitForCatalogueCells();
+    expect(currentScene().camera).toEqual(camera);
+    expect(viewState.retainedCamera?.camera).toEqual(camera);
+    expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(
+      catalogueCount,
+    );
+    expect(api.searchExploreSystems).toHaveBeenCalledOnce();
+    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+    expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(1);
+  });
+
+  it('captures the normal DOM geometry when Expand is clicked before the renderer reports its first viewport', async () => {
+    const viewState = new ExploreViewState(
+      () => mockedPage,
+      enabled,
+      applicationStores,
+    );
+    const createRuntime = runtimeAdapter.create.getMockImplementation()!;
+    runtimeAdapter.create.mockImplementationOnce((canvas, onStatus) => {
+      // The window and header already exist while the lazy renderer starts;
+      // SpatialCanvas has not called onViewportChange at this point.
+      expect(viewState.starViewportSize).toBeNull();
+      expect(viewState.mapWindowViewportSize).toBeNull();
+      screen.getByRole('button', { name: 'Expand' }).click();
+      expect(viewState.mapExpanded).toBe(true);
+      expect(viewState.mapWindowViewportSize).toEqual({
+        width: 640,
+        height: 360,
+      });
+      return createRuntime(canvas, onStatus);
+    });
+    renderEnabled('', {}, viewState, false);
+    await fireEvent.click(screen.getByRole('button', { name: 'Show on map' }));
+    await waitFor(() => expect(currentScene()).toBeDefined());
+    expect(viewState.mapExpanded).toBe(true);
+    await fireEvent.click(screen.getByRole('button', { name: 'Close map' }));
+    expect(viewState.starViewportSize).toEqual({ width: 640, height: 360 });
+    expect(runtimeAdapter.create).toHaveBeenCalledOnce();
+  });
+
+  it('reuses the measured density viewport on reopen instead of requesting fallback dimensions', async () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(793);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(501);
+    const viewState = new ExploreViewState(
+      () => mockedPage,
+      enabled,
+      applicationStores,
+    );
+    renderEnabled('', {}, viewState, false);
+    const opener = screen.getByRole('button', { name: 'Show on map' });
+    await fireEvent.click(opener);
+    await waitFor(() => expect(currentScene()).toBeDefined());
+    const camera = {
+      ...currentScene().camera,
+      distanceLy: 10_000,
+      focusLy: { x: 30_000, y: 0, z: 0 },
+      revision: 7,
+    };
+    emitRuntime({ type: 'CAMERA_CHANGED', camera });
+    await waitFor(() => expect(viewState.streamCamera).toEqual(camera));
+    await waitFor(() => expect(api.getMapHeatmap).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(queryClient.isFetching({ queryKey: ['map-heatmap'] })).toBe(0),
+    );
+    const normalCount = vi.mocked(api.getMapHeatmap).mock.calls.length;
+    const normalRequest = vi.mocked(api.getMapHeatmap).mock.lastCall![0];
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
+    runtimeResizeObserverCallback(
+      [
+        {
+          contentRect: { width: 1205, height: 501 },
+        } as unknown as ResizeObserverEntry,
+      ],
+      {} as ResizeObserver,
+    );
+    // Existing overview streaming follows a genuinely different footprint.
+    await waitFor(() =>
+      expect(vi.mocked(api.getMapHeatmap).mock.calls.length).toBeGreaterThan(
+        normalCount,
+      ),
+    );
+    await waitFor(() =>
+      expect(queryClient.isFetching({ queryKey: ['map-heatmap'] })).toBe(0),
+    );
+    expect(vi.mocked(api.getMapHeatmap).mock.lastCall![0]).not.toEqual(
+      normalRequest,
+    );
+    const expandedCount = vi.mocked(api.getMapHeatmap).mock.calls.length;
+    await fireEvent.click(screen.getByRole('button', { name: 'Close map' }));
+    expect(viewState.starViewportSize).toEqual({ width: 793, height: 501 });
+    expect(viewState.retainedCamera?.camera).toEqual(camera);
+    expect(api.getMapHeatmap).toHaveBeenCalledTimes(expandedCount);
+
+    await fireEvent.click(opener);
+    await waitFor(() => expect(runtimeAdapter.create).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(currentScene().camera).toEqual(camera));
+    await waitFor(() =>
+      expect(queryClient.isFetching({ queryKey: ['map-heatmap'] })).toBe(0),
+    );
+    expect(viewState.starViewportSize).toEqual({ width: 793, height: 501 });
+    expect(viewState.retainedCamera?.camera).toEqual(camera);
+    expect(api.getMapHeatmap).toHaveBeenCalledTimes(expandedCount);
+    expect(api.searchExploreSystems).not.toHaveBeenCalled();
+    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
   });
 });

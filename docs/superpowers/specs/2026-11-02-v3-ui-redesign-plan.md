@@ -142,6 +142,7 @@ URL-only decision for eventual custom weights does not define those dimensions.
 
 Each row is one independently reviewable PR, in this order. All implementation
 rows retain the contracts and truth rules in §§3 and 6 and the gate in §5.
+P2d refines the merged P2b window ahead of the separate P2c task-tab work.
 No slice needs a SQL migration or new backend contract.
 
 | Phase / slice | Contents | Migration? | Visual? |
@@ -151,6 +152,7 @@ No slice needs a SQL migration or new backend contract.
 | P2a | Extract Explore view state from layout ownership; retain query, filters, selection, result scroll and spatial context through layout changes; **implemented in this PR** | No | Verify unchanged |
 | P2b | M09: on-demand map window, **Show on map**, **Expand**, close/reopen and state preservation using the existing canvas; **implemented in this PR** | No | Yes |
 | P2c | Explore main-task tabs and shared movable/dockable tool behaviour; keep Layers and map controls accessible in the window | No | Yes |
+| P2d | Map window aligned to the owner's concept placement/styling: canvas first, camera controls below, Regions and Sources pop-outs, compact selection/footer actions; **implemented in this PR** | No | Yes |
 | P3 | Finder control polish: archetype/results priority, existing count-group tabs, persistent chips and truthful scope gaps; all 19 existing count controls retained; **implemented in this PR** | No | Yes |
 | P4 | Inspect **Overview / Bodies / Stations** tabs; evidence explanation pop-out and retained Sources & freshness; **implemented (#1002)** | No | Yes |
 | P5a | Plan **System layout / Build order** tabs; facility preview pop-out with explicit **Add to plan**; **implemented (#1003)** | No | Yes |
@@ -209,6 +211,32 @@ Lab retains injected map failure/recovery and empty/partial/oversized data
 checks through the real canvas. Apply §5 to every visible slice.
 Keyboard docking/resize is deferred to P2c. The phone window fills the available
 workspace and remains non-modal at every width; closing restores the results.
+
+**P2d is implemented in this PR.** The
+[`2026-11-01-ui-concept-pack/`](2026-11-01-ui-concept-pack/README.md) folder is
+the reference for placement and styling: `02-map.png` defines the map window,
+with `01-finder.png` supplying the surrounding Finder context. This is not a
+pixel-fidelity claim. The existing renderer, real coordinates and regions remain
+the map's authority; the concept's drawn galaxy is illustrative.
+
+The selected-system title, Local / Galaxy camera presets, Regions chip and
+Layers sit above the flexible canvas. Camera controls and range/grid readout
+sit below it. Regions and Sources use non-modal pop-outs; region/catalogue
+provenance stays reachable, and Layers retains the nebula/EDAstro attribution
+and rights text. Compact selection/status and Back to results, Inspect and
+Plan here actions keep the canvas prominent. Local and Galaxy use existing
+camera requests only, with Local disabled and explained when no system is
+selected; they add no scene modes or data-request paths. P2b's route-owned
+state, topmost Escape, focus return, disposal, single-canvas ownership and
+request budgets are preserved. Explore task tabs remain P2c.
+
+Product Cypress measures the default window without an inner scrollbar at
+1280×800 (open and expanded), with the canvas at least 60% of window height;
+at 390×844 the workspace-filling window gives the canvas at least 55% of the
+viewport height. It checks horizontal overflow at 1280, 768 and 390 pixels,
+retains `product/explore-map-expanded-*` screenshots and adds
+`product/explore-map-window-open-*` screenshots for desktop and phone. These
+checks support owner comparison and retain §5's separate visual acceptance gate.
 
 ### Phase 3 — Finder controls
 
@@ -362,5 +390,6 @@ unrelated work. Promotion always retains §5's separate visual gate.
 5. **Visual reference hand-off — resolved 2026-11-03:** the owner's concept pack
    is now in the repository (see §1). P2b was built before the images were
    available and follows this plan's description only; it makes no claim of
-   pixel fidelity or an approved visual baseline. Aligning the map window to
-   `02-map.png` is a follow-up (P2d); the other screens follow in turn.
+   pixel fidelity or an approved visual baseline. P2d's alignment of the map
+   window to `02-map.png` is implemented in this PR (§4), retaining the concept
+   pack as placement/styling reference; the other screens follow in turn.

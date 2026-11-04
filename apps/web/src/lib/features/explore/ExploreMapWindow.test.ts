@@ -156,7 +156,8 @@ describe('Explore map window', () => {
       onExpand,
     });
     await ready();
-    const dialog = screen.getByRole('dialog', { name: 'Map window' });
+    const dialog = screen.getByRole('dialog', { name: /Galaxy map$/ });
+    expect(dialog).toHaveAccessibleName('Galaxy map');
     expect(dialog).toHaveAttribute('aria-modal', 'false');
     expect(dialog).toHaveAttribute('data-expanded', 'false');
     expect(screen.getByRole('button', { name: 'Close map' })).toHaveFocus();
@@ -166,6 +167,9 @@ describe('Explore map window', () => {
       within(dialog).getByRole('button', { name: 'Expand' }),
     );
     expect(dialog).toHaveAttribute('data-expanded', 'true');
+    expect(
+      within(dialog).getByRole('button', { name: 'Restore size' }),
+    ).toHaveAttribute('aria-pressed', 'true');
     expect(dialog.querySelector('canvas')).toBe(canvas);
     expect(adapter.create).toHaveBeenCalledOnce();
     expect(sessions[0]!.runtime.subscribe).toHaveBeenCalledOnce();
@@ -185,6 +189,62 @@ describe('Explore map window', () => {
     expect(disconnect).toHaveBeenCalledOnce();
   });
 
+  it('names the window for the selected system and returns to results through the same close lifecycle', async () => {
+    const onClose = vi.fn(() => view.unmount());
+    const view = render(ExploreMapWindow, {
+      canvasProps: { scene: buildGalaxyReviewFixtureScene() },
+      selectedSystemName: 'Sol',
+      expanded: false,
+      opener,
+      onClose,
+      onExpand: vi.fn(),
+    });
+    await ready();
+    const dialog = screen.getByRole('dialog', { name: 'Sol · Galaxy map' });
+    expect(dialog).toHaveAttribute('aria-modal', 'false');
+    await fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Back to results' }),
+    );
+    expect(onClose).toHaveBeenCalledOnce();
+    await waitFor(() => expect(opener).toHaveFocus());
+    expect(sessions[0]!.session.dispose).toHaveBeenCalledOnce();
+    expect(document.querySelector('[data-spatial-canvas]')).toBeNull();
+  });
+
+  it('places camera controls below the real canvas while retaining every existing action and readout', async () => {
+    render(ExploreMapWindow, {
+      canvasProps: { scene: buildGalaxyReviewFixtureScene() },
+      expanded: false,
+      onClose: vi.fn(),
+      onExpand: vi.fn(),
+    });
+    await ready();
+    const canvas = screen.getByRole('application');
+    const controls = screen.getByRole('group', {
+      name: 'Galaxy camera controls',
+    });
+    expect(canvas.compareDocumentPosition(controls)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    for (const name of [
+      'Zoom in',
+      'Zoom out',
+      'Top down',
+      'Tilted',
+      'Reset view',
+      'Rotate left',
+      'Rotate right',
+      'Move up',
+      'Move down',
+    ])
+      expect(within(controls).getByRole('button', { name })).toBeEnabled();
+    expect(controls).toHaveTextContent(/Range .* ly/);
+    expect(controls).toHaveTextContent(/Grid /);
+    expect(
+      within(controls).getByRole('group', { name: 'Focus coordinates' }),
+    ).toBeInTheDocument();
+  });
+
   it('handles Escape only at the top of the shared tool stack and unregisters on close', async () => {
     const onClose = vi.fn(() => view.unmount());
     const view = render(ExploreMapWindow, {
@@ -195,7 +255,7 @@ describe('Explore map window', () => {
       onExpand: vi.fn(),
     });
     await ready();
-    const dialog = screen.getByRole('dialog', { name: 'Map window' });
+    const dialog = screen.getByRole('dialog', { name: /Galaxy map$/ });
     expect(isTopmostPopout(dialog)).toBe(true);
     const tool = document.createElement('div');
     document.body.append(tool);
@@ -208,6 +268,36 @@ describe('Explore map window', () => {
     expect(onClose).toHaveBeenCalledOnce();
     await waitFor(() => expect(opener).toHaveFocus());
     expect(isTopmostPopout(dialog)).toBe(false);
+  });
+
+  it('keeps the window in the viewport after resize without changing focus or rebuilding the canvas', async () => {
+    const view = render(ExploreMapWindow, {
+      canvasProps: { scene: buildGalaxyReviewFixtureScene() },
+      expanded: true,
+      onClose: vi.fn(),
+      onExpand: vi.fn(),
+    });
+    await ready();
+    const dialog = screen.getByRole('dialog', { name: 'Galaxy map' });
+    const scroll = vi.fn();
+    dialog.scrollIntoView = scroll;
+    vi.spyOn(dialog, 'getBoundingClientRect').mockReturnValue({
+      top: -20,
+      bottom: 748,
+    } as DOMRect);
+    await fireEvent(window, new Event('resize'));
+    await waitFor(() =>
+      expect(scroll).toHaveBeenCalledWith({
+        behavior: 'instant',
+        block: 'start',
+      }),
+    );
+    expect(screen.getByRole('button', { name: 'Close map' })).toHaveFocus();
+    expect(adapter.create).toHaveBeenCalledOnce();
+    view.unmount();
+    scroll.mockClear();
+    await fireEvent(window, new Event('resize'));
+    expect(scroll).not.toHaveBeenCalled();
   });
 
   it('allows the background Body filters tool to own Escape without closing the map', async () => {
@@ -235,7 +325,7 @@ describe('Explore map window', () => {
     expect(trigger).toHaveFocus();
     expect(onClose).not.toHaveBeenCalled();
     expect(
-      screen.getByRole('dialog', { name: 'Map window' }),
+      screen.getByRole('dialog', { name: /Galaxy map$/ }),
     ).toBeInTheDocument();
   });
 
@@ -266,7 +356,7 @@ describe('Explore map window', () => {
     expect(input).toHaveFocus();
     expect(onClose).not.toHaveBeenCalled();
     expect(
-      screen.getByRole('dialog', { name: 'Map window' }),
+      screen.getByRole('dialog', { name: /Galaxy map$/ }),
     ).toBeInTheDocument();
     await fireEvent.keyDown(input, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledOnce();

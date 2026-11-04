@@ -18,6 +18,7 @@
     element = $bindable(),
     beforeCanvas,
     afterCanvas,
+    selectedSystemName = null,
   }: {
     canvasProps: ComponentProps<typeof SpatialCanvas>;
     expanded: boolean;
@@ -30,6 +31,7 @@
     element?: HTMLDivElement;
     beforeCanvas?: Snippet;
     afterCanvas?: Snippet;
+    selectedSystemName?: string | null;
   } = $props();
 
   let layer = $state(30);
@@ -73,6 +75,22 @@
 
   onMount(() => {
     closeButton.focus({ preventScroll: true });
+    let resizeFrame = 0;
+    const keepWindowVisible = () => {
+      cancelAnimationFrame(resizeFrame);
+      resizeFrame = requestAnimationFrame(() => {
+        // Reflow above this in-document window can move it as the viewport
+        // changes. Clamp after layout without moving focus or its camera.
+        const bounds = element?.getBoundingClientRect();
+        if (bounds && (bounds.top < 0 || bounds.bottom > window.innerHeight))
+          element?.scrollIntoView?.({ behavior: 'instant', block: 'start' });
+      });
+    };
+    window.addEventListener('resize', keepWindowVisible);
+    return () => {
+      window.removeEventListener('resize', keepWindowVisible);
+      cancelAnimationFrame(resizeFrame);
+    };
   });
 
   $effect(() => {
@@ -100,10 +118,9 @@
   style:z-index={layer}
 >
   <header class="map-window-heading">
-    <div>
-      <p class="eyebrow">Galaxy workspace</p>
-      <h2 id={`${id}-title`}>Map window</h2>
-    </div>
+    <h2 id={`${id}-title`}>
+      {selectedSystemName ? `${selectedSystemName} · Galaxy map` : 'Galaxy map'}
+    </h2>
     <div class="map-window-actions">
       <button
         type="button"
@@ -124,9 +141,17 @@
   </header>
   <div class="map-window-content">
     {@render beforeCanvas?.()}
-    <SpatialCanvas {...canvasProps} />
-    {@render afterCanvas?.()}
+    <SpatialCanvas {...canvasProps} controlsBelow />
   </div>
+  <footer class="map-window-footer">
+    <button
+      type="button"
+      class="quiet-button"
+      data-map-window-back
+      onclick={() => void close()}>Back to results</button
+    >
+    {@render afterCanvas?.()}
+  </footer>
 </div>
 
 <style>
@@ -136,14 +161,15 @@
     flex-direction: column;
     min-width: 0;
     min-height: 0;
-    height: min(70rem, calc(100dvh - 2rem));
+    height: calc(100dvh - 1rem);
     align-self: start;
-    border: 1px solid var(--line);
+    border: 1px solid var(--neon);
     border-radius: var(--radius-lg);
     background: var(--panel);
     background-image: var(--panel-gloss);
-    box-shadow: var(--shadow-panel);
+    box-shadow: var(--line-glow), var(--shadow-panel);
     color: var(--text);
+    scroll-margin-top: 0.5rem;
   }
   .map-window-heading {
     display: flex;
@@ -151,37 +177,72 @@
     justify-content: space-between;
     align-items: center;
     gap: 0.75rem;
-    padding: 1rem;
+    padding: 0.35rem 0.75rem;
     border-bottom: 1px solid var(--line);
   }
   .map-window-heading h2 {
     margin: 0;
     font-family: var(--font-hud);
     font-size: 1.15rem;
-  }
-  .eyebrow {
-    margin: 0 0 0.25rem;
-    color: var(--text-muted);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .map-window-actions {
     display: flex;
-    flex-wrap: wrap;
+    flex-shrink: 0;
     gap: 0.5rem;
   }
   .map-window-content {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
     min-height: 0;
-    overflow: auto;
-    overscroll-behavior: contain;
-    padding: 0.75rem;
+    padding: 0.5rem 0.75rem 0;
+    gap: 0.25rem;
+  }
+  .map-window-content :global(.map-systems-surface) {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
   .map-window-content :global(.spatial-canvas) {
-    height: clamp(16rem, 45dvh, 42rem);
+    flex: 1;
+    min-height: 0;
+    height: auto;
+    border: 1px solid var(--line);
   }
-  .explore-map-window[data-expanded='true'] :global(.spatial-canvas) {
-    height: clamp(20rem, 65dvh, 56rem);
+  .map-window-content :global(.nearby-systems) {
+    margin: 0;
+    font-size: 0.75rem;
+    max-height: 25%;
+    overflow: auto;
+  }
+  .map-window-content :global(.nearby-systems summary) {
+    padding: 0.15rem 0;
+  }
+  .map-window-content :global(.renderer-status) {
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    font-size: 0.7rem;
+  }
+  .map-window-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 0.35rem 0.6rem;
+    margin-top: 0.35rem;
+    padding: 0.35rem 0.75rem;
+    border-top: 1px solid var(--line);
+    background-image: var(--panel-gloss);
   }
   .quiet-button {
-    min-height: 2.75rem;
+    min-height: 2.25rem;
+    padding: 0.35rem 0.6rem;
     border: 1px solid var(--line);
     border-radius: var(--radius-pill);
     background: var(--panel-raised);
@@ -194,15 +255,22 @@
     outline-offset: 2px;
   }
   @media (max-width: 700px) {
-    .map-window-heading {
-      flex-wrap: wrap;
+    .map-window-heading h2 {
+      font-size: 1rem;
+    }
+    .map-window-heading,
+    .map-window-footer {
+      padding: 0.4rem 0.5rem;
+      gap: 0.3rem;
+    }
+    .map-window-actions {
+      gap: 0.25rem;
     }
     .map-window-content {
-      padding: 0.5rem;
+      padding: 0.35rem 0.5rem 0;
     }
-    .explore-map-window :global(.spatial-canvas),
-    .explore-map-window[data-expanded='true'] :global(.spatial-canvas) {
-      height: clamp(16rem, 45dvh, 42rem);
+    .quiet-button {
+      font-size: 0.75rem;
     }
   }
 </style>

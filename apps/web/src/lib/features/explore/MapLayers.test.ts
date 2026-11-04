@@ -210,6 +210,33 @@ describe('Map layers pop-out', () => {
     expect(legend).not.toHaveTextContent('bounded view');
   });
 
+  it('keeps source attribution and the full rights notice reachable when nebulae are hidden', async () => {
+    const { rerender } = renderLayers();
+    const attribution = 'EDAstro / CMDR Orvidius';
+    const rights = 'Copyright © CMDR Orvidius — All Rights Reserved';
+    await rerender({
+      nebulaeEnabled: false,
+      nebulaeStatus: createRawSnippet(() => ({
+        render: () =>
+          `<span><a href="https://edastro.com/mapcharts/files.html">${attribution}</a> · <a href="https://edastro.com/mapcharts/files/nebulae-coordinates.csv">source CSV</a> · ${rights}</span>`,
+      })),
+    });
+    const { dialog } = await openLayers();
+    expect(
+      within(dialog).getByRole('switch', { name: 'Nebulae' }),
+    ).not.toBeChecked();
+    expect(
+      within(dialog).getByRole('link', { name: attribution }),
+    ).toHaveAttribute('href', 'https://edastro.com/mapcharts/files.html');
+    expect(
+      within(dialog).getByRole('link', { name: 'source CSV' }),
+    ).toHaveAttribute(
+      'href',
+      'https://edastro.com/mapcharts/files/nebulae-coordinates.csv',
+    );
+    expect(dialog).toHaveTextContent(rights);
+  });
+
   it.each(['Escape', 'Close', 'outside', 'trigger'] as const)(
     'closes on %s and returns focus to the Layers trigger',
     async (method) => {

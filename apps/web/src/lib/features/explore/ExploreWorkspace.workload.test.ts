@@ -453,10 +453,21 @@ describe('Explore load and interaction work budget', () => {
       });
       void queryClient.invalidateQueries({ queryKey: ['map-heatmap'] });
       await settle();
+      const beforeTools = work().api;
+      await fireEvent.click(screen.getByRole('button', { name: 'Regions 42' }));
+      await settle();
+      expect(work().api).toEqual(beforeTools);
       await fireEvent.click(
         screen.getByRole('button', { name: 'All 42 regions' }),
       );
       await settle();
+      await fireEvent.keyDown(window, { key: 'Escape' });
+      const beforeSources = work().api;
+      await fireEvent.click(screen.getByRole('button', { name: 'Sources' }));
+      await settle();
+      expect(work().api).toEqual(beforeSources);
+      expect(adapter).toHaveBeenCalledTimes(1);
+      await fireEvent.keyDown(window, { key: 'Escape' });
       await fireEvent.click(screen.getByRole('button', { name: /^Layers · / }));
       await fireEvent.click(screen.getByRole('switch', { name: 'Nebulae' }));
       await settle();
