@@ -11,6 +11,14 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-04 — UI redesign: home page layout fixes
+
+Two problems the owner would have seen on the new home page are fixed. Nothing in the API, SQL, workflows or provenance files changed, and nothing here is deployed.
+
+- **The search box is wide enough to read.** Where the archetype choice is on, the reference-system box now has a full-width row to itself, with the archetype choice and the "Find a system" button sharing the row below it. Measured in a real browser with the archetype choice on, the box is 545px wide at 1280px (it was 188px), 427px at 1024px (it was 207px), 640px at 768px and 342px on a 390px phone. The old rule that squeezed the fields into two equal columns below 1100px is gone.
+- **The black hole is visible on tablets and phones.** At 900px wide and below, the picture is a clear band above the headline instead of sitting behind the text, with a short fade into the page at its bottom edge. No dark overlay is needed there, because the text sits on the plain page background; its contrast is therefore the plain text-on-page contrast against `--bg-void`: headline and lede 16.7:1, secondary text 8.8:1, orange eyebrow and numbers 7.4:1 (measured against the colours in this tree). On wider screens the picture stays behind and to the right of the copy with the same left-to-right dark overlay as before.
+- **Checked at four sizes.** The product browser test now loads the home page at 1280x800, 1024x768, 768x1024 and 390x844, fails if the page scrolls sideways, fails if the reference-system box is narrower than 320px (desktop) or 280px (the other sizes), fails if the black hole band is shorter than 200px or overlaps the copy on tablets and phones, and saves a whole-page screenshot at each size as `product/home-hero-desktop`, `-laptop`, `-tablet` and `-phone`.
+
 ## 2026-11-03 — UI redesign: home page to concept
 
 The home page opens with “Find your next frontier.” in the condensed HUD font
