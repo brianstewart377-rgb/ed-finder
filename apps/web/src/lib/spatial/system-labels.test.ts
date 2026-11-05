@@ -1,0 +1,513 @@
+import { describe, expect, it } from 'vitest';
+import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
+import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera.js';
+import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import { Scene } from '@babylonjs/core/scene.js';
+
+import type { BodyVisualDescriptor, SystemCameraState } from './contracts';
+import { applySystemCamera, createBabylonSystemScene } from './babylon/adapter';
+import {
+  SYSTEM_CAMERA_FOV_RAD,
+  layoutSystemBodyLabels,
+  systemCameraProjector,
+  systemGlyphRadiusPx,
+  systemLabelTexts,
+} from './system-labels';
+import { solLikeSystemDetail } from './system-scene-fixtures';
+import { buildSystemScene, systemBodyLayout } from './system-scene';
+
+function body(
+  bodyId: number,
+  name: string,
+  parentId: number | null,
+  distance: number,
+  bodyClass = 'Planet',
+  displayRadius = bodyClass === 'Star' ? 2.2 : 0.68,
+): BodyVisualDescriptor {
+  return {
+    ref: { systemId64: '42', bodyId },
+    name,
+    ...(parentId === null
+      ? {}
+      : { parent: { systemId64: '42', bodyId: parentId } }),
+    class: { value: bodyClass, representation: 'AUTHORITATIVE' },
+    distanceFromArrivalLs: { value: distance, representation: 'AUTHORITATIVE' },
+    displayRadius,
+    orbital: { placement: 'DETERMINISTIC_SCHEMATIC' },
+    rings: { state: 'UNKNOWN', bands: [] },
+  };
+}
+
+const camera = (patch: Partial<SystemCameraState> = {}): SystemCameraState => ({
+  systemId64: '42',
+  focus: { kind: 'system', systemId64: '42' },
+  semanticDistance: 60,
+  bearingRad: -0.85,
+  pitchRad: 0.58,
+  revision: 1,
+  ...patch,
+});
+
+describe('System Map label projection', () => {
+  it('uses the field of view Babylon gives the system camera', () => {
+    const engine = new NullEngine();
+    const probe = new FreeCamera('probe', Vector3.Zero(), new Scene(engine));
+    expect(probe.fov).toBe(SYSTEM_CAMERA_FOV_RAD);
+    expect(probe.fovMode).toBe(FreeCamera.FOVMODE_VERTICAL_FIXED);
+    engine.dispose();
+  });
+
+  it.each([
+    [1200, 684, {}],
+    [640, 900, { bearingRad: 1.9, pitchRad: 1.1 }],
+    [1707, 700, { bearingRad: -2.6, pitchRad: 0.2, semanticDistance: 24 }],
+    [800, 800, { pitchRad: 9 }],
+    [800, 800, { pitchRad: -1, semanticDistance: Number.NaN }],
+  ])(
+    'puts every body exactly where Babylon does in a %i by %i canvas %o',
+    (width, height, patch) => {
+      const engine = new NullEngine({
+        renderWidth: width,
+        renderHeight: height,
+        textureSize: 512,
+        deterministicLockstep: true,
+        lockstepMaxSteps: 1,
+      });
+      const contract = buildSystemScene(solLikeSystemDetail(), 1);
+      const product = createBabylonSystemScene(engine, contract);
+      const earth = product.bodies.find(
+        (entry) => entry.layout.body.name === 'Earth',
+      )!;
+      // Both an overview and a camera centred on a body, as the commander can do.
+      for (const focus of [
+        contract.camera.focus,
+        {
+          kind: 'body' as const,
+          ref: earth.layout.body.ref,
+        },
+      ]) {
+        const state = { ...contract.camera, ...patch, focus };
+        applySystemCamera(product.camera, state, product.bodies);
+        product.scene.updateTransformMatrix(true);
+        const viewport = product.camera.viewport.toGlobal(width, height);
+        const target =
+          focus.kind === 'body' ? earth.layout.position : { x: 0, y: 0, z: 0 };
+        const project = systemCameraProjector(state, target, {
+          width,
+          height,
+        })!;
+        expect(project).not.toBeNull();
+        let compared = 0;
+        for (const entry of product.bodies) {
+          const babylon = Vector3.Project(
+            entry.mesh.position,
+            Matrix.Identity(),
+            product.scene.getTransformMatrix(),
+            viewport,
+          );
+          const mine = project(
+            entry.layout.position.x,
+            entry.layout.position.y,
+            entry.layout.position.z,
+          );
+          const viewZ = Vector3.TransformCoordinates(
+            entry.mesh.position,
+            product.scene.getViewMatrix(),
+          ).z;
+          // Behind the camera is the one place Babylon has no useful answer.
+          expect(mine === null, `${entry.layout.body.name} visibility`).toBe(
+            !(viewZ > 0),
+          );
+          if (!mine) continue;
+          compared += 1;
+          expect(mine.x, `${entry.layout.body.name} x`).toBeCloseTo(
+            babylon.x,
+            2,
+          );
+          expect(mine.y, `${entry.layout.body.name} y`).toBeCloseTo(
+            babylon.y,
+            2,
+          );
+        }
+        expect(compared).toBeGreaterThan(20);
+      }
+      product.scene.dispose();
+      engine.dispose();
+    },
+  );
+
+  it('sizes a glyph the way its projected silhouette is sized', () => {
+    const width = 1000;
+    const height = 600;
+    const engine = new NullEngine({
+      renderWidth: width,
+      renderHeight: height,
+      textureSize: 512,
+      deterministicLockstep: true,
+      lockstepMaxSteps: 1,
+    });
+    const contract = buildSystemScene(solLikeSystemDetail(), 1);
+    const product = createBabylonSystemScene(engine, contract);
+    const jupiter = product.bodies.find(
+      (entry) => entry.layout.body.name === 'Jupiter',
+    )!;
+    applySystemCamera(product.camera, contract.camera, product.bodies);
+    product.scene.updateTransformMatrix(true);
+    const viewport = product.camera.viewport.toGlobal(width, height);
+    const toScreen = (point: Vector3) =>
+      Vector3.Project(
+        point,
+        Matrix.Identity(),
+        product.scene.getTransformMatrix(),
+        viewport,
+      );
+    const radius = jupiter.layout.body.displayRadius;
+    // One glyph-radius from the centre, straight up the view plane.
+    const viewUp = product.camera.getDirection(Vector3.Up());
+    const centre = toScreen(jupiter.mesh.position);
+    const rim = toScreen(jupiter.mesh.position.add(viewUp.scale(radius)));
+    const project = systemCameraProjector(
+      contract.camera,
+      { x: 0, y: 0, z: 0 },
+      { width, height },
+    )!;
+    const at = project(
+      jupiter.layout.position.x,
+      jupiter.layout.position.y,
+      jupiter.layout.position.z,
+    )!;
+    expect(
+      systemGlyphRadiusPx(radius, at.depth, { width, height }),
+    ).toBeCloseTo(Math.abs(centre.y - rim.y), 2);
+    product.scene.dispose();
+    engine.dispose();
+  });
+
+  it('refuses to project into a canvas with no usable size', () => {
+    for (const viewport of [
+      { width: 0, height: 0 },
+      { width: 1, height: 1 },
+      { width: Number.NaN, height: 400 },
+    ]) {
+      expect(
+        systemCameraProjector(camera(), { x: 0, y: 0, z: 0 }, viewport),
+      ).toBeNull();
+    }
+  });
+
+  it('drops points behind the camera', () => {
+    const project = systemCameraProjector(
+      camera({ semanticDistance: 30 }),
+      { x: 0, y: 0, z: 0 },
+      { width: 800, height: 600 },
+    )!;
+    // The camera sits above and behind the origin; this is further behind it.
+    const behind = project(
+      Math.sin(-0.85) * 500,
+      Math.sin(0.58) * 500,
+      -Math.cos(-0.85) * 500,
+    );
+    expect(behind).toBeNull();
+  });
+});
+
+describe('System Map label text', () => {
+  const layoutOf = (bodies: readonly BodyVisualDescriptor[]) =>
+    systemBodyLayout(bodies);
+
+  it('strips the words every body shares, but never from a root star', () => {
+    const texts = systemLabelTexts(
+      layoutOf([
+        body(0, 'Hyades Sector AB-W b2-3 A', null, 0, 'Star'),
+        body(1, 'Hyades Sector AB-W b2-3 A 1', 0, 300),
+        body(2, 'Hyades Sector AB-W b2-3 A 1 a', 1, 301, 'Planet'),
+        body(3, 'Hyades Sector AB-W b2-3 A 2', 0, 900),
+      ]),
+    );
+    expect(texts.get(0)).toBe('Hyades Sector AB-W b2-3 A');
+    expect(texts.get(1)).toBe('1');
+    expect(texts.get(2)).toBe('1 a');
+    expect(texts.get(3)).toBe('2');
+  });
+
+  it('keeps names whole when bodies share no words, or there is only one', () => {
+    const solar = systemLabelTexts(
+      layoutOf([
+        body(0, 'Sun', null, 0, 'Star'),
+        body(1, 'Earth', 0, 500),
+        body(2, 'Mars', 0, 800),
+      ]),
+    );
+    expect([...solar.values()]).toEqual(['Sun', 'Earth', 'Mars']);
+    const alone = systemLabelTexts(
+      layoutOf([body(0, 'Lonely Star', null, 0, 'Star')]),
+    );
+    expect(alone.get(0)).toBe('Lonely Star');
+  });
+
+  it('never reduces a name to nothing, and skips blank names', () => {
+    const texts = systemLabelTexts(
+      layoutOf([
+        body(0, 'Foo', null, 0, 'Star'),
+        body(1, 'Foo', 0, 500),
+        body(2, '   ', 0, 700),
+      ]),
+    );
+    expect(texts.get(1)).toBe('Foo');
+    expect(texts.has(2)).toBe(false);
+  });
+});
+
+describe('System Map label layout', () => {
+  const viewport = { width: 1200, height: 684 };
+  const sol = () => {
+    const contract = buildSystemScene(solLikeSystemDetail(), 1);
+    return { contract, layouts: systemBodyLayout(contract.bodies) };
+  };
+
+  it('names the stars and planets of an overview without overlapping any', () => {
+    const { contract, layouts } = sol();
+    const labels = layoutSystemBodyLabels(layouts, contract.camera, viewport);
+    expect(labels.length).toBeGreaterThan(5);
+    expect(labels.length).toBeLessThanOrEqual(22);
+    const names = labels.map((label) => label.text);
+    expect(names).toContain('Sol-like');
+    expect(names).toContain('Earth');
+    expect(names).toContain('Jupiter');
+    expect(new Set(labels.map((label) => label.bodyId)).size).toBe(
+      labels.length,
+    );
+    // Every name sits on the canvas.
+    for (const label of labels) {
+      expect(label.x).toBeGreaterThanOrEqual(0);
+      expect(label.x).toBeLessThanOrEqual(viewport.width);
+      expect(label.y).toBeGreaterThanOrEqual(0);
+      expect(label.y).toBeLessThanOrEqual(viewport.height);
+    }
+    // Approximate no-overlap check, with the same estimate the layout uses.
+    const rect = (label: (typeof labels)[number]) => {
+      const width = label.text.length * 6.4 + 8;
+      const left = label.side === 'right' ? label.x : label.x - width;
+      return {
+        left,
+        right: left + width,
+        top: label.y - 8,
+        bottom: label.y + 8,
+      };
+    };
+    for (let i = 0; i < labels.length; i += 1) {
+      for (let j = i + 1; j < labels.length; j += 1) {
+        const a = rect(labels[i]);
+        const b = rect(labels[j]);
+        const apart =
+          a.right <= b.left + 1 ||
+          b.right <= a.left + 1 ||
+          a.bottom <= b.top + 1 ||
+          b.bottom <= a.top + 1;
+        expect(apart, `${labels[i].text} / ${labels[j].text}`).toBe(true);
+      }
+    }
+  });
+
+  it('keeps every name off the glyphs of the other bodies', () => {
+    const { contract, layouts } = sol();
+    const byId = new Map(
+      layouts.map((layout) => [layout.body.ref.bodyId, layout]),
+    );
+    for (const size of [
+      { width: 1200, height: 684 },
+      { width: 420, height: 606 },
+    ]) {
+      const project = systemCameraProjector(
+        contract.camera,
+        { x: 0, y: 0, z: 0 },
+        size,
+      )!;
+      const glyphs = layouts
+        .map((layout) => {
+          const at = project(
+            layout.position.x,
+            layout.position.y,
+            layout.position.z,
+          )!;
+          return {
+            id: layout.body.ref.bodyId,
+            x: at.x,
+            y: at.y,
+            radius: systemGlyphRadiusPx(
+              layout.body.displayRadius,
+              at.depth,
+              size,
+            ),
+          };
+        })
+        // Pin-prick moons never keep a name away; only visible shapes do.
+        .filter((glyph) => glyph.radius >= 4);
+      const labels = layoutSystemBodyLabels(layouts, contract.camera, size);
+      expect(labels.length).toBeGreaterThan(3);
+      for (const label of labels) {
+        const width = label.text.length * 6.4 + 8;
+        const left = label.side === 'right' ? label.x : label.x - width;
+        const rect = {
+          left,
+          right: left + width,
+          top: label.y - 8,
+          bottom: label.y + 8,
+        };
+        for (const glyph of glyphs) {
+          if (glyph.id === label.bodyId) continue;
+          const dx =
+            glyph.x - Math.max(rect.left, Math.min(glyph.x, rect.right));
+          const dy =
+            glyph.y - Math.max(rect.top, Math.min(glyph.y, rect.bottom));
+          // Rounding the label position to whole pixels may shave a pixel.
+          expect(
+            Math.hypot(dx, dy),
+            `${label.text} over ${byId.get(glyph.id)!.body.name}`,
+          ).toBeGreaterThanOrEqual(glyph.radius - 1);
+        }
+      }
+    }
+  });
+
+  it("puts a planet beside a large star on the star's far side", () => {
+    const { contract, layouts } = sol();
+    const labels = layoutSystemBodyLabels(layouts, contract.camera, viewport);
+    const mercury = labels.find((label) => label.text === 'Mercury');
+    const star = labels.find((label) => label.kind === 'star');
+    expect(mercury).toBeDefined();
+    expect(star).toBeDefined();
+    expect(mercury!.side).toBe('left');
+  });
+
+  it('is deterministic and respects the label cap', () => {
+    const { contract, layouts } = sol();
+    const first = layoutSystemBodyLabels(layouts, contract.camera, viewport);
+    expect(layoutSystemBodyLabels(layouts, contract.camera, viewport)).toEqual(
+      first,
+    );
+    const capped = layoutSystemBodyLabels(layouts, contract.camera, viewport, {
+      maxLabels: 3,
+    });
+    expect(capped).toHaveLength(3);
+    expect(capped.map((label) => label.bodyId)).toEqual(
+      first.slice(0, 3).map((label) => label.bodyId),
+    );
+    expect(
+      layoutSystemBodyLabels(layouts, contract.camera, viewport, {
+        maxLabels: 0,
+      }),
+    ).toEqual([]);
+  });
+
+  it('names stars before planets, and planets before moons', () => {
+    const { contract, layouts } = sol();
+    const labels = layoutSystemBodyLabels(layouts, contract.camera, viewport, {
+      moonMinRadiusPx: 0,
+    });
+    const tier = { star: 1, planet: 2, moon: 3, other: 4 } as const;
+    const kinds = labels.map((label) => tier[label.kind]);
+    expect(kinds).toEqual([...kinds].sort((a, b) => a - b));
+    expect(labels[0].kind).toBe('star');
+  });
+
+  it('only names a moon once its own glyph is large enough to read', () => {
+    const { contract, layouts } = sol();
+    const moons = new Set(
+      layouts
+        .filter(({ parentBodyId }) => {
+          const parent = layouts.find(
+            ({ body }) => body.ref.bodyId === parentBodyId,
+          );
+          return parent !== undefined && parent.parentBodyId !== null;
+        })
+        .map(({ body }) => body.ref.bodyId),
+    );
+    expect(moons.size).toBeGreaterThan(0);
+    const overview = layoutSystemBodyLabels(layouts, contract.camera, viewport);
+    expect(overview.some((label) => moons.has(label.bodyId))).toBe(false);
+    const everything = layoutSystemBodyLabels(
+      layouts,
+      contract.camera,
+      viewport,
+      {
+        moonMinRadiusPx: 0,
+        maxLabels: 200,
+      },
+    );
+    expect(everything.some((label) => moons.has(label.bodyId))).toBe(true);
+  });
+
+  it('always names the selected body, first, even among many', () => {
+    const { contract, layouts } = sol();
+    const neptune = layouts.find(({ body }) => body.name === 'Neptune');
+    expect(neptune).toBeDefined();
+    const state = {
+      ...contract.camera,
+      focus: { kind: 'body' as const, ref: neptune!.body.ref },
+    };
+    const labels = layoutSystemBodyLabels(layouts, state, viewport, {
+      maxLabels: 1,
+    });
+    expect(labels).toHaveLength(1);
+    expect(labels[0]).toMatchObject({
+      text: 'Neptune',
+      selected: true,
+    });
+    // The selected body is the camera target, so it is drawn at the centre.
+    expect(labels[0].y).toBe(Math.round(viewport.height / 2));
+    expect(Math.abs(labels[0].x - viewport.width / 2)).toBeLessThan(80);
+  });
+
+  it('does not name barycentres, and names a parentless body last and only when it is big enough', () => {
+    const bodies = [
+      body(0, 'Binary barycentre', null, 0, 'Barycentre'),
+      body(1, 'Binary A', 0, 5, 'Star'),
+      body(2, 'Binary B', 0, 10, 'Star'),
+      body(3, 'Lost planet', 999, 20),
+    ];
+    const layouts = systemBodyLayout(bodies);
+    expect(layouts.find(({ body }) => body.ref.bodyId === 3)?.group).toBe(
+      'unattached',
+    );
+    const near = layoutSystemBodyLabels(layouts, camera(), viewport);
+    const names = near.map((label) => label.text);
+    expect(names).not.toContain('Binary barycentre');
+    expect(names.slice(0, 2).sort()).toEqual(['Binary A', 'Binary B']);
+    expect(near.at(-1)).toMatchObject({ text: 'Lost planet', kind: 'other' });
+    const far = layoutSystemBodyLabels(
+      layouts,
+      camera({ semanticDistance: 900 }),
+      viewport,
+    );
+    expect(far.map((label) => label.text)).not.toContain('Lost planet');
+  });
+
+  it('flips a name to the left when it would run off the right edge', () => {
+    const bodies = [
+      body(0, 'Alpha', null, 0, 'Star'),
+      body(1, 'A very long planet name indeed', 0, 400),
+    ];
+    const layouts = systemBodyLayout(bodies);
+    const narrow = { width: 360, height: 640 };
+    const labels = layoutSystemBodyLabels(
+      layouts,
+      camera({ semanticDistance: 38 }),
+      narrow,
+    );
+    for (const label of labels) {
+      const width = label.text.length * 6.4 + 8;
+      const left = label.side === 'right' ? label.x : label.x - width;
+      expect(left).toBeGreaterThanOrEqual(0);
+      expect(left + width).toBeLessThanOrEqual(narrow.width);
+    }
+  });
+
+  it('returns nothing for an empty scene or a canvas with no size', () => {
+    const { contract, layouts } = sol();
+    expect(layoutSystemBodyLabels([], contract.camera, viewport)).toEqual([]);
+    expect(
+      layoutSystemBodyLabels(layouts, contract.camera, { width: 0, height: 0 }),
+    ).toEqual([]);
+  });
+});

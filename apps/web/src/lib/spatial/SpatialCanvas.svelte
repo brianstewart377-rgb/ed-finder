@@ -45,7 +45,8 @@
     type GalaxyLabelCandidate,
     type ProjectedGalaxyLabel,
   } from './galaxy-labels';
-  import { fitSystemCameraToViewport } from './system-scene';
+  import { fitSystemCameraToViewport, systemBodyLayout } from './system-scene';
+  import { layoutSystemBodyLabels } from './system-labels';
   import GalaxySystemHoverCard from './GalaxySystemHoverCard.svelte';
   import SystemBodyLegend from './SystemBodyLegend.svelte';
 
@@ -105,6 +106,10 @@
   let currentSystemCamera = $state<SystemCameraState | null>(null);
   let homeCamera: CameraState | null = null;
   let homeSystemCamera: SystemCameraState | null = null;
+  // The contract overview of a system scene that loaded into a canvas with no
+  // size yet (it sits in a hidden tab panel). It is fitted, and the camera
+  // re-applied, on the first real size.
+  let pendingSystemRefit: SystemCameraState | null = null;
   const canGalaxyNavigate = $derived(scene?.kind === 'galaxy');
   const canSystemNavigate = $derived(scene?.kind === 'system');
   const canNavigate = $derived(canGalaxyNavigate || canSystemNavigate);
@@ -437,7 +442,15 @@
         // Fit the contract's overview to this canvas; Reset view returns to
         // it. A context recovery resumes the camera the canvas already owns
         // and must not fit (and compound) that already-fitted distance.
-        const fitted = fitSystemCameraToViewport(contractCamera, viewport());
+        //
+        // A canvas inside a hidden tab panel has no size yet. Fitting to the
+        // 1 × 1 stand-in would pick the wrong distance, so wait for a real
+        // size instead (refitSystemOverview).
+        const measurable = host.clientWidth >= 2 && host.clientHeight >= 2;
+        const fitted = measurable
+          ? fitSystemCameraToViewport(contractCamera, viewport())
+          : contractCamera;
+        pendingSystemRefit = measurable || restoring ? null : contractCamera;
         homeSystemCamera = fitted;
         currentSystemCamera = nextScene.camera;
         if (
@@ -560,6 +573,40 @@
       width: Math.max(1, host.clientWidth),
       height: Math.max(1, host.clientHeight),
     };
+  }
+
+  /**
+   * Fit a system overview that loaded before the canvas had a size, then apply
+   * it as a camera command (the same step Reset view takes) so the first
+   * frame at the real size is drawn. A camera the commander or the page has
+   * already moved is left where it is.
+   */
+  function refitSystemOverview(): void {
+    const contract = pendingSystemRefit;
+    if (
+      !contract ||
+      !runtime ||
+      status.state !== 'ready' ||
+      host.clientWidth < 2 ||
+      host.clientHeight < 2
+    )
+      return;
+    pendingSystemRefit = null;
+    // The scene may have changed to a galaxy while the canvas was hidden.
+    if (untrack(() => scene?.kind) !== 'system') return;
+    const fitted = fitSystemCameraToViewport(contract, viewport());
+    homeSystemCamera = fitted;
+    const current = untrack(() => currentSystemCamera);
+    const untouched =
+      !current ||
+      (current.semanticDistance === contract.semanticDistance &&
+        current.bearingRad === contract.bearingRad &&
+        current.pitchRad === contract.pitchRad);
+    if (untouched)
+      setSystemCamera({
+        ...fitted,
+        revision: Math.max(current?.revision ?? 0, contract.revision) + 1,
+      });
   }
 
   function pan(x: number, y: number): void {
@@ -1059,6 +1106,30 @@
     }
   }
 
+  // The System Map names its bodies without waiting for a hover. This is a
+  // projection of the camera the renderer already holds; the overlay below is
+  // inert and aria-hidden, and each name stays in the hover card and the
+  // Inspect Bodies list.
+  const systemLayouts = $derived(
+    scene?.kind === 'system' ? systemBodyLayout(scene.bodies) : [],
+  );
+  const systemLabels = $derived.by(() => {
+    void resizeRevision;
+    const camera = currentSystemCamera;
+    if (
+      scene?.kind !== 'system' ||
+      !host ||
+      !camera ||
+      camera.systemId64 !== scene.systemId64
+    ) {
+      return [];
+    }
+    return layoutSystemBodyLabels(systemLayouts, camera, {
+      width: host.clientWidth,
+      height: host.clientHeight,
+    });
+  });
+
   const cardPosition = $derived.by(() => {
     void resizeRevision;
     const width = host?.clientWidth ?? 640;
@@ -1225,6 +1296,7 @@
           dpr: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
         };
         activeRuntime.dispatch({ type: 'RESIZE', ...viewport });
+        refitSystemOverview();
         onViewportChange?.({ width: viewport.width, height: viewport.height });
         resizeRevision += 1;
         host
@@ -1561,6 +1633,24 @@
         {/if}
       {/each}
     </div>
+    {#if systemLabels.length > 0}
+      <div
+        class="system-label-layer"
+        aria-hidden="true"
+        data-system-label-count={systemLabels.length}
+      >
+        {#each systemLabels as label (label.bodyId)}
+          <span
+            class="system-label system-label--{label.kind}"
+            class:is-selected={label.selected}
+            class:is-left={label.side === 'left'}
+            data-system-label-body-id={label.bodyId}
+            style:left={`${label.x}px`}
+            style:top={`${label.y}px`}>{label.text}</span
+          >
+        {/each}
+      </div>
+    {/if}
   </div>
   {#if canGalaxyNavigate}
     <details class="nearby-systems" bind:open={nearbyOpen}>
@@ -1821,6 +1911,51 @@
     inset: 0;
     overflow: hidden;
     pointer-events: none;
+  }
+  .system-label-layer {
+    position: absolute;
+    z-index: 2;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  /* Positions follow the camera exactly, so there is no easing here: a name
+     that trails its body during an orbit drag reads as the wrong body. */
+  .system-label {
+    position: absolute;
+    max-width: 16rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transform: translate(0, -50%);
+    color: color-mix(in srgb, var(--text) 82%, transparent);
+    font-size: 0.7rem;
+    font-weight: 560;
+    line-height: 1.2;
+    letter-spacing: 0.02em;
+    text-shadow:
+      0 1px 2px var(--bg-void),
+      0 0 5px var(--bg-void),
+      0 0 12px var(--bg-void);
+  }
+  .system-label.is-left {
+    transform: translate(-100%, -50%);
+    text-align: right;
+  }
+  .system-label--star {
+    color: var(--text);
+    font-size: 0.76rem;
+    font-weight: 680;
+  }
+  .system-label--moon,
+  .system-label--other {
+    color: color-mix(in srgb, var(--text-muted) 88%, transparent);
+    font-size: 0.64rem;
+    font-weight: 520;
+  }
+  .system-label.is-selected {
+    color: var(--accent-hi);
+    font-weight: 720;
   }
   .galaxy-label-leaders {
     position: absolute;
