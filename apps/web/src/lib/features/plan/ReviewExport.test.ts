@@ -181,6 +181,53 @@ describe('Review & export', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('summarises the unresolved count in a banner whose button moves to the first listed item', async () => {
+    const input = props();
+    const { container } = render(ReviewExport, input);
+    // The tool takes focus on opening; the jump happens after that.
+    await waitFor(() => expect(screen.getByRole('dialog')).toHaveFocus());
+    const heading = screen.getByRole('heading', {
+      name: /^Unresolved information \((\d+)\)$/,
+    });
+    const count = Number(/\((\d+)\)/.exec(heading.textContent ?? '')?.[1]);
+    expect(count).toBeGreaterThan(1);
+    const banner = container.querySelector('[data-review-banner]');
+    expect(banner).toHaveTextContent(`${count} unresolved items`);
+    const first = container.querySelector<HTMLButtonElement>(
+      '.review-unresolved-list button:not(:disabled)',
+    );
+    await fireEvent.click(
+      within(banner as HTMLElement).getByRole('button', {
+        name: 'Go to first item',
+      }),
+    );
+    expect(first).toHaveFocus();
+    // Only moving focus: nothing is opened or changed until the item is used.
+    expect(input.onbody).not.toHaveBeenCalled();
+    expect(input.onstep).not.toHaveBeenCalled();
+  });
+
+  it('shows no banner when nothing is listed, and no jump button while editors are unavailable', () => {
+    const empty = props();
+    const first = render(ReviewExport, {
+      ...empty,
+      bodies: undefined,
+      locations: [],
+      evaluation: null,
+    });
+    expect(first.container.querySelector('[data-review-banner]')).toBeNull();
+    first.unmount();
+
+    const offline = props();
+    const second = render(ReviewExport, { ...offline, canNavigate: false });
+    expect(
+      second.container.querySelector('[data-review-banner]'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Go to first item' }),
+    ).not.toBeInTheDocument();
+  });
+
   it('keeps the system, item counts and separate Now/After Tier 2 and Tier 3 balances', () => {
     render(ReviewExport, props());
     expect(screen.getByText('Compact Test System')).toBeVisible();
@@ -411,5 +458,167 @@ describe('Review & export', () => {
     expect(input.onexport).toHaveBeenCalledOnce();
     expect(input.onbody).not.toHaveBeenCalled();
     expect(input.onstep).not.toHaveBeenCalled();
+  });
+
+  it('offers Overview, Build order and Export tabs with the arrow keys, starting on Overview', async () => {
+    render(ReviewExport, props());
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      'Overview',
+      'Build order',
+      'Export',
+    ]);
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.getByRole('tablist')).toHaveAccessibleName('Review sections');
+    // Only the selected tab is in the tab order.
+    expect(tabs.map((tab) => tab.getAttribute('tabindex'))).toEqual([
+      '0',
+      '-1',
+      '-1',
+    ]);
+
+    // The pop-out moves focus to itself when it opens; wait for that first.
+    await waitFor(() => expect(screen.getByRole('dialog')).toHaveFocus());
+    tabs[0].focus();
+    await fireEvent.keyDown(tabs[0], { key: 'ArrowRight' });
+    expect(screen.getByRole('tab', { name: 'Build order' })).toHaveFocus();
+    expect(screen.getByRole('tab', { name: 'Build order' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await fireEvent.keyDown(document.activeElement as Element, {
+      key: 'End',
+    });
+    expect(screen.getByRole('tab', { name: 'Export' })).toHaveFocus();
+    await fireEvent.keyDown(document.activeElement as Element, {
+      key: 'ArrowRight',
+    });
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveFocus();
+    await fireEvent.keyDown(document.activeElement as Element, {
+      key: 'ArrowLeft',
+    });
+    expect(screen.getByRole('tab', { name: 'Export' })).toHaveFocus();
+    await fireEvent.keyDown(document.activeElement as Element, {
+      key: 'Home',
+    });
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveFocus();
+  });
+
+  it('shows only the selected tab panel and keeps Export DRAFT plan in the footer on every tab', async () => {
+    render(ReviewExport, props());
+    const panels = ['overview', 'build-order', 'export'].map(
+      (id) => document.getElementById(`plan-review-panel-${id}`) as HTMLElement,
+    );
+    for (const [index, name] of [
+      'Overview',
+      'Build order',
+      'Export',
+    ].entries()) {
+      await fireEvent.click(screen.getByRole('tab', { name }));
+      panels.forEach((panel, panelIndex) => {
+        expect(panel.hidden).toBe(panelIndex !== index);
+      });
+      expect(screen.getByRole('tabpanel', { name })).toBe(panels[index]);
+      expect(
+        screen.getByRole('button', { name: 'Export DRAFT plan' }),
+      ).toBeEnabled();
+    }
+  });
+
+  it('lists the builds in order with location, status and check result', async () => {
+    render(ReviewExport, props());
+    await fireEvent.click(screen.getByRole('tab', { name: 'Build order' }));
+    // The table can scroll sideways on a narrow screen, so keyboard users must
+    // be able to reach it.
+    expect(
+      screen.getByRole('region', { name: 'Planned builds table' }),
+    ).toHaveAttribute('tabindex', '0');
+    const table = screen.getByRole('table', {
+      name: /Planned builds in order/,
+    });
+    const rows = within(table).getAllByRole('row').slice(1);
+    expect(rows).toHaveLength(3);
+    expect(within(rows[0]).getAllByRole('cell')[0]).toHaveTextContent('1');
+    expect(within(rows[0]).getByRole('rowheader')).toHaveTextContent(
+      'Colony site 1',
+    );
+    expect(rows[0]).toHaveTextContent(/complete/);
+    expect(rows[1]).toHaveTextContent(/building/);
+    expect(rows[2]).toHaveTextContent(/planned/);
+    const results = rows.map((row) => within(row).getAllByRole('cell')[3]);
+    expect(results[0]).toHaveTextContent('OK');
+    expect(results[1]).toHaveTextContent('Blocked');
+    expect(results[2]).toHaveTextContent('Needs info');
+  });
+
+  it('says a build has not been evaluated instead of guessing a check result', async () => {
+    render(ReviewExport, { ...props(), evaluation: null });
+    await fireEvent.click(screen.getByRole('tab', { name: 'Build order' }));
+    const rows = within(screen.getByRole('table')).getAllByRole('row').slice(1);
+    for (const row of rows) expect(row).toHaveTextContent('Not evaluated');
+  });
+
+  it('shows an empty note instead of a table when the plan has no builds', async () => {
+    const input = props();
+    render(ReviewExport, {
+      ...input,
+      model: { ...input.model, sites: [] },
+    });
+    await fireEvent.click(screen.getByRole('tab', { name: 'Build order' }));
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.getByText('No builds are in this plan yet.')).toBeVisible();
+  });
+
+  it('explains what the export file holds and leaves out, without eligibility wording', async () => {
+    render(ReviewExport, props());
+    await fireEvent.click(screen.getByRole('tab', { name: 'Export' }));
+    const panel = screen.getByRole('tabpanel', { name: 'Export' });
+    expect(
+      within(panel).getByRole('heading', { name: 'Before you export' }),
+    ).toBeVisible();
+    expect(panel).toHaveTextContent('stays in this browser');
+    expect(panel).toHaveTextContent('system ID64');
+    expect(panel).toHaveTextContent('slot counts you have entered');
+    expect(panel).toHaveTextContent('leaves out the catalogue facts');
+    expect(panel).toHaveTextContent('colony-plan-DRAFT-42.json');
+    expect(panel).toHaveTextContent('Import plan');
+    expect(panel.textContent).not.toMatch(/eligible|approved|ready to build/i);
+  });
+
+  it('returns to the Overview when the pop-out is closed and opened again', async () => {
+    const input = props();
+    const { rerender } = render(ReviewExport, input);
+    await fireEvent.click(screen.getByRole('tab', { name: 'Export' }));
+    expect(screen.getByRole('tab', { name: 'Export' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await rerender({ open: false });
+    await rerender({ open: true });
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+
+  it('jumps back to the Overview before focusing the first unresolved item', async () => {
+    render(ReviewExport, props());
+    await waitFor(() => expect(screen.getByRole('dialog')).toHaveFocus());
+    await fireEvent.click(screen.getByRole('tab', { name: 'Export' }));
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Go to first item' }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      ),
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toHaveAttribute('data-review-kind'),
+    );
   });
 });

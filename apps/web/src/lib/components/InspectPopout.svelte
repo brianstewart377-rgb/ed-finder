@@ -214,6 +214,10 @@
   .sources-dialog {
     width: min(32rem, calc(100% - 1rem));
   }
+  /* Review & export sets its summary beside the unresolved items. */
+  .review-dialog {
+    width: min(60rem, calc(100% - 1rem));
+  }
   header {
     position: sticky;
     top: -0.9rem;
