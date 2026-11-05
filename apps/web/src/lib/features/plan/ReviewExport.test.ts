@@ -531,6 +531,11 @@ describe('Review & export', () => {
   it('lists the builds in order with location, status and check result', async () => {
     render(ReviewExport, props());
     await fireEvent.click(screen.getByRole('tab', { name: 'Build order' }));
+    // The table can scroll sideways on a narrow screen, so keyboard users must
+    // be able to reach it.
+    expect(
+      screen.getByRole('region', { name: 'Planned builds table' }),
+    ).toHaveAttribute('tabindex', '0');
     const table = screen.getByRole('table', {
       name: /Planned builds in order/,
     });

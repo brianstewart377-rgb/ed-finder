@@ -481,7 +481,14 @@
   >
     <h3>Build order</h3>
     {#if buildRows.length}
-      <div class="review-table-wrap" class:stale={stale && !!evaluation}>
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll the table sideways on narrow screens.) -->
+      <div
+        class="review-table-wrap"
+        class:stale={stale && !!evaluation}
+        role="region"
+        aria-label="Planned builds table"
+        tabindex="0"
+      >
         <table class="review-build-table">
           <caption class="plan-sr-only">
             Planned builds in order, with their location, status and check

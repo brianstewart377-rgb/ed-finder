@@ -377,13 +377,17 @@
 .review-table-wrap {
   overflow-x: auto;
 }
+.review-table-wrap:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
 .review-build-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
 }
 .review-build-table :is(th, td) {
-  padding: 0.45rem 0.4rem;
+  padding: 0.45rem 0.3rem;
   white-space: nowrap;
   border-bottom: 1px solid var(--line);
   text-align: left;
