@@ -11,6 +11,18 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-06 — Codex worker model pin returned to `gpt-6.1-sol` at `high` effort
+
+By owner decision, the Contabo Codex worker returns from `gpt-6-astra` at
+`xhigh` effort to `gpt-6.1-sol` at `high` effort, the pin it had before the
+2026-10-31 change. Both execution modes keep the single hard-pinned model
+contract (`--ignore-user-config --strict-config --model … --config
+model_reasoning_effort=…`). Requests still cannot choose a model or effort, and
+the governance test now rejects the `gpt-6-astra` and `xhigh` literals instead
+of the old `gpt-6.1-sol` and `high` ones. The change takes effect for new Codex
+runs once it is on `main`; a run already in progress keeps the pin it started
+with.
+
 ## 2026-11-05 — System Map: body names and a reliable first view
 
 The 3D System Map opened blank or tiny when it loaded inside a hidden Inspect
