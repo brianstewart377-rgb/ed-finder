@@ -11,6 +11,22 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-06 — Galaxy map: names stay on their stars while you zoom
+
+Galaxy-map region and system names used to disappear the moment the camera
+moved and come back about 0.2 s after it stopped, each region name nudged up
+to 100 px by a collision shuffle, so zooming made every name jump somewhere
+else. Names are now re-projected from the live camera on every change and are
+never hidden by camera movement (only during an animated flight): they stay on
+their anchors and follow with no easing. While the camera moves, every region
+name keeps the slot it had, with no shuffling mid-gesture; once the camera
+settles, names that overlap ease (160 ms, off under reduced motion) into a clear
+slot, preferring the one they held, and only return to their anchor with room
+to spare. Region names claim space in a fixed order instead of nearest-to-centre,
+so neighbours no longer swap places as you zoom. Choosing which nearby star
+names exist still waits for the camera to settle. The test that pinned the old
+"re-place only after the camera settles" rule now asserts the new one.
+
 ## 2026-11-06 — Codex worker model pin returned to `gpt-6.1-sol` at `high` effort
 
 By owner decision, the Contabo Codex worker returns from `gpt-6-astra` at
