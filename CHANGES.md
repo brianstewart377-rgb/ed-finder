@@ -23,6 +23,28 @@ of the old `gpt-6.1-sol` and `high` ones. The change takes effect for new Codex
 runs once it is on `main`; a run already in progress keeps the pin it started
 with.
 
+## 2026-11-05 — System Map: body names and a reliable first view
+
+The 3D System Map opened blank or tiny when it loaded inside a hidden Inspect
+tab: the scene was fitted to a canvas with no size yet, and nothing re-fitted
+it once the tab showed. The canvas now keeps the contract overview until it
+has a real size, fits it then and applies it as a camera command. A camera the
+commander moved while the tab was hidden is left alone, and Reset view still
+returns to the fitted overview.
+
+The map also names its bodies without a hover. Stars and planets carry an
+always-visible name; moons are named once their own glyph is large enough to
+read. Names never overlap each other or another body's glyph, the selected body
+always keeps its name, and bodies whose parent is unknown are named last. The
+words every body in a system shares (the system name) are dropped from planet
+and moon names, so `Hyades Sector AB-W b2-3 A 1` reads `1` beside its star's
+full name.
+
+The overlay is a pure projection of the camera the renderer already holds
+(`system-labels.ts`); a unit test pins it to Babylon's own projection. It is
+inert and `aria-hidden`: every name is still in the hover card, the legend and
+the Inspect Bodies list, and no renderer, API or data contract changes.
+
 ## 2026-11-03 — UI redesign: home page to concept
 
 The home page opens with “Find your next frontier.” in the condensed HUD font

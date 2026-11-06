@@ -6,6 +6,9 @@ import {
   waitFor,
   within,
 } from '@testing-library/svelte';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import axe from 'axe-core';
 import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -29,6 +32,7 @@ import {
   buildSystemScene,
   SYSTEM_OVERVIEW_REFERENCE_ASPECT,
 } from './system-scene';
+import { solLikeSystemDetail } from './system-scene-fixtures';
 import type {
   CameraState,
   GalaxySceneContract,
@@ -826,6 +830,199 @@ describe('SpatialCanvas', () => {
     expect(reset.camera.semanticDistance).toBe(expected);
   });
 
+  describe('System Map body names', () => {
+    const labelNodes = (container: HTMLElement) =>
+      [
+        ...container.querySelectorAll<HTMLElement>(
+          '[data-system-label-body-id]',
+        ),
+      ].map((node) => ({
+        id: node.dataset.systemLabelBodyId,
+        text: node.textContent,
+        node,
+      }));
+
+    it('names the stars and planets without a hover, in an inert overlay', async () => {
+      const view = render(SpatialCanvas, {
+        scene: buildSystemScene(solLikeSystemDetail(), 1),
+      });
+      await waitFor(() => expect(adapter.runtimes).toHaveLength(1));
+      const layer = view.container.querySelector('.system-label-layer');
+      expect(layer).not.toBeNull();
+      expect(layer).toHaveAttribute('aria-hidden', 'true');
+      const labels = labelNodes(view.container);
+      expect(layer).toHaveAttribute(
+        'data-system-label-count',
+        String(labels.length),
+      );
+      const names = labels.map((label) => label.text);
+      // This canvas is small (640 by 360), so crowded inner planets may lose
+      // their names; the star and the well-separated outer planets keep them.
+      expect(names).toEqual(
+        expect.arrayContaining(['Sol-like', 'Jupiter', 'Saturn', 'Neptune']),
+      );
+      expect(names.length).toBeGreaterThanOrEqual(5);
+      // Names must not be a second set of controls or announcements.
+      expect(layer!.querySelectorAll('button, a, [tabindex]')).toHaveLength(0);
+      expect(
+        screen.queryByRole('button', { name: /Earth/ }),
+      ).not.toBeInTheDocument();
+      expect(view.container.querySelector('[data-hovered-body-id]')).toBeNull();
+    });
+
+    it('marks the selected body and keeps names with their bodies as the camera moves', async () => {
+      const scene = buildSystemScene(solLikeSystemDetail(), 1);
+      const earth = scene.bodies.find((body) => body.name === 'Earth')!;
+      const view = render(SpatialCanvas, {
+        scene: {
+          ...scene,
+          camera: { ...scene.camera, focus: { kind: 'body', ref: earth.ref } },
+        },
+      });
+      await waitFor(() => expect(adapter.runtimes).toHaveLength(1));
+      const selected = view.container.querySelectorAll(
+        '.system-label.is-selected',
+      );
+      expect(selected).toHaveLength(1);
+      expect(selected[0]).toHaveTextContent('Earth');
+      expect(selected[0]).toHaveAttribute(
+        'data-system-label-body-id',
+        String(earth.ref.bodyId),
+      );
+      const before = labelNodes(view.container).find(
+        (label) => label.text === 'Jupiter',
+      )!;
+      const placed = (node: HTMLElement) => node.getAttribute('style');
+      const beforeStyle = placed(before.node);
+      screen.getByRole('button', { name: 'Zoom in' }).click();
+      await waitFor(() => {
+        const after = labelNodes(view.container).find(
+          (label) => label.text === 'Jupiter',
+        );
+        // Zooming toward Earth moves Jupiter's label with it, or drops it.
+        expect(after === undefined || placed(after.node) !== beforeStyle).toBe(
+          true,
+        );
+      });
+    });
+
+    it('draws no body names on a galaxy map', async () => {
+      const view = render(SpatialCanvas, {
+        props: { scene: buildGalaxyReviewFixtureScene() },
+      });
+      await waitFor(() => expect(adapter.runtimes).toHaveLength(1));
+      expect(view.container.querySelector('.system-label-layer')).toBeNull();
+    });
+
+    it('draws no body names before the canvas has a size', async () => {
+      vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(0);
+      vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(0);
+      const view = render(SpatialCanvas, {
+        scene: buildSystemScene(solLikeSystemDetail(), 1),
+      });
+      await waitFor(() => expect(adapter.runtimes).toHaveLength(1));
+      expect(view.container.querySelector('.system-label-layer')).toBeNull();
+    });
+  });
+
+  describe('a system map that loads before its canvas has a size', () => {
+    const hiddenScene: SpatialSceneContract = {
+      kind: 'system',
+      revision: 4,
+      systemId64: '42',
+      fidelity: 'S1',
+      camera: {
+        systemId64: '42',
+        focus: { kind: 'system', systemId64: '42' },
+        semanticDistance: 153,
+        bearingRad: -0.85,
+        pitchRad: 0.58,
+        revision: 4,
+      },
+      bodies: [],
+      infrastructure: [],
+      contributions: [],
+    };
+    const setCameras = (runtime: (typeof adapter.runtimes)[number]) =>
+      runtime.dispatch.mock.calls
+        .map(([command]) => command)
+        .filter((command) => command.type === 'SET_CAMERA');
+    const showAt = (width: number, height: number): void => {
+      vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(
+        width,
+      );
+      vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(
+        height,
+      );
+      observerCallback(
+        [{ contentRect: { width, height } } as unknown as ResizeObserverEntry],
+        {} as ResizeObserver,
+      );
+    };
+
+    it('waits for a real size, then fits and applies the overview', async () => {
+      vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(0);
+      vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(0);
+      render(SpatialCanvas, { props: { scene: hiddenScene } });
+      await waitFor(() => expect(adapter.runtimes).toHaveLength(1));
+      const runtime = adapter.runtimes[0]!;
+      await waitFor(() =>
+        expect(
+          runtime.dispatch.mock.calls.some(
+            ([command]) => command.type === 'LOAD_SCENE',
+          ),
+        ).toBe(true),
+      );
+      // Fitting a 1 × 1 stand-in would widen the overview for nothing.
+      expect(setCameras(runtime)).toHaveLength(0);
+
+      showAt(600, 600);
+      const expected = Math.ceil(153 * SYSTEM_OVERVIEW_REFERENCE_ASPECT);
+      const applied = setCameras(runtime);
+      expect(applied).toHaveLength(1);
+      expect(applied[0].camera.semanticDistance).toBe(expected);
+      // The camera command is what draws the first frame at the real size, so
+      // it must carry a newer revision than the contract's.
+      expect(applied[0].camera.revision).toBeGreaterThan(4);
+
+      screen.getByRole('button', { name: 'Zoom in' }).click();
+      screen.getByRole('button', { name: 'Reset view' }).click();
+      expect(setCameras(runtime).at(-1).camera.semanticDistance).toBe(expected);
+
+      // Later resizes of a settled canvas do not move the camera again.
+      const before = setCameras(runtime).length;
+      showAt(640, 360);
+      expect(setCameras(runtime)).toHaveLength(before);
+    });
+
+    it('keeps a camera the commander moved while the canvas was hidden', async () => {
+      vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(0);
+      vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(0);
+      render(SpatialCanvas, { props: { scene: hiddenScene } });
+      await waitFor(() => expect(adapter.runtimes).toHaveLength(1));
+      const runtime = adapter.runtimes[0]!;
+      await waitFor(() =>
+        expect(
+          runtime.dispatch.mock.calls.some(
+            ([command]) => command.type === 'LOAD_SCENE',
+          ),
+        ).toBe(true),
+      );
+      screen.getByRole('button', { name: 'Zoom in' }).click();
+      const zoomed = setCameras(runtime).at(-1);
+      expect(zoomed.camera.semanticDistance).toBeLessThan(153);
+
+      showAt(600, 600);
+      // No fit command overrides the zoom ...
+      expect(setCameras(runtime).at(-1)).toBe(zoomed);
+      // ... but Reset view still returns to the fitted overview.
+      screen.getByRole('button', { name: 'Reset view' }).click();
+      expect(setCameras(runtime).at(-1).camera.semanticDistance).toBe(
+        Math.ceil(153 * SYSTEM_OVERVIEW_REFERENCE_ASPECT),
+      );
+    });
+  });
+
   it('does not re-fit an already-fitted camera on F4 context recovery', async () => {
     feature.finder = true;
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(600);
@@ -1075,8 +1272,16 @@ describe('SpatialCanvas', () => {
         type: 'TARGET_HOVERED',
         target: { kind: 'body', ref: { systemId64: '42', bodyId: 0 } },
       });
-      const name = await screen.findByText('Hovered planet');
-      const hover = name.closest('[data-hovered-body-id]') as HTMLElement;
+      // The always-visible label also carries this name, so look at the hover
+      // card itself rather than at any text match.
+      const hoverCard = () =>
+        view.container.querySelector<HTMLElement>('[data-hovered-body-id]');
+      const hover = await waitFor(() => {
+        const card = hoverCard();
+        expect(card).not.toBeNull();
+        return card!;
+      });
+      expect(within(hover).getByText('Hovered planet')).toBeVisible();
       expect(within(hover).getByText(bodyClass ?? 'Planet')).toBeVisible();
       const source = within(hover).queryByText(
         'Source: Ratings V4 derived catalogue',
@@ -1084,26 +1289,24 @@ describe('SpatialCanvas', () => {
       if (bodyClass == null) expect(source).toBeNull();
       else expect(source).toBeVisible();
       runtime.emit({ type: 'TARGET_HOVERED' });
-      await waitFor(() =>
-        expect(screen.queryByText('Hovered planet')).toBeNull(),
-      );
+      await waitFor(() => expect(hoverCard()).toBeNull());
 
       runtime.emit({
         type: 'TARGET_HOVERED',
         target: { kind: 'body', ref: { systemId64: '99', bodyId: 0 } },
       });
-      expect(screen.queryByText('Hovered planet')).toBeNull();
+      expect(hoverCard()).toBeNull();
       runtime.emit({
         type: 'TARGET_HOVERED',
         target: { kind: 'body', ref: { systemId64: '42', bodyId: 0 } },
       });
-      await screen.findByText('Hovered planet');
+      await waitFor(() => expect(hoverCard()).not.toBeNull());
       await view.rerender({
         scene: { ...scene, revision: 2, systemId64: '99', bodies: [] },
       });
-      expect(screen.queryByText('Hovered planet')).toBeNull();
+      expect(hoverCard()).toBeNull();
       await view.rerender({ scene: { ...scene, revision: 3 } });
-      expect(screen.queryByText('Hovered planet')).toBeNull();
+      expect(hoverCard()).toBeNull();
     },
   );
 
@@ -2046,5 +2249,27 @@ describe('SpatialCanvas', () => {
         ([command]) => command.type === 'PATCH_CONTRIBUTION',
       ),
     ).toHaveLength(1);
+  });
+});
+
+describe('System Map overlay stacking', () => {
+  it('keeps the body hover card above the always-visible name layer', () => {
+    // jsdom does not apply component styles, so read the rule itself: a name
+    // painted over the card would make the card unreadable.
+    const source = readFileSync(
+      resolve(process.cwd(), 'src/lib/spatial/SpatialCanvas.svelte'),
+      'utf8',
+    );
+    const zIndexOf = (selector: string) => {
+      const rule = source.match(
+        new RegExp(`\\n  ${selector.replace('.', '\\.')} \\{([^}]*)\\}`),
+      );
+      const match = rule?.[1]?.match(/z-index:\s*(\d+)/);
+      return match ? Number(match[1]) : Number.NaN;
+    };
+    const labels = zIndexOf('.system-label-layer');
+    const card = zIndexOf('.system-body-hover');
+    expect(labels).toBeGreaterThan(0);
+    expect(card).toBeGreaterThan(labels);
   });
 });
