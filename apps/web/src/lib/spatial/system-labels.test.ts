@@ -452,7 +452,7 @@ describe('System Map label kinds and marker size', () => {
       target.position.z,
     )!;
     const diamond = systemGlyphRadiusPx(
-      systemMarkerRadius(target),
+      0.55, // the renderer's minimum diamond radius, written out on purpose
       centre.depth,
       vp,
     );
@@ -462,6 +462,56 @@ describe('System Map label kinds and marker size', () => {
       expect(label.x).toBeGreaterThanOrEqual(centre.x + diamond);
     } else {
       expect(label.x).toBeLessThanOrEqual(centre.x - diamond);
+    }
+  });
+
+  it('includes the ring torus in the marker size of a ringed body', () => {
+    const ringed = (rings: boolean): BodyVisualDescriptor => ({
+      ...body(1, 'Saturnian', 0, 20, 'Planet', 0.9),
+      rings: rings
+        ? { state: 'PRESENT', bands: [] }
+        : { state: 'UNKNOWN', bands: [] },
+    });
+    const layoutOf = (rings: boolean) =>
+      systemBodyLayout([body(0, 'Alpha', null, 0, 'Star'), ringed(rings)]).find(
+        ({ body }) => body.ref.bodyId === 1,
+      )!;
+    expect(systemMarkerRadius(layoutOf(false))).toBe(0.9);
+    // 1.6 x 0.9 + max(0.06, 0.162) / 2: the outer edge of the torus.
+    expect(systemMarkerRadius(layoutOf(true))).toBeCloseTo(1.521, 3);
+  });
+
+  it('keeps a name clear of its own ring on whichever side it sits', () => {
+    const layouts = systemBodyLayout([
+      body(0, 'Alpha', null, 0, 'Star'),
+      {
+        ...body(1, 'Saturnian', 0, 20, 'Planet', 0.9),
+        rings: { state: 'PRESENT', bands: [] },
+      },
+    ]);
+    const target = layouts.find(({ body }) => body.ref.bodyId === 1)!;
+    const state = camera({
+      semanticDistance: 18,
+      focus: { kind: 'body', ref: target.body.ref },
+    });
+    const label = layoutSystemBodyLabels(layouts, state, vp).find(
+      ({ bodyId }) => bodyId === 1,
+    )!;
+    const project = systemCameraProjector(state, target.position, vp)!;
+    const centre = project(
+      target.position.x,
+      target.position.y,
+      target.position.z,
+    )!;
+    const outer = systemGlyphRadiusPx(
+      1.521, // 1.6 x 0.9 + max(0.06, 0.162) / 2, written out on purpose
+      centre.depth,
+      vp,
+    );
+    if (label.side === 'right') {
+      expect(label.x).toBeGreaterThanOrEqual(centre.x + outer);
+    } else {
+      expect(label.x).toBeLessThanOrEqual(centre.x - outer);
     }
   });
 });

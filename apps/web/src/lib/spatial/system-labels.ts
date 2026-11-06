@@ -50,17 +50,25 @@ export type SystemLabelOptions = Readonly<{
 
 /**
  * The radius the renderer actually draws for a body, in scene units. A body
- * with no known position is a diamond with a minimum radius, and a barycentre
- * is a small cross; both are larger than their sphere radius. This mirrors
- * `createSystemBodyMesh` in `babylon/adapter.ts` (and the footprint in
- * `system-scene.ts`), so a name clears the marker that is really on screen.
+ * with no known position is a diamond with a minimum radius, a barycentre is a
+ * small cross, and a ringed body carries a torus out to its outer edge; each
+ * is larger than the sphere radius. This mirrors `createSystemBodyMesh` and
+ * the ring torus in `babylon/adapter.ts` (and the footprint in
+ * `system-scene.ts`), so a name clears what is really on screen.
  */
 export function systemMarkerRadius(layout: SystemBodyLayout): number {
   const { body } = layout;
-  if (layout.placement === 'unplaced')
-    return Math.max(0.55, body.displayRadius);
-  if (body.class?.value === 'Barycentre') return 0.45;
-  return body.displayRadius;
+  const glyph =
+    layout.placement === 'unplaced'
+      ? Math.max(0.55, body.displayRadius)
+      : body.class?.value === 'Barycentre'
+        ? 0.45
+        : body.displayRadius;
+  if (body.rings?.state !== 'PRESENT') return glyph;
+  // Torus: diameter 3.2 x radius, tube thickness max(0.06, 0.18 x radius).
+  const ringOuter =
+    body.displayRadius * 1.6 + Math.max(0.06, body.displayRadius * 0.18) / 2;
+  return Math.max(glyph, ringOuter);
 }
 
 /** Glyphs smaller than this (in pixels) never keep a name away. */

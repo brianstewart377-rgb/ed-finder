@@ -1789,6 +1789,9 @@
 
   .system-body-hover {
     position: absolute;
+    /* Above the name overlay (z-index 2): the card must stay readable when a
+       body's name is moved under it. */
+    z-index: 3;
     top: 0.75rem;
     right: 0.75rem;
     display: grid;

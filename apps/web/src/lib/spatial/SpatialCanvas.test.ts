@@ -6,6 +6,9 @@ import {
   waitFor,
   within,
 } from '@testing-library/svelte';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import axe from 'axe-core';
 import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -2246,5 +2249,27 @@ describe('SpatialCanvas', () => {
         ([command]) => command.type === 'PATCH_CONTRIBUTION',
       ),
     ).toHaveLength(1);
+  });
+});
+
+describe('System Map overlay stacking', () => {
+  it('keeps the body hover card above the always-visible name layer', () => {
+    // jsdom does not apply component styles, so read the rule itself: a name
+    // painted over the card would make the card unreadable.
+    const source = readFileSync(
+      resolve(process.cwd(), 'src/lib/spatial/SpatialCanvas.svelte'),
+      'utf8',
+    );
+    const zIndexOf = (selector: string) => {
+      const rule = source.match(
+        new RegExp(`\\n  ${selector.replace('.', '\\.')} \\{([^}]*)\\}`),
+      );
+      const match = rule?.[1]?.match(/z-index:\s*(\d+)/);
+      return match ? Number(match[1]) : Number.NaN;
+    };
+    const labels = zIndexOf('.system-label-layer');
+    const card = zIndexOf('.system-body-hover');
+    expect(labels).toBeGreaterThan(0);
+    expect(card).toBeGreaterThan(labels);
   });
 });
