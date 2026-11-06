@@ -541,8 +541,11 @@ describe('Explore load and interaction work budget', () => {
           ...idleApi,
           autocomplete: 1,
           finder: 2,
-          catalogue: enabled ? 14 : 10,
-          density: enabled ? 4 : 5,
+          // Selecting a result flies to the local view (400 ly) in both modes,
+          // so both stream the same nearby cells. Before, the flight ended at a
+          // marker-derived distance that differed by mode (10/5 and 14/4).
+          catalogue: 13,
+          density: 3,
         },
       });
       const assertCleanup = async () => {
@@ -698,8 +701,10 @@ describe('Explore load and interaction work budget', () => {
           autocomplete: 1,
           finder: 6,
           rankings: 1,
-          catalogue: 14,
-          density: 4,
+          // The same local-view flight as above; the archetype steps in this
+          // path add no catalogue or density requests of their own.
+          catalogue: 13,
+          density: 3,
         },
       });
       await assertCleanup();

@@ -92,6 +92,7 @@
   import {
     fitGalaxyPlaneCamera,
     focusGalaxyCamera,
+    GALAXY_LOCAL_VIEW_DISTANCE_LY,
   } from '$lib/spatial/galaxy-camera';
   import {
     createGalaxyRegionsContribution,
@@ -1340,7 +1341,7 @@
         y: hit.y ?? 0,
         z: hit.z ?? 0,
       },
-      distanceLy: 400,
+      distanceLy: GALAXY_LOCAL_VIEW_DISTANCE_LY,
       bearingRad: 0,
       pitchRad: 0.55,
       projection: 'perspective',
@@ -1425,7 +1426,7 @@
       const camera = focusGalaxyCamera(
         viewState.retainedCamera?.camera ?? scene.camera,
         point.positionLy,
-        400,
+        GALAXY_LOCAL_VIEW_DISTANCE_LY,
       );
       viewState.initialGalaxyViewRequested = true;
       viewState.retainedCamera = { finderRevision, camera };
@@ -1717,7 +1718,7 @@
       focusGalaxyCamera(
         viewState.retainedCamera?.camera ?? scene.camera,
         selectedWindowPoint.positionLy,
-        400,
+        GALAXY_LOCAL_VIEW_DISTANCE_LY,
       ),
     );
   }

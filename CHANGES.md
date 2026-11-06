@@ -11,6 +11,22 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-06 — Galaxy Map: selecting a system flies in close
+
+Picking a system on the galaxy map recentred the view on it but left the camera
+as far out as it was: at a wide view (about 21,266 ly) it stayed there. The
+flight's end distance was taken from the marker size the scene was built with,
+which is fixed at load time and says nothing about where the commander has
+zoomed to since, so a scene built at the galaxy overview could never fly in.
+
+A flight to a selected system now ends at the local view, 400 ly, or where the
+camera already is when that is closer, and never closer than 12 ly. 400 ly is
+the distance Explore already used for "centre the selected system" and for
+opening the map on a result; it is now one shared constant
+(`GALAXY_LOCAL_VIEW_DISTANCE_LY`) so the three cannot drift apart. The flight is
+unchanged otherwise (700 ms, eased, interruptible, instant under reduced
+motion). No API, data or renderer contract changes.
+
 ## 2026-11-03 — UI redesign: home page to concept
 
 The home page opens with “Find your next frontier.” in the condensed HUD font
