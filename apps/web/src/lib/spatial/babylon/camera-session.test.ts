@@ -17,6 +17,7 @@ import type {
 } from '../contracts';
 import {
   GALAXY_CAMERA_FOV_RAD,
+  GALAXY_LOCAL_VIEW_DISTANCE_LY,
   galaxyCameraPose,
   normalizeGalaxyCamera,
 } from '../galaxy-camera';
@@ -470,6 +471,52 @@ describe('Babylon Galaxy camera session', () => {
     ).toHaveLength(1);
     expect(stableSceneMeshes(scene)).toEqual(meshes);
     expect(scene.getMeshByName('galaxy-reference-grid-minor')).not.toBeNull();
+  });
+
+  describe('how close a flight to a selected system ends', () => {
+    // A scene is built once, at the camera it was loaded with, and the commander
+    // then zooms. The flight must not depend on how far out the scene was built.
+    const builtAtOverview: GalaxySceneContract = {
+      ...fixture,
+      camera: { ...initialCamera, distanceLy: 250_000 },
+    };
+    const flyFrom = (builtAt: GalaxySceneContract, distanceLy: number) => {
+      const loaded = loadSession(builtAt);
+      loaded.session.execute?.(
+        {
+          type: 'SET_CAMERA',
+          camera: { ...initialCamera, distanceLy, revision: 5 },
+        },
+        loaded.emit,
+      );
+      loaded.session.execute?.(
+        { type: 'FLY_TO', target: flightTarget, reducedMotion: true },
+        loaded.emit,
+      );
+      const final = changedCameras(loaded.events).at(-1)!;
+      expect(final.focusLy).toEqual(destination.positionLy);
+      return final;
+    };
+
+    it('zooms in to the local view from a scene built at the galaxy overview', () => {
+      expect(flyFrom(builtAtOverview, 21_266).distanceLy).toBe(
+        GALAXY_LOCAL_VIEW_DISTANCE_LY,
+      );
+      expect(flyFrom(builtAtOverview, 120_000).distanceLy).toBe(
+        GALAXY_LOCAL_VIEW_DISTANCE_LY,
+      );
+    });
+
+    it('ends at the same local view whatever distance the scene was built at', () => {
+      expect(flyFrom(fixture, 5_000).distanceLy).toBe(
+        GALAXY_LOCAL_VIEW_DISTANCE_LY,
+      );
+    });
+
+    it('never zooms out, and never goes below the nearest useful distance', () => {
+      expect(flyFrom(builtAtOverview, 150).distanceLy).toBeCloseTo(150, 6);
+      expect(flyFrom(builtAtOverview, 3).distanceLy).toBeCloseTo(12, 6);
+    });
   });
 
   it('applies reduced-motion flight immediately and completes exactly once', () => {
