@@ -48,6 +48,21 @@ export type SystemLabelOptions = Readonly<{
   moonMinRadiusPx?: number;
 }>;
 
+/**
+ * The radius the renderer actually draws for a body, in scene units. A body
+ * with no known position is a diamond with a minimum radius, and a barycentre
+ * is a small cross; both are larger than their sphere radius. This mirrors
+ * `createSystemBodyMesh` in `babylon/adapter.ts` (and the footprint in
+ * `system-scene.ts`), so a name clears the marker that is really on screen.
+ */
+export function systemMarkerRadius(layout: SystemBodyLayout): number {
+  const { body } = layout;
+  if (layout.placement === 'unplaced')
+    return Math.max(0.55, body.displayRadius);
+  if (body.class?.value === 'Barycentre') return 0.45;
+  return body.displayRadius;
+}
+
 /** Glyphs smaller than this (in pixels) never keep a name away. */
 const OBSTACLE_MIN_RADIUS_PX = 4;
 
@@ -183,15 +198,29 @@ export function systemLabelTexts(
   return texts;
 }
 
+/** A star, or a root: the bodies other bodies orbit directly. */
+function isStarLike(layout: SystemBodyLayout): boolean {
+  return layout.group === 'root' || layout.body.class?.value === 'Star';
+}
+
 function labelKind(
   layout: SystemBodyLayout,
   byId: ReadonlyMap<number, SystemBodyLayout>,
 ): SystemLabelKind {
   if (layout.group === 'unattached') return 'other';
-  if (layout.group === 'root') return 'star';
+  if (isStarLike(layout)) return 'star';
   const parent =
     layout.parentBodyId === null ? undefined : byId.get(layout.parentBodyId);
-  return !parent || parent.group === 'root' ? 'planet' : 'moon';
+  // Tree depth is not enough: in a barycentre -> star -> planet system the
+  // stars are not roots, so a planet's parent can itself be a star. A moon is
+  // a body orbiting something that is neither a star nor a barycentre.
+  if (
+    !parent ||
+    isStarLike(parent) ||
+    parent.body.class?.value === 'Barycentre'
+  )
+    return 'planet';
+  return 'moon';
 }
 
 const TIER: Readonly<Record<SystemLabelKind, number>> = {
@@ -271,7 +300,7 @@ export function layoutSystemBodyLabels(
     );
     if (!point) continue;
     const radiusPx = systemGlyphRadiusPx(
-      body.displayRadius,
+      systemMarkerRadius(layout),
       point.depth,
       viewport,
     );

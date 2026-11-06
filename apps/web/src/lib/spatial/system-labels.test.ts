@@ -6,6 +6,7 @@ import {
   systemCameraProjector,
   systemGlyphRadiusPx,
   systemLabelTexts,
+  systemMarkerRadius,
 } from './system-labels';
 import { solLikeSystemDetail } from './system-scene-fixtures';
 import { buildSystemScene, systemBodyLayout } from './system-scene';
@@ -369,5 +370,98 @@ describe('System Map label layout', () => {
     expect(
       layoutSystemBodyLabels(layouts, contract.camera, { width: 0, height: 0 }),
     ).toEqual([]);
+  });
+});
+
+describe('System Map label kinds and marker size', () => {
+  const withoutDistance = (
+    source: BodyVisualDescriptor,
+  ): BodyVisualDescriptor => {
+    const copy = { ...source };
+    delete copy.distanceFromArrivalLs;
+    return copy;
+  };
+  const vp = { width: 640, height: 360 };
+
+  it('treats a planet of a star that orbits a barycentre as a planet, not a moon', () => {
+    // barycentre -> star -> planet: the stars are not roots, so tree depth
+    // alone would call the stars planets and their planets moons.
+    const bodies = [
+      body(0, 'Binary barycentre', null, 0, 'Barycentre'),
+      body(1, 'Binary A', 0, 5, 'Star'),
+      body(2, 'Binary B', 0, 10, 'Star'),
+      body(3, 'Binary A 1', 1, 40, 'Planet', 0.2),
+      body(4, 'Binary A 1 a', 3, 41, 'Planet', 0.2),
+    ];
+    const layouts = systemBodyLayout(bodies);
+    // Far enough that a 0.2-radius glyph is well under the moon threshold.
+    const labels = layoutSystemBodyLabels(
+      layouts,
+      camera({ semanticDistance: 60 }),
+      vp,
+      { maxLabels: 50 },
+    );
+    const kinds = new Map(labels.map((label) => [label.bodyId, label.kind]));
+    expect(kinds.get(1)).toBe('star');
+    expect(kinds.get(2)).toBe('star');
+    // The planet keeps its name at a size where a moon would be dropped.
+    expect(kinds.get(3)).toBe('planet');
+    // Its own moon is still treated as a moon and dropped.
+    expect(kinds.has(4)).toBe(false);
+  });
+
+  it('mirrors the marker size the renderer draws', () => {
+    const bodies = [
+      body(0, 'Alpha', null, 0, 'Star'),
+      body(1, 'Beta', 0, 20),
+      body(2, 'Binary barycentre', null, 0, 'Barycentre'),
+    ];
+    const layouts = systemBodyLayout(bodies);
+    const lost = body(9, 'Lost moon', 1, 5, 'Planet', 0.075);
+    const noDistance = withoutDistance(lost);
+    const unplaced = systemBodyLayout([...bodies, noDistance]).find(
+      ({ body }) => body.ref.bodyId === 9,
+    )!;
+    expect(unplaced.placement).toBe('unplaced');
+    expect(systemMarkerRadius(unplaced)).toBe(0.55);
+    const placed = layouts.find(({ body }) => body.ref.bodyId === 1)!;
+    expect(systemMarkerRadius(placed)).toBe(placed.body.displayRadius);
+    const bary = layouts.find(({ body }) => body.ref.bodyId === 2)!;
+    expect(systemMarkerRadius(bary)).toBe(0.45);
+  });
+
+  it('keeps the name of a position-unknown body clear of its diamond', () => {
+    const lost = body(9, 'Lost moon', 1, 5, 'Planet', 0.075);
+    const noDistance = withoutDistance(lost);
+    const layouts = systemBodyLayout([
+      body(0, 'Alpha', null, 0, 'Star'),
+      body(1, 'Beta', 0, 20),
+      noDistance,
+    ]);
+    const target = layouts.find(({ body }) => body.ref.bodyId === 9)!;
+    const state = camera({
+      semanticDistance: 6,
+      focus: { kind: 'body', ref: target.body.ref },
+    });
+    const labels = layoutSystemBodyLabels(layouts, state, vp);
+    const label = labels.find(({ bodyId }) => bodyId === 9)!;
+    const project = systemCameraProjector(state, target.position, vp)!;
+    const centre = project(
+      target.position.x,
+      target.position.y,
+      target.position.z,
+    )!;
+    const diamond = systemGlyphRadiusPx(
+      systemMarkerRadius(target),
+      centre.depth,
+      vp,
+    );
+    // The text starts beyond the diamond's edge on whichever side it sits,
+    // not inside it.
+    if (label.side === 'right') {
+      expect(label.x).toBeGreaterThanOrEqual(centre.x + diamond);
+    } else {
+      expect(label.x).toBeLessThanOrEqual(centre.x - diamond);
+    }
   });
 });
