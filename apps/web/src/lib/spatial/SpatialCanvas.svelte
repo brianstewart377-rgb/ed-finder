@@ -213,6 +213,10 @@
   let labelCandidates = $state.raw<GalaxyLabelCandidate[]>([]);
   let visibleGalaxyLabels = $state.raw<ProjectedGalaxyLabel[]>([]);
   let labelCamera = $state.raw<CameraState | null>(null);
+  // The slot each region name held in the last layout (not reactive state).
+  let lastLabelSlots = new Map<string, number>();
+  // True until the nearby-name ranking has caught up with the camera. Hover
+  // cards wait for this; the name overlay itself no longer does.
   const labelsMoving = $derived(
     cameraTransitionActive || labelCamera !== currentCamera,
   );
@@ -336,8 +340,9 @@
   const sceneTargetCount = $derived(targetCount(scene));
   const systemTargetCount = $derived(layerTargetCount(scene, 'finder-systems'));
   $effect(() => {
-    // Like viewport streaming, labels use the settled view. Never rank or solve
-    // overlap on CAMERA_CHANGED animation frames or during a held drag.
+    // Which names exist is decided on the settled view: ranking the nearby
+    // catalogue scans every streamed star, so never do it on CAMERA_CHANGED
+    // animation frames or during a held drag.
     void resizeRevision;
     const nextScene = scene;
     const camera = currentCamera;
@@ -347,24 +352,46 @@
     if (nextScene?.kind !== 'galaxy' || !camera || !host) {
       labelCandidates = [];
       visibleGalaxyLabels = [];
+      lastLabelSlots = new Map();
       return;
     }
     if (cameraTransitionActive) return;
     const timeout = window.setTimeout(() => {
-      const size = viewport();
       labelCandidates = galaxyLabelCandidates(
         { ...nextScene, camera },
         regionId,
         {
           hoveredSystemId64: systemId,
           anchor: reference ?? undefined,
-          viewport: size,
+          viewport: viewport(),
         },
       );
-      visibleGalaxyLabels = layoutGalaxyLabels(labelCandidates, camera, size);
       labelCamera = camera;
     }, 180);
     return () => window.clearTimeout(timeout);
+  });
+  // Where each name sits is re-projected from the live camera on every change,
+  // so a name stays on its star while you zoom and pan instead of vanishing and
+  // reappearing somewhere else once the camera stops. Projecting the bounded
+  // candidate set is cheap. While the camera moves every region name keeps its
+  // slot (no shuffling mid-gesture); once it settles they ease clear of each
+  // other.
+  $effect(() => {
+    void resizeRevision;
+    const camera = currentCamera;
+    const candidates = labelCandidates;
+    if (scene?.kind !== 'galaxy' || !camera || !host) return;
+    if (cameraTransitionActive) return;
+    const solved = layoutGalaxyLabels(candidates, camera, viewport(), {
+      previousDisplacements: lastLabelSlots,
+      // Until the ranking has caught up with the camera the view is still
+      // moving: names ride along with their stars and nothing is re-shuffled.
+      lockDisplacements: labelCamera !== camera,
+    });
+    lastLabelSlots = new Map(
+      solved.map((label) => [label.key, label.displacementIndex]),
+    );
+    visibleGalaxyLabels = solved;
   });
   const atlasRegionLabels = $derived(
     visibleGalaxyLabels.filter(
@@ -1580,7 +1607,7 @@
     </svg>
     <div
       class="galaxy-label-layer"
-      class:labels-moving={labelsMoving}
+      class:labels-moving={cameraTransitionActive}
       data-visible-label-count={visibleGalaxyLabels.length}
     >
       {#each renderedGalaxyLabels as label (label.key)}
@@ -1627,8 +1654,11 @@
             data-map-label-selected={label.selected || undefined}
             data-map-label-anchor-x={label.anchorXPx}
             data-map-label-anchor-y={label.anchorYPx}
-            style:left={`${label.xPx}px`}
-            style:top={`${label.yPx}px`}>{label.text}</span
+            style:left={`${label.anchorXPx}px`}
+            style:top={`${label.anchorYPx}px`}
+            style:--label-dx={`${label.xPx - label.anchorXPx}px`}
+            style:--label-dy={`${label.yPx - label.anchorYPx}px`}
+            >{label.text}</span
           >
         {/if}
       {/each}
@@ -1996,12 +2026,18 @@
     text-align: center;
     text-wrap: balance;
     line-height: 1.18;
-    will-change: left, top;
-    transition:
-      left 90ms ease-out,
-      top 90ms ease-out;
   }
+  /* A name sits exactly on its anchor and follows the camera with no easing,
+     like the System Map names: one that trails its star reads as the wrong
+     star. Only the sideways shift a region name takes to clear a neighbour
+     (--label-dx/--label-dy) eases, so a rearrangement slides instead of
+     snapping. */
   .galaxy-label--region {
+    transform: translate(
+      calc(-50% + var(--label-dx, 0px)),
+      calc(-50% + var(--label-dy, 0px))
+    );
+    transition: transform 160ms ease-out;
     justify-content: center;
     color: color-mix(in srgb, var(--text-muted) 80%, transparent);
     font-size: 0.63rem;
@@ -2066,6 +2102,11 @@
   .galaxy-label--atlas-right {
     justify-content: flex-start;
     text-align: left;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .galaxy-label--region {
+      transition: none;
+    }
   }
   .galaxy-label--system {
     pointer-events: auto;

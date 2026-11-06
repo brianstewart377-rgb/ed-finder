@@ -1569,38 +1569,78 @@ describe('SpatialCanvas', () => {
     expect(result.violations).toEqual([]);
   });
 
-  it('ranks candidates and resolves overlap only after camera changes settle', async () => {
+  it('ranks candidates once the camera settles but keeps every name on its star while it moves', async () => {
     const candidates = vi.spyOn(galaxyLabels, 'galaxyLabelCandidates');
     const layout = vi.spyOn(galaxyLabels, 'layoutGalaxyLabels');
     const scene = nearbyScene();
-    render(SpatialCanvas, { scene });
+    const view = render(SpatialCanvas, { scene });
     await screen.findByText('Nearby systems (3)');
+    const layer = view.container.querySelector('.galaxy-label-layer')!;
     candidates.mockClear();
     layout.mockClear();
     vi.useFakeTimers();
     const runtime = adapter.runtimes[0]!;
     for (let revision = 2; revision <= 4; revision += 1) {
+      layout.mockClear();
       runtime.emit({
         type: 'CAMERA_CHANGED',
         camera: { ...scene.camera, bearingRad: revision / 10, revision },
       });
       await tick();
+      // Names are re-placed from the live camera on every change and never
+      // hidden: they must not vanish and reappear once the camera stops.
+      expect(layout).toHaveBeenCalledOnce();
+      expect(layout.mock.calls[0]?.[1].revision).toBe(revision);
+      // Still moving: region names keep their slots, nothing is re-shuffled.
+      expect(layout.mock.calls[0]?.[3]).toMatchObject({
+        lockDisplacements: true,
+      });
+      expect(layer).not.toHaveClass('labels-moving');
       await vi.advanceTimersByTimeAsync(100);
+      // Choosing which names exist scans the catalogue, so it waits.
       expect(candidates).not.toHaveBeenCalled();
-      expect(layout).not.toHaveBeenCalled();
     }
     await vi.advanceTimersByTimeAsync(79);
     expect(candidates).not.toHaveBeenCalled();
-    expect(layout).not.toHaveBeenCalled();
+    layout.mockClear();
     await vi.advanceTimersByTimeAsync(1);
     await tick();
     expect(candidates).toHaveBeenCalledOnce();
-    expect(layout).toHaveBeenCalledOnce();
     expect(candidates.mock.calls[0]?.[0].camera.revision).toBe(4);
+    // The new names are placed against the same camera, once.
+    expect(layout).toHaveBeenCalledOnce();
     expect(layout.mock.calls[0]?.[0]).toHaveLength(3);
+    expect(layout.mock.calls[0]?.[1].revision).toBe(4);
+    // Settled: names may now ease clear of one another.
+    expect(layout.mock.calls[0]?.[3]).toMatchObject({
+      lockDisplacements: false,
+    });
     await vi.advanceTimersByTimeAsync(1_000);
     expect(candidates).toHaveBeenCalledOnce();
     expect(layout).toHaveBeenCalledOnce();
+  });
+
+  it('puts names on their anchors with no easing and eases only the shift that clears a neighbour', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'src/lib/spatial/SpatialCanvas.svelte'),
+      'utf8',
+    );
+    const rule = (selector: string) => {
+      const match = new RegExp(`\\n  ${selector} \\{([^}]*)\\}`, 'u').exec(
+        source,
+      );
+      expect(match, selector).not.toBeNull();
+      return match![1]!;
+    };
+    // A name that trails its star during a drag reads as the wrong star, so
+    // left/top follow the camera exactly...
+    expect(rule('\\.galaxy-label')).not.toMatch(/transition|will-change/u);
+    // ...and only the region name's own sideways shift is eased.
+    const region = rule('\\.galaxy-label--region');
+    expect(region).toMatch(/--label-dx/u);
+    expect(region).toMatch(/--label-dy/u);
+    expect(region).toMatch(/transition: transform/u);
+    expect(source).toMatch(/style:left=\{`\$\{label\.anchorXPx\}px`\}/u);
   });
 
   it('distinguishes a click from a pan and cancels interrupted gestures without picking', async () => {
