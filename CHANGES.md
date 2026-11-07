@@ -11,6 +11,27 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-07 — Explore: the galaxy map fills the window beside the Finder
+
+The owner found the Explore page wasted the space above the map. On the live
+site at 1760×900 the map started 1,264 px down the page, under the title,
+search, nine archetype cards and filters; on main the on-demand map window
+opened 877 px down. Owner decision (2026-11-07, redesign plan §7.6): a
+game-style full-window map. The map is now always on screen, filling the
+window below the site header, and the Finder (search, archetypes, body
+filters, results) is a panel on its left with **Hide Finder** / **Show
+Finder**; Saved and Compare stay below. The panel is compact: smaller
+heading, archetype names without their descriptions on screen (still read
+out), and Body filters beside Results per page. On a phone the Finder and the
+map take turns; the map keeps its size off screen while the Finder shows, so
+taking turns never resizes the canvas or refetches its area. This replaces the
+on-demand window (Show on map opening it, Expand, Close, Back to results);
+Show on map now centres the map on the system. No API, URL or storage change.
+Unit tests cover the panel toggle (scroll, selection, search and the one
+canvas kept), the phone turn-taking, and no new requests; the Cypress journeys
+and their Python contract assert the new layout at 1280×800, 768×800 and
+390×844.
+
 ## 2026-11-06 — Galaxy map: smooth density glow instead of a grid of dots
 
 From mid zoom the galaxy's catalogue-density layer drew as a regular lattice of

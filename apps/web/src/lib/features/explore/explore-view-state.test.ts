@@ -124,10 +124,8 @@ describe('Explore view lifetime', () => {
       starViewportSize: null,
       layerToggleRevision: 0,
       showNebulae: true,
-      mapOpen: false,
-      mapExpanded: false,
+      finderPanelOpen: true,
       mapFocusedSystemId: null,
-      mapReturnScroll: null,
       reservedPoints: [],
       renderedNebulaReceipt: null,
       appliedCataloguePacket: null,
@@ -207,10 +205,8 @@ describe('Explore view lifetime', () => {
       starViewportSize: { width: 1200, height: 800 },
       layerToggleRevision: 12,
       showNebulae: false,
-      mapOpen: true,
-      mapExpanded: true,
+      finderPanelOpen: false,
       mapFocusedSystemId: anchor.id64,
-      mapReturnScroll: { x: 0, y: 250 },
       reservedPoints: [
         {
           systemId64: anchor.id64,
@@ -243,18 +239,18 @@ describe('Explore view lifetime', () => {
       completedFocusRevision: 0,
       appliedCameraRequestRevision: 0,
       showNebulae: true,
-      mapOpen: false,
-      mapExpanded: false,
+      finderPanelOpen: true,
       reservedPoints: [],
       resultScrollTop: 0,
       initialGalaxyViewRequested: false,
     });
     expect(other.layerPreferences).not.toBe(view.layerPreferences);
-    // Window visibility and renderer receipts never become URL/storage keys.
-    const beforeClose = view.serialize().toString();
-    view.mapOpen = false;
-    view.mapExpanded = false;
-    expect(view.serialize().toString()).toBe(beforeClose);
+    // Panel visibility and renderer receipts never become URL/storage keys.
+    const beforeToggle = view.serialize().toString();
+    view.finderPanelOpen = true;
+    expect(view.serialize().toString()).toBe(beforeToggle);
+    view.finderPanelOpen = false;
+    expect(view.serialize().toString()).toBe(beforeToggle);
     expect(view.retainedCamera?.camera).toEqual(camera);
     expect(view.reservedPoints).toEqual(changed.reservedPoints);
     expect(localStorage.length).toBe(0);
