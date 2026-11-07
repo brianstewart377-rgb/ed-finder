@@ -1323,14 +1323,13 @@ function createGalaxyVisualFinish(
   });
   glow.blurKernelSize = 20;
   glow.intensity = 0.42;
-  const includedMeshes = glowMeshes.length
-    ? glowMeshes
-    : [CreateSphere('galaxy-glow-guard', { diameter: 0.001 }, scene)];
-  if (!glowMeshes.length) {
-    includedMeshes[0]!.isVisible = false;
-    includedMeshes[0]!.isPickable = false;
-  }
-  for (const mesh of includedMeshes) glow.addIncludedOnlyMesh(mesh);
+  // Babylon treats an empty inclusion list as "every mesh". A permanent
+  // invisible guard keeps it non-empty, so removing the last glow mesh (for
+  // example the selection marker) never pulls the density layer into bloom.
+  const guard = CreateSphere('galaxy-glow-guard', { diameter: 0.001 }, scene);
+  guard.isVisible = false;
+  guard.isPickable = false;
+  for (const mesh of [guard, ...glowMeshes]) glow.addIncludedOnlyMesh(mesh);
   return glow;
 }
 

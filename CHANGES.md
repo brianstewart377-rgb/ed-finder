@@ -25,7 +25,10 @@ saturate. The density layer is no longer in the glow (bloom) layer: blooming
 an already soft field drew every splat at full emissive into the glow target
 and laid a flat grey plateau over the disc. Presentation version is now
 `stellar-glow-v3`. Before/after was checked with the real scene builder on live
-`/api/map/heatmap` cells at four views.
+`/api/map/heatmap` cells at four views. The glow layer now always keeps an
+invisible guard mesh in its inclusion list: Babylon treats an empty list as
+"every mesh", so deselecting the only glowing mesh would otherwise have put
+the density layer back into bloom (Codex review).
 
 ## 2026-11-06 — Galaxy map: names stay on their stars while you zoom
 
