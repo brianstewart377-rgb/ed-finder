@@ -17,6 +17,19 @@ V2 restore scripts or copy the production database into the test stack. The
 export described below is a separate, read-only, reviewed data operation, not
 a recovery or production deployment procedure.
 
+### Fresh public reference, 2026-11-07
+
+A read-only request to the live public
+`/api/map/heatmap?coverage=complete&voxel_size=2000&max_cells=50000` endpoint
+returned `source=pyramid`, `coverage=complete`, `truncated=false`, canonical
+generation `a7076522-54cd-52f3-a291-4e5406bea230`, spatial generation
+`9a32bdca-aaa4-4cfc-ac04-cdd990ff17d5`, pyramid `pyramid_v1`,
+`source_system_count=198528286`, and 1,949 cells at level 0 (2,560 LY).
+The pyramid's reported `coverage_at` is 2026-09-23T06:15:33Z. This is a
+current **public API observation**, not a database export. The first archive
+must match these publication IDs if they remain current at capture time; it
+must recheck rather than assume they will remain current.
+
 ## Snapshot contract
 
 Build a new custom-format PostgreSQL 18 archive in an isolated staging database
