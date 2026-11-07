@@ -88,6 +88,8 @@ def load_manifest(path: Path) -> dict:
 def data_relations(archive_listing: str) -> set[str]:
     relations: set[str] = set()
     for line in archive_listing.splitlines():
+        if re.search(r"\b(?:MATERIALIZED VIEW DATA|BLOBS?|LARGE OBJECT)\b", line):
+            raise ValueError("archive contains payload outside the reviewed TABLE DATA inventory")
         match = DATA_LINE.match(line)
         if match:
             schema, table = match.groups()
