@@ -674,6 +674,9 @@ describe('Babylon spatial adapter boundary', () => {
     expect(product.densityMesh).not.toBeNull();
     expect(product.densityMesh?.thinInstanceCount).toBe(payload.cells.length);
     expect(product.densityMesh?.isPickable).toBe(false);
+    // Blooming the already-soft glow drew every splat at full emissive into
+    // the glow target and laid a flat grey plateau over the disc.
+    expect(product.visualGlow.hasMesh(product.densityMesh!)).toBe(false);
     expect(product.renderedLayers).toEqual([
       {
         contributionId: 'catalogue-density-base',
@@ -893,6 +896,11 @@ describe('Babylon spatial adapter boundary', () => {
 
     expect(densityMesh?.material?.alpha).toBeCloseTo(0.45, 5);
     expect(starMesh?.material?.alpha).toBeCloseTo(0.5, 5);
+    const glow = scene.effectLayers.find(
+      (layer) => layer.name === 'galaxy-emissive-glow',
+    );
+    expect(glow).toBeDefined();
+    expect(glow!.hasMesh(densityMesh!)).toBe(false);
 
     session.dispose();
     engine.dispose();
@@ -953,6 +961,12 @@ describe('Babylon spatial adapter boundary', () => {
 
     expect(densityMesh?.material?.alpha).toBeCloseTo(0.45, 5);
     expect(starMesh?.material?.alpha).toBeCloseTo(0.5, 5);
+    // A refreshed density layer must stay out of the glow layer as well.
+    const glow = scene.effectLayers.find(
+      (layer) => layer.name === 'galaxy-emissive-glow',
+    );
+    expect(glow).toBeDefined();
+    expect(glow!.hasMesh(densityMesh!)).toBe(false);
 
     session.dispose();
     engine.dispose();
@@ -1105,6 +1119,57 @@ describe('Babylon spatial adapter boundary', () => {
       session.dispose();
     },
   );
+
+  it('keeps the density layer out of bloom after the only glow mesh is deselected', () => {
+    // A plain G star has no accent ring and there is no commander history, so
+    // the selection marker is the only glow mesh this scene starts with.
+    const plainStar: GalaxySystemPoint = {
+      systemId64: '77',
+      name: 'Plain G star',
+      positionLy: { x: 30, y: 0, z: 0 },
+      primaryStar: { type: 'G' },
+    };
+    const base = densityBatchScene(
+      DENSITY_CROSSFADE_FAR_LY + 1,
+      [plainStar],
+      [],
+    );
+    const engine = new NullEngine();
+    const session = createBabylonSession(engine, 'WEBGL2');
+    const events = vi.fn();
+    session.execute?.(
+      {
+        type: 'LOAD_SCENE',
+        scene: {
+          ...base,
+          selection: [{ kind: 'system', systemId64: plainStar.systemId64 }],
+        },
+      },
+      events,
+    );
+    const scene = engine.scenes.at(-1)!;
+    expect(scene.getMeshByName('selected-system-marker')).not.toBeNull();
+    expect(
+      scene.getMeshByName(`stellar-icon-ring-${plainStar.systemId64}`),
+    ).toBeNull();
+    const glow = scene.effectLayers.find(
+      (layer) => layer.name === 'galaxy-emissive-glow',
+    )!;
+    const densityMesh = scene.getMeshByName('catalogue-density-cells')!;
+    expect(glow.hasMesh(densityMesh)).toBe(false);
+
+    session.execute?.(
+      { type: 'LOAD_SCENE', scene: { ...base, revision: 2, selection: [] } },
+      events,
+    );
+    // Deselection takes the in-place path: same scene, marker removed.
+    expect(engine.scenes.at(-1)).toBe(scene);
+    expect(scene.getMeshByName('selected-system-marker')).toBeNull();
+    expect(glow.hasMesh(densityMesh)).toBe(false);
+
+    session.dispose();
+    engine.dispose();
+  });
 
   it('moves a selected catalogue star into the opaque batch after zoom without changing unrelated stars', () => {
     const selectedPoint = {

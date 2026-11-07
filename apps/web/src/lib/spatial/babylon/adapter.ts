@@ -1323,14 +1323,13 @@ function createGalaxyVisualFinish(
   });
   glow.blurKernelSize = 20;
   glow.intensity = 0.42;
-  const includedMeshes = glowMeshes.length
-    ? glowMeshes
-    : [CreateSphere('galaxy-glow-guard', { diameter: 0.001 }, scene)];
-  if (!glowMeshes.length) {
-    includedMeshes[0]!.isVisible = false;
-    includedMeshes[0]!.isPickable = false;
-  }
-  for (const mesh of includedMeshes) glow.addIncludedOnlyMesh(mesh);
+  // Babylon treats an empty inclusion list as "every mesh". A permanent
+  // invisible guard keeps it non-empty, so removing the last glow mesh (for
+  // example the selection marker) never pulls the density layer into bloom.
+  const guard = CreateSphere('galaxy-glow-guard', { diameter: 0.001 }, scene);
+  guard.isVisible = false;
+  guard.isPickable = false;
+  for (const mesh of [guard, ...glowMeshes]) glow.addIncludedOnlyMesh(mesh);
   return glow;
 }
 
@@ -1744,14 +1743,14 @@ export const createBabylonGalaxyScene = (
     ? createSelectedSystemMarker(scene, selectedPoint, markerSizeLy)
     : null;
 
+  // The density layer is already a soft glow. Blooming it as well renders
+  // every splat's full emissive colour into the glow target, which adds a flat
+  // grey plateau over the whole disc, so it stays out of the glow layer.
   const visualGlow = createGalaxyVisualFinish(
     scene,
-    [
-      densityMesh,
-      commanderHistoryMesh,
-      selectedMarker,
-      ...stellarAccentMeshes,
-    ].filter((mesh): mesh is Mesh => mesh !== null),
+    [commanderHistoryMesh, selectedMarker, ...stellarAccentMeshes].filter(
+      (mesh): mesh is Mesh => mesh !== null,
+    ),
   );
 
   const renderedLayers: RenderedLayerReceipt[] = [];
@@ -2669,16 +2668,12 @@ export const createBabylonSession = (
             : [...productContract.contributions, command.contribution],
         };
         const nextDensity = catalogueDensitySceneLayer(nextContract);
-        const previousDensityMesh = product.densityMesh;
-        if (previousDensityMesh) {
-          product.visualGlow.removeIncludedOnlyMesh(previousDensityMesh);
-          previousDensityMesh.dispose();
-        }
+        product.densityMesh?.dispose();
+        // Not added to the glow layer: see createBabylonGalaxyScene.
         const densityMesh = createCatalogueDensityMesh(
           product.scene,
           nextDensity,
         );
-        if (densityMesh) product.visualGlow.addIncludedOnlyMesh(densityMesh);
         const renderedLayers = [
           ...product.renderedLayers.filter(
             (receipt) => receipt.layerId !== 'catalogue-density',

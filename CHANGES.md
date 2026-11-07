@@ -11,6 +11,25 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-06 — Galaxy map: smooth density glow instead of a grid of dots
+
+From mid zoom the galaxy's catalogue-density layer drew as a regular lattice of
+dots with stripes. Each occupied cell is one soft splat at its centroid, but a
+splat stopped short of its neighbours one cell away (radius at most 0.62 of a
+cell), so the gaps showed. Splats now reach 1.6–2 cells (more for denser
+cells) with a tapered Gaussian kernel whose support is still compact, and
+overlapping light is added rather than painted over (order-independent), so
+equal neighbouring cells sum to an even glow; a test pins the lattice ripple
+below 2%. Per-cell intensity is lower and steeper so only dense regions
+saturate. The density layer is no longer in the glow (bloom) layer: blooming
+an already soft field drew every splat at full emissive into the glow target
+and laid a flat grey plateau over the disc. Presentation version is now
+`stellar-glow-v3`. Before/after was checked with the real scene builder on live
+`/api/map/heatmap` cells at four views. The glow layer now always keeps an
+invisible guard mesh in its inclusion list: Babylon treats an empty list as
+"every mesh", so deselecting the only glowing mesh would otherwise have put
+the density layer back into bloom (Codex review).
+
 ## 2026-11-06 — Galaxy map: names stay on their stars while you zoom
 
 Galaxy-map region and system names used to disappear the moment the camera
