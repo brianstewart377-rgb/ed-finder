@@ -66,7 +66,7 @@ describe('Galaxy label projection and layout', () => {
     expect(rotated?.xPx).toBeGreaterThan(500);
   });
 
-  it('declutters system collisions while displacing region labels', () => {
+  it('declutters system collisions while keeping the region name on its point', () => {
     const result = layoutGalaxyLabels(
       [
         label('ordinary-a', 0, 0),
@@ -86,6 +86,10 @@ describe('Galaxy label projection and layout', () => {
     expect(
       new Set(result.map((entry) => `${entry.xPx}:${entry.yPx}`)).size,
     ).toBe(2);
+    const region = result.find((entry) => entry.key === 'current-region')!;
+    expect(region).toMatchObject({ muted: false });
+    expect(region.xPx).toBeCloseTo(region.anchorXPx, 6);
+    expect(region.yPx).toBeCloseTo(region.anchorYPx, 6);
   });
 
   it('places a system chip beside its star so the star stays clickable', () => {
@@ -227,93 +231,158 @@ describe('Galaxy label projection and layout', () => {
         z: (yPx / (probe.yPx - 250)) * 100,
       };
     };
-    const regionAt = (key: string, xPx: number, yPx: number) => {
+    const regionAt = (
+      key: string,
+      xPx: number,
+      yPx: number,
+      overrides: Partial<GalaxyLabelCandidate> = {},
+    ) => {
       const { x, z } = lyForPx(xPx, yPx);
       return label(key, x, z, {
         ...regionKind,
         target: { kind: 'region', id: key },
         text: 'Region name',
+        ...overrides,
       });
     };
+    const mutedKeys = (labels: readonly { key: string; muted: boolean }[]) =>
+      labels.filter((entry) => entry.muted).map((entry) => entry.key);
 
-    it('claims space in a fixed order, whichever name is nearer the camera', () => {
+    it('never moves a region name off its own point to make room', () => {
+      const names = [
+        regionAt('a-region', 0, 0),
+        regionAt('b-region', 0, 6),
+        regionAt('c-region', 10, -4),
+      ];
+      const placed = layoutGalaxyLabels(names, camera, viewport);
+      expect(placed).toHaveLength(3);
+      for (const entry of placed) {
+        expect(entry.xPx).toBeCloseTo(entry.anchorXPx, 6);
+        expect(entry.yPx).toBeCloseTo(entry.anchorYPx, 6);
+      }
+      // The clash is shown by fading the less important names, not hiding them.
+      expect(mutedKeys(placed)).toEqual(['b-region', 'c-region']);
+    });
+
+    it('fades the same name whichever of two is nearer the camera', () => {
       const a = regionAt('a-region', 0, 0);
       const b = regionAt('b-region', 0, 6);
-      const indexOf = (focusLy: CameraState['focusLy']) =>
-        Object.fromEntries(
-          layoutGalaxyLabels([a, b], { ...camera, focusLy }, viewport).map(
-            (entry) => [entry.key, entry.displacementIndex],
-          ),
+      const fadedFor = (focusLy: CameraState['focusLy']) =>
+        mutedKeys(layoutGalaxyLabels([a, b], { ...camera, focusLy }, viewport));
+      expect(fadedFor(a.positionLy)).toEqual(['b-region']);
+      expect(fadedFor(b.positionLy)).toEqual(['b-region']);
+    });
+
+    it('keeps a faded name faded until there is clear room', () => {
+      const faded = (gapPx: number, wasMuted: boolean) =>
+        layoutGalaxyLabels(
+          [regionAt('a-region', 0, 0), regionAt('b-region', 0, gapPx)],
+          camera,
+          viewport,
+          { previouslyMuted: new Set(wasMuted ? ['b-region'] : []) },
+        ).find((entry) => entry.key === 'b-region')!.muted;
+      // 30px apart the two 22px-tall names no longer touch...
+      expect(faded(30, false)).toBe(false);
+      // ...but one that was faded stays faded until it is well clear,
+      expect(faded(30, true)).toBe(true);
+      expect(faded(60, true)).toBe(false);
+      // and a real clash always fades.
+      expect(faded(10, false)).toBe(true);
+    });
+
+    it('never fades the current, selected or hovered region', () => {
+      for (const state of ['current', 'selected', 'hovered'] as const) {
+        const placed = layoutGalaxyLabels(
+          [
+            regionAt('a-region', 0, 0),
+            regionAt('z-region', 0, 6, { [state]: true }),
+          ],
+          camera,
+          viewport,
         );
-      // Same two overlapping names, once with each nearest the screen centre.
-      const nearA = indexOf(a.positionLy);
-      const nearB = indexOf(b.positionLy);
-      expect(nearA['a-region']).toBe(0);
-      expect(nearA['b-region']).toBeGreaterThan(0);
-      expect(nearB).toEqual(nearA);
+        expect(placed.find((entry) => entry.key === 'z-region')!.muted).toBe(
+          false,
+        );
+      }
     });
 
-    it('keeps a moved-aside name where it is until there is clear room', () => {
-      const place = (gapPx: number, previous?: number) => {
-        const a = regionAt('a-region', 0, 0);
-        const b = regionAt('b-region', 0, gapPx);
-        const placed = layoutGalaxyLabels([a, b], camera, viewport, {
-          previousDisplacements: new Map(
-            previous === undefined ? [] : [['b-region', previous]],
-          ),
-        }).find((entry) => entry.key === 'b-region')!;
-        return placed.displacementIndex;
-      };
-      // 40px apart the two just fit side by side, but not with room to spare.
-      expect(place(40)).toBe(0);
-      expect(place(40, 2)).toBe(2);
-      // Well clear of its neighbour it goes back onto its anchor.
-      expect(place(70, 2)).toBe(0);
-      // A remembered slot that a neighbour now occupies is abandoned.
-      expect(place(42, 1)).toBe(0);
-    });
-
-    it('locks every name in its slot while the camera is moving', () => {
-      const a = regionAt('a-region', 0, 0);
-      const crowded = regionAt('b-region', 0, 6);
-      const clear = regionAt('b-region', 0, 90);
-      const settled = layoutGalaxyLabels([a, crowded], camera, viewport);
-      const previousDisplacements = new Map(
-        settled.map((entry) => [entry.key, entry.displacementIndex]),
-      );
-      const slotOf = (lockDisplacements: boolean) =>
-        layoutGalaxyLabels([a, clear], camera, viewport, {
-          previousDisplacements,
-          lockDisplacements,
-        }).find((entry) => entry.key === 'b-region')!.displacementIndex;
-      expect(previousDisplacements.get('b-region')).toBeGreaterThan(0);
-      // The neighbour has moved away, but nothing re-shuffles mid-gesture...
-      expect(slotOf(true)).toBe(previousDisplacements.get('b-region'));
-      // ...and once the camera settles the name goes back on its anchor.
-      expect(slotOf(false)).toBe(0);
-    });
-
-    it('still places a name that has no slot yet while locked', () => {
-      const [placed] = layoutGalaxyLabels(
-        [regionAt('new-region', 0, 0)],
+    it('a faded name never makes another name fade', () => {
+      const placed = layoutGalaxyLabels(
+        [
+          regionAt('a-region', 0, 0),
+          regionAt('b-region', 0, 20),
+          regionAt('c-region', 0, 40),
+        ],
         camera,
         viewport,
-        { previousDisplacements: new Map(), lockDisplacements: true },
       );
-      expect(placed).toMatchObject({
-        displacementIndex: 0,
-        xPx: 500,
-        yPx: 250,
+      // b clashes with a and fades; c only touches the faded b, so it stays.
+      expect(mutedKeys(placed)).toEqual(['b-region']);
+    });
+  });
+
+  describe('a region whose name point has left the screen', () => {
+    // Everything west of x = 0 is region 1 and everything east is region 2.
+    const row = [
+      [500, 1],
+      [1_548, 2],
+    ] as const;
+    const regionLookup = {
+      version: 1,
+      origin: { x: -5_000, z: -5_000 },
+      pixel_scale: 10,
+      regions: ['', 'West Reach', 'East Reach'],
+      regionmap: Array.from({ length: 2_048 }, () => row),
+    } as const;
+    const offScreenRegion = (id: string, x: number) =>
+      label(`region:${id}`, x, 0, {
+        kind: 'region',
+        text: `Region ${id}`,
+        target: { kind: 'region', id },
       });
-    });
 
-    it('reports slot 0 for a name sitting on its anchor', () => {
-      const [only] = layoutGalaxyLabels(
-        [regionAt('solo', 0, 0)],
+    it('keeps its name on screen, inside the visible part of the region', () => {
+      const placed = layoutGalaxyLabels(
+        [offScreenRegion('2', 5_000), offScreenRegion('1', -5_000)],
         camera,
         viewport,
+        { regionLookup },
       );
-      expect(only).toMatchObject({ displacementIndex: 0, xPx: 500, yPx: 250 });
+      const east = placed.find((entry) => entry.key === 'region:2')!;
+      const west = placed.find((entry) => entry.key === 'region:1')!;
+      // Each name slides to the screen edge nearest its point, on its own side.
+      expect(east.anchorXPx).toBeGreaterThan(viewport.width);
+      expect(east.xPx).toBeGreaterThan(viewport.width / 2);
+      expect(east.xPx).toBeLessThan(viewport.width);
+      expect(west.anchorXPx).toBeLessThan(0);
+      expect(west.xPx).toBeLessThan(viewport.width / 2);
+      expect(west.xPx).toBeGreaterThan(0);
+      expect(east.yPx).toBeCloseTo(250, 6);
+      expect(west.yPx).toBeCloseTo(250, 6);
+    });
+
+    it('walks back towards the centre until it is inside the region', () => {
+      // Region 2's point is off screen to the west, but the region itself is
+      // only the eastern half of the screen: the name must not sit in region 1.
+      const [east] = layoutGalaxyLabels(
+        [offScreenRegion('2', -5_000)],
+        camera,
+        viewport,
+        { regionLookup },
+      );
+      expect(east).toBeDefined();
+      expect(east!.xPx).toBeGreaterThanOrEqual(viewport.width / 2);
+    });
+
+    it('omits a region with no part on screen, and every name without a lookup', () => {
+      expect(
+        layoutGalaxyLabels([offScreenRegion('3', 5_000)], camera, viewport, {
+          regionLookup,
+        }),
+      ).toEqual([]);
+      expect(
+        layoutGalaxyLabels([offScreenRegion('2', 5_000)], camera, viewport),
+      ).toEqual([]);
     });
   });
 

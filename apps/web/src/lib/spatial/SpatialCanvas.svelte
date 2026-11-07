@@ -23,6 +23,7 @@
     GALAXY_CAMERA_NAVIGATION_BOUNDS_LY,
     elevateGalaxyCameraByPixels,
     elevateGalaxyCameraStep,
+    keepGalaxyInView,
     orbitGalaxyCamera,
     panGalaxyCamera,
     pinchGalaxyCamera,
@@ -37,6 +38,7 @@
     catalogueDensitySceneLayer,
   } from './galaxy-density';
   import { galaxyReferenceGrid } from './galaxy-grid';
+  import { galaxyRegionsSceneLayer } from './galaxy-regions';
   import {
     galaxyLabelCandidates,
     galaxySystemPointIndex,
@@ -213,8 +215,8 @@
   let labelCandidates = $state.raw<GalaxyLabelCandidate[]>([]);
   let visibleGalaxyLabels = $state.raw<ProjectedGalaxyLabel[]>([]);
   let labelCamera = $state.raw<CameraState | null>(null);
-  // The slot each region name held in the last layout (not reactive state).
-  let lastLabelSlots = new Map<string, number>();
+  // Region names faded in the last layout (not reactive state).
+  let lastMutedLabels = new Set<string>();
   // True until the nearby-name ranking has caught up with the camera. Hover
   // cards wait for this; the name overlay itself no longer does.
   const labelsMoving = $derived(
@@ -352,7 +354,7 @@
     if (nextScene?.kind !== 'galaxy' || !camera || !host) {
       labelCandidates = [];
       visibleGalaxyLabels = [];
-      lastLabelSlots = new Map();
+      lastMutedLabels = new Set();
       return;
     }
     if (cameraTransitionActive) return;
@@ -371,11 +373,17 @@
     return () => window.clearTimeout(timeout);
   });
   // Where each name sits is re-projected from the live camera on every change,
-  // so a name stays on its star while you zoom and pan instead of vanishing and
-  // reappearing somewhere else once the camera stops. Projecting the bounded
-  // candidate set is cheap. While the camera moves every region name keeps its
-  // slot (no shuffling mid-gesture); once it settles they ease clear of each
-  // other.
+  // so a name stays on its star or in its region while you zoom and pan
+  // instead of vanishing and reappearing somewhere else once the camera stops.
+  // Projecting the bounded candidate set is cheap. Region names never jump to
+  // make room: a name that would overlap a more important one fades instead,
+  // and a region whose name point leaves the screen keeps its name inside the
+  // visible part of the region.
+  const regionLookup = $derived(
+    scene?.kind === 'galaxy'
+      ? galaxyRegionsSceneLayer(scene)?.payload.lookup
+      : undefined,
+  );
   $effect(() => {
     void resizeRevision;
     const camera = currentCamera;
@@ -383,13 +391,11 @@
     if (scene?.kind !== 'galaxy' || !camera || !host) return;
     if (cameraTransitionActive) return;
     const solved = layoutGalaxyLabels(candidates, camera, viewport(), {
-      previousDisplacements: lastLabelSlots,
-      // Until the ranking has caught up with the camera the view is still
-      // moving: names ride along with their stars and nothing is re-shuffled.
-      lockDisplacements: labelCamera !== camera,
+      previouslyMuted: lastMutedLabels,
+      ...(regionLookup ? { regionLookup } : {}),
     });
-    lastLabelSlots = new Map(
-      solved.map((label) => [label.key, label.displacementIndex]),
+    lastMutedLabels = new Set(
+      solved.filter((label) => label.muted).map((label) => label.key),
     );
     visibleGalaxyLabels = solved;
   });
@@ -636,9 +642,19 @@
       });
   }
 
+  /**
+   * Apply a pan, zoom or pinch the commander made, keeping the galaxy on
+   * screen: zoomed out it stays centred, zoomed in it can be explored but
+   * never dragged away.
+   */
+  function navigateGalaxy(from: CameraState, next: CameraState): void {
+    setCamera(keepGalaxyInView(next, viewport(), from));
+  }
+
   function pan(x: number, y: number): void {
     if (currentCamera)
-      setCamera(
+      navigateGalaxy(
+        currentCamera,
         panGalaxyCamera(
           currentCamera,
           x,
@@ -650,7 +666,8 @@
   }
 
   function zoom(delta: number): void {
-    if (currentCamera) setCamera(zoomGalaxyCamera(currentCamera, delta));
+    if (currentCamera)
+      navigateGalaxy(currentCamera, zoomGalaxyCamera(currentCamera, delta));
   }
 
   function elevate(direction: 1 | -1): void {
@@ -890,7 +907,8 @@
       const previous = [canvasPoint(first), canvasPoint(second)] as const;
       drag.x = event.clientX;
       drag.y = event.clientY;
-      setCamera(
+      navigateGalaxy(
+        currentCamera,
         pinchGalaxyCamera(
           currentCamera,
           previous,
@@ -1349,7 +1367,8 @@
         const boundedPixels = Math.max(-400, Math.min(400, pixels));
         if (canSystemNavigate) zoomSystem(boundedPixels);
         else if (currentCamera)
-          setCamera(
+          navigateGalaxy(
+            currentCamera,
             zoomGalaxyCameraTowards(
               currentCamera,
               boundedPixels,
@@ -1649,16 +1668,15 @@
             class:is-selected={label.selected}
             class:is-hovered={label.hovered}
             class:is-current={label.current}
+            class:is-muted={label.muted}
             data-map-label-kind={label.kind}
             data-map-label-key={label.key}
             data-map-label-selected={label.selected || undefined}
+            data-map-label-muted={label.muted || undefined}
             data-map-label-anchor-x={label.anchorXPx}
             data-map-label-anchor-y={label.anchorYPx}
-            style:left={`${label.anchorXPx}px`}
-            style:top={`${label.anchorYPx}px`}
-            style:--label-dx={`${label.xPx - label.anchorXPx}px`}
-            style:--label-dy={`${label.yPx - label.anchorYPx}px`}
-            >{label.text}</span
+            style:left={`${label.xPx}px`}
+            style:top={`${label.yPx}px`}>{label.text}</span
           >
         {/if}
       {/each}
@@ -2027,17 +2045,12 @@
     text-wrap: balance;
     line-height: 1.18;
   }
-  /* A name sits exactly on its anchor and follows the camera with no easing,
-     like the System Map names: one that trails its star reads as the wrong
-     star. Only the sideways shift a region name takes to clear a neighbour
-     (--label-dx/--label-dy) eases, so a rearrangement slides instead of
-     snapping. */
+  /* A name sits exactly on its point and follows the camera with no easing,
+     like the System Map names: one that trails its region reads as the wrong
+     region. Region names never jump aside to make room; a name that would
+     overlap a more important one fades instead, and only that fade eases. */
   .galaxy-label--region {
-    transform: translate(
-      calc(-50% + var(--label-dx, 0px)),
-      calc(-50% + var(--label-dy, 0px))
-    );
-    transition: transform 160ms ease-out;
+    transition: opacity 220ms ease-out;
     justify-content: center;
     color: color-mix(in srgb, var(--text-muted) 80%, transparent);
     font-size: 0.63rem;
@@ -2048,6 +2061,9 @@
       0 1px 2px var(--bg-void),
       0 0 6px var(--bg-void),
       0 0 14px color-mix(in srgb, var(--neon) 26%, transparent);
+  }
+  .galaxy-label--region.is-muted {
+    opacity: 0.3;
   }
   .galaxy-label--region.is-hovered {
     color: var(--neon-hi);
