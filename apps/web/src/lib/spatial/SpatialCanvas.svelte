@@ -68,11 +68,15 @@
     onSystemSelect,
     systemInspectHref,
     onSystemInspect,
-    controlsBelow = false,
+    controlsOverlay = false,
     cameraActions,
   } = $props<{
-    /** Presentation only: Explore gives the canvas the remaining window height. */
-    controlsBelow?: boolean;
+    /**
+     * Presentation only: Explore floats the camera controls, readout, nearby
+     * list and renderer status over the map instead of stacking them below it,
+     * so the canvas gets the whole window, like the in-game map.
+     */
+    controlsOverlay?: boolean;
     cameraActions?: Snippet<[Snippet]>;
     scene?: SpatialSceneContract;
     focusTarget?: SpatialTarget | null;
@@ -1428,7 +1432,7 @@
 {#snippet galaxyCameraControls()}
   <div
     class="camera-toolbar"
-    class:camera-toolbar--below={controlsBelow}
+    class:camera-toolbar--overlay={controlsOverlay}
     role="group"
     aria-label="Galaxy camera controls"
   >
@@ -1495,8 +1499,21 @@
   </div>
 {/snippet}
 
+{#snippet rendererStatus()}
+  <p
+    class="renderer-status"
+    class:renderer-status--overlay={controlsOverlay}
+    role="status"
+    aria-live="polite"
+    data-renderer-state={status.state}
+    data-renderer-backend={statusBackend}
+  >
+    {statusLabel}
+  </p>
+{/snippet}
+
 {#if canGalaxyNavigate}
-  {#if !controlsBelow}
+  {#if !controlsOverlay}
     {@render galaxyCameraControls()}
     {@render galaxyCameraHelp()}
   {/if}
@@ -1701,7 +1718,11 @@
     {/if}
   </div>
   {#if canGalaxyNavigate}
-    <details class="nearby-systems" bind:open={nearbyOpen}>
+    <details
+      class="nearby-systems"
+      class:nearby-systems--overlay={controlsOverlay}
+      bind:open={nearbyOpen}
+    >
       <summary>Nearby systems ({nearbySystems.length})</summary>
       {#if nearbyOpen}
         {#if nearbySystems.length}
@@ -1727,6 +1748,21 @@
         {/if}
       {/if}
     </details>
+  {/if}
+  {#if controlsOverlay}
+    <!-- Floats over the bottom of the map. The bar itself lets drags through
+         to the map; only its controls take the pointer. -->
+    <div class="map-overlay-bar">
+      {#if canGalaxyNavigate}
+        {@render galaxyCameraControls()}
+        {#if !cameraActions}
+          <details class="camera-help">
+            <summary>Map controls</summary>{@render galaxyCameraHelp()}
+          </details>
+        {/if}
+      {/if}
+      {@render rendererStatus()}
+    </div>
   {/if}
   {#if hoveredSystem && !labelsMoving}
     <div
@@ -1755,26 +1791,12 @@
     </div>
   {/if}
 </div>
-{#if canGalaxyNavigate && controlsBelow}
-  {@render galaxyCameraControls()}
-  {#if !cameraActions}
-    <details class="camera-help">
-      <summary>Map controls</summary>{@render galaxyCameraHelp()}
-    </details>
-  {/if}
-{/if}
 {#if scene?.kind === 'system'}
   <SystemBodyLegend bodies={scene.bodies} />
 {/if}
-<p
-  class="renderer-status"
-  role="status"
-  aria-live="polite"
-  data-renderer-state={status.state}
-  data-renderer-backend={statusBackend}
->
-  {statusLabel}
-</p>
+{#if !controlsOverlay}
+  {@render rendererStatus()}
+{/if}
 
 <style>
   .system-keyboard-help {
@@ -1906,20 +1928,71 @@
     border-color: var(--neon);
     background: var(--neon-soft);
   }
-  .camera-toolbar--below {
-    flex-shrink: 0;
-    gap: 0.2rem;
+  .map-overlay-bar {
+    position: absolute;
+    z-index: 4;
+    right: 0.5rem;
+    bottom: 0.5rem;
+    left: 0.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 0.3rem 0.5rem;
+    pointer-events: none;
   }
-  .camera-toolbar--below button {
-    min-height: 2rem;
-    padding: 0.3rem 0.4rem;
+  .map-overlay-bar > :global(*) {
+    pointer-events: auto;
+  }
+  /* No backdrop-filter here: it would become the containing block for the
+     fixed-position Sources pop-out inside this bar and misplace it. */
+  .camera-toolbar--overlay {
+    flex: 0 1 auto;
+    min-width: 0;
+    gap: 0.2rem;
+    padding: 0.25rem 0.4rem;
+    border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--panel) 84%, transparent);
+  }
+  .camera-toolbar--overlay button {
+    min-height: 1.9rem;
+    padding: 0.25rem 0.45rem;
+    background: color-mix(in srgb, var(--panel-raised) 82%, transparent);
     font-size: 0.75rem;
   }
-  .camera-toolbar--below .camera-distance {
-    flex-basis: 100%;
+  .camera-toolbar--overlay .camera-distance {
+    margin-left: 0.4rem;
     justify-content: flex-start;
     font-size: 0.7rem;
     gap: 0.2rem 0.6rem;
+  }
+  .renderer-status--overlay {
+    min-height: 0;
+    margin: 0;
+    padding: 0.15rem 0.55rem;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--panel) 84%, transparent);
+    color: var(--text-dim);
+    font-size: 0.68rem;
+  }
+  .nearby-systems--overlay {
+    position: absolute;
+    z-index: 4;
+    top: 0.5rem;
+    right: 0.5rem;
+    max-width: min(20rem, calc(100% - 1rem));
+    max-height: 45%;
+    overflow: auto;
+    margin: 0;
+    padding: 0.1rem 0.6rem;
+    border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--panel) 84%, transparent);
+    font-size: 0.75rem;
+  }
+  .nearby-systems--overlay summary {
+    padding: 0.25rem 0;
   }
   .camera-toolbar button:hover:not(:disabled) {
     background: var(--panel-raised);
