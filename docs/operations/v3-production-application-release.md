@@ -375,7 +375,10 @@ carries the map beside a hide-able Finder panel (#1029), flash-free zooming
 while zooming (#1027), System Map body names and first-view fit (#1024) and the
 home page redesign (#1008, #1011, #1013). Its attestation is the accepted release
 in `deploy/v3-production/target-authority.json`, with the `96644cad` backend as
-the recorded rollback artifact. Public checks: health reports `a894b181`.
+the recorded rollback artifact. Public checks: health reports `a894b181`; the
+Ratings V4 public smoke passed 8/8 with exact CPython 3.14.8 on the owner's
+computer
+(`docs/operations/evidence/2026-11-07-v3-ratings-v4-public-smoke-a894b181.json`).
 Receipts:
 `docs/operations/evidence/2026-11-07-v3-production-preflight-receipt-run-42363955421.json`
 and `docs/operations/evidence/2026-11-07-v3-production-promotion-receipt-run-42364039036.json`.

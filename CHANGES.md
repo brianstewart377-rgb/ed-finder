@@ -20,9 +20,9 @@ with `96644cad` as the recorded rollback artifact. App-only, no migration, no
 database writes and no backend change; installed schema through-023 unchanged.
 It puts the full-window Explore map, flash-free zooming, the smooth density
 glow, region names that stay on their stars, System Map body names and the
-home page redesign live. Updates the target authority, `CLAUDE.md`, the roadmap
-and the release runbook; receipts under
-`docs/operations/evidence/2026-11-07-v3-production-*`.
+home page redesign live. The public Ratings V4 smoke passed 8/8. Updates the
+target authority, `CLAUDE.md`, the roadmap and the release runbook; receipts
+under `docs/operations/evidence/2026-11-07-*`.
 
 ## 2026-11-07 — Galaxy map: no shader stalls or blank frames while zooming
 

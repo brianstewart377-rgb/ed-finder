@@ -418,8 +418,8 @@ newer dated source wins).
   (#1027), System Map body names and first-view fit (#1024), and the home page
   redesign (#1008, #1011, #1013); the on-demand map window steps (#1009, #1012)
   are superseded by #1029. The `96644cad` backend is the recorded rollback
-  artifact. Receipts under
-  `docs/operations/evidence/2026-11-07-v3-production-*-run-4236*`.
+  artifact. Public Ratings V4 smoke 8/8. Receipts under
+  `docs/operations/evidence/2026-11-07-*`.
 - **Production app promoted to `96644cad`, the tenth F2d release (2026-11-03).**
   Owner-approved. Release run 41606910682, preflight run 41607843491, promote
   run 41617007185 (receipt `created_at` `2026-11-03T10:11:14Z`, active slot
