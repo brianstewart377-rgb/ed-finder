@@ -62,6 +62,10 @@ class MapSnapshotCheckTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "duplicate data_relations"):
                 check.load_manifest(path)
 
+    def test_rejects_unlisted_materialized_payload(self) -> None:
+        with self.assertRaisesRegex(ValueError, "payload outside"):
+            check.data_relations("1; 0 0 MATERIALIZED VIEW DATA public mv_map_regions owner")
+
 
 if __name__ == "__main__":
     unittest.main()
