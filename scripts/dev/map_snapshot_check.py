@@ -26,10 +26,15 @@ ALLOWED_SCHEMAS = {"v3_meta", "v3_source", "v3_vocab", "v3_spatial", "v3_derived
 REQUIRED_RELATIONS = {
     "v3_meta.canonical_generation",
     "v3_meta.current_canonical_generation",
+    "v3_meta.derived_generation",
+    "v3_meta.current_derived_generation",
+    "v3_meta.derived_product",
     "v3_spatial.spatial_generation",
     "v3_spatial.current_spatial_generation",
     "v3_spatial.cell_level",
     "v3_spatial.cell_summary",
+    "v3_derived.system_search",
+    "v3_derived.system_archetype",
 }
 
 
@@ -46,7 +51,7 @@ def load_manifest(path: Path) -> dict:
         raise ValueError("unknown snapshot manifest format")
     if not HEX_SHA256.fullmatch(str(manifest.get("sha256", ""))):
         raise ValueError("manifest needs a lowercase SHA-256")
-    for key in ("generation_id", "spatial_generation_id"):
+    for key in ("generation_id", "spatial_generation_id", "derived_generation_id"):
         if not UUID.fullmatch(str(manifest.get(key, ""))):
             raise ValueError(f"invalid {key}")
     if not SCHEMA.fullmatch(str(manifest.get("relation_schema", ""))):
@@ -54,7 +59,11 @@ def load_manifest(path: Path) -> dict:
     version = manifest.get("spatial_pyramid_version")
     if not isinstance(version, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,62}", version):
         raise ValueError("invalid spatial_pyramid_version")
-    for key in ("source_system_count", "level", "level_cell_count"):
+    for key in (
+        "source_system_count", "level", "level_cell_count",
+        "canonical_publication_sequence", "spatial_publication_sequence",
+        "derived_publication_sequence",
+    ):
         value = manifest.get(key)
         if type(value) is not int or value < (0 if key == "level" else 1):
             raise ValueError(f"invalid {key}")
@@ -152,10 +161,19 @@ def check_local(manifest: dict, compose: Path) -> None:
     pointer_sql = """
         SELECT json_build_object(
           'generation_id', c.generation_id,
+          'canonical_publication_sequence', c.publication_sequence,
           'relation_schema', g.relation_schema,
           'canonical_state', g.lifecycle_state,
           'spatial_generation_id', p.spatial_generation_id,
+          'spatial_publication_sequence', p.publication_sequence,
           'spatial_pyramid_version', s.pyramid_version,
+          'derived_generation_id', d.derived_generation_id,
+          'derived_publication_sequence', d.publication_sequence,
+          'derived_state', dg.lifecycle_state,
+          'finder_products_ready', (SELECT count(*) FROM v3_meta.derived_product f
+            WHERE f.derived_generation_id = d.derived_generation_id
+              AND f.product_code IN ('system_search', 'system_archetype')
+              AND f.lifecycle_state = 'READY' AND f.published_at IS NOT NULL),
           'source_system_count', s.expected_systems,
           'spatial_canonical_generation_id', s.canonical_generation_id,
           'spatial_state', s.lifecycle_state,
@@ -166,14 +184,20 @@ def check_local(manifest: dict, compose: Path) -> None:
         JOIN v3_meta.canonical_generation g USING (generation_id)
         CROSS JOIN v3_spatial.current_spatial_generation p
         JOIN v3_spatial.spatial_generation s USING (spatial_generation_id)
-        WHERE c.singleton AND p.singleton
+        CROSS JOIN v3_meta.current_derived_generation d
+        JOIN v3_meta.derived_generation dg USING (derived_generation_id)
+        WHERE c.singleton AND p.singleton AND d.singleton
     """.format(level=manifest["level"])
     raw = local_sql(compose, pointer_sql)
     if not raw:
         raise ValueError("local database has no paired published pointers")
     state = json.loads(raw)
-    for key in ("generation_id", "relation_schema", "spatial_generation_id",
-                "spatial_pyramid_version", "source_system_count", "level_cell_count"):
+    for key in (
+        "generation_id", "canonical_publication_sequence", "relation_schema",
+        "spatial_generation_id", "spatial_publication_sequence",
+        "spatial_pyramid_version", "derived_generation_id",
+        "derived_publication_sequence", "source_system_count", "level_cell_count",
+    ):
         if state[key] != manifest[key]:
             raise ValueError(f"local {key} differs: {state[key]} != {manifest[key]}")
     if state["spatial_canonical_generation_id"] != manifest["generation_id"]:
@@ -182,6 +206,8 @@ def check_local(manifest: dict, compose: Path) -> None:
         raise ValueError("canonical generation is not PUBLISHED")
     if state["spatial_state"] != "PUBLISHED":
         raise ValueError("spatial pyramid is not PUBLISHED")
+    if state["derived_state"] != "PUBLISHED" or state["finder_products_ready"] != 2:
+        raise ValueError("Finder products are not published on the current derived generation")
     schema = manifest["relation_schema"]  # validated identifier, never user-supplied SQL
     canary_sql = f"""
         SELECT json_build_object(
