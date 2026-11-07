@@ -46,6 +46,12 @@ services:
     depends_on:
       map-postgres: { condition: service_healthy }
       map-redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
     networks: [map-test]
 
   map-web:
@@ -59,7 +65,8 @@ services:
       EDFINDER_API_UPSTREAM: map-api:8000
     ports:
       - "127.0.0.1:4175:8080"
-    depends_on: [map-api]
+    depends_on:
+      map-api: { condition: service_healthy }
     networks: [map-test]
 
 networks:
@@ -67,4 +74,3 @@ networks:
 
 volumes:
   map_test_postgres_data:
-
