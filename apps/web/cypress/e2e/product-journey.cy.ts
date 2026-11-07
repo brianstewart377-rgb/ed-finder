@@ -1,3 +1,4 @@
+import { captureSubmittedBabylonFrame } from '../support/babylon-frame';
 import { GALAXY_REGION_NAMES } from '../../src/lib/spatial/galaxy-regions';
 import { ARCHETYPES } from '../../src/lib/features/explore/archetypes';
 import type {
@@ -711,7 +712,141 @@ describe('V3 home to Explore product journey', () => {
   }
 });
 
+const dragExploreMap = ({
+  x,
+  y,
+  shiftKey = false,
+}: {
+  x: number;
+  y: number;
+  shiftKey?: boolean;
+}) => {
+  cy.get<HTMLElement>('.spatial-canvas').then(([$host]) => {
+    const window = $host.ownerDocument.defaultView!;
+    const bounds = $host.getBoundingClientRect();
+    const startX = bounds.left + bounds.width / 2;
+    const startY = bounds.top + bounds.height / 2;
+    const pointer = (type: string, clientX: number, clientY: number) =>
+      new window.PointerEvent(type, {
+        bubbles: true,
+        pointerId: 71,
+        pointerType: 'mouse',
+        button: 0,
+        clientX,
+        clientY,
+        shiftKey,
+      });
+    $host.dispatchEvent(pointer('pointerdown', startX, startY));
+    window.dispatchEvent(pointer('pointermove', startX + x, startY + y));
+    window.dispatchEvent(pointer('pointerup', startX + x, startY + y));
+  });
+};
+
 describe('V3 Explore to Inspect product checkpoint', () => {
+  it('keeps the real Explore map rendered through wheel zoom, pan and tilt', () => {
+    cy.viewport(1280, 800);
+    visitExplore();
+    keyboardChooseAnchor('Achenar');
+    assertSpatialResultsReady();
+    cy.get('.spatial-canvas', { timeout: 20_000 }).should(
+      'have.attr',
+      'data-camera-transition-active',
+      'false',
+    );
+    cy.get('[data-map-label-key="system:10477373803000"]', {
+      timeout: 20_000,
+    }).should('be.visible');
+
+    let originalCanvas!: HTMLCanvasElement;
+    let previousDistance = 0;
+    let focusBeforePan = '';
+    let originalBearing = 0;
+    let originalPitch = 0;
+    cy.get<HTMLCanvasElement>(canvasSelector).then(([canvas]) => {
+      originalCanvas = canvas;
+    });
+    cy.get('[data-camera-distance]').then(($distance) => {
+      previousDistance = Number($distance.attr('data-camera-distance'));
+      expect(previousDistance).to.be.greaterThan(0);
+    });
+    cy.get('.spatial-canvas').then(($host) => {
+      originalBearing = Number($host.attr('data-camera-bearing'));
+      originalPitch = Number($host.attr('data-camera-pitch'));
+    });
+
+    // A person's wheel events reach the same host and Babylon runtime as the
+    // ordinary Explore page. Capture the compositor after each stop: a ready
+    // status alone cannot detect a blank submitted frame.
+    for (let step = 1; step <= 6; step += 1) {
+      cy.get('.spatial-canvas').then(($host) => {
+        const bounds = $host[0]!.getBoundingClientRect();
+        cy.wrap($host).trigger('wheel', {
+          deltaY: -140,
+          deltaMode: 0,
+          clientX: bounds.left + bounds.width * 0.55,
+          clientY: bounds.top + bounds.height * 0.45,
+        });
+      });
+      cy.get('[data-camera-distance]')
+        .should(($distance) => {
+          const distance = Number($distance.attr('data-camera-distance'));
+          expect(distance).to.be.greaterThan(0);
+          expect(distance).to.be.lessThan(previousDistance);
+        })
+        .then(($distance) => {
+          previousDistance = Number($distance.attr('data-camera-distance'));
+        });
+      captureSubmittedBabylonFrame(
+        `product/map-wheel-${Cypress.browser.name}-${step}`,
+      );
+    }
+
+    cy.get('[aria-label="Focus coordinates"]').then(($focus) => {
+      focusBeforePan = $focus.text();
+    });
+    dragExploreMap({ x: 80, y: 45 });
+    cy.get('[aria-label="Focus coordinates"]').should(($focus) => {
+      expect($focus.text()).not.to.equal(focusBeforePan);
+    });
+    cy.get('.spatial-canvas').should(($host) => {
+      expect(Number($host.attr('data-camera-bearing'))).to.be.closeTo(
+        originalBearing,
+        0.001,
+      );
+      expect(Number($host.attr('data-camera-pitch'))).to.be.closeTo(
+        originalPitch,
+        0.001,
+      );
+    });
+    captureSubmittedBabylonFrame(`product/map-pan-${Cypress.browser.name}`);
+
+    cy.contains('[aria-label="Camera angle"] button', 'Tilted').click();
+    cy.get('.spatial-canvas').should('have.attr', 'data-camera-pitch', '0.55');
+    dragExploreMap({ x: 40, y: 30, shiftKey: true });
+    cy.get('.spatial-canvas').should(($host) => {
+      expect(Number($host.attr('data-camera-bearing'))).not.to.be.closeTo(
+        originalBearing,
+        0.001,
+      );
+      expect(Number($host.attr('data-camera-pitch'))).to.be.greaterThan(0.55);
+    });
+    captureSubmittedBabylonFrame(`product/map-tilt-${Cypress.browser.name}`);
+
+    cy.get<HTMLCanvasElement>(canvasSelector).should(([canvas]) => {
+      expect(canvas).to.equal(originalCanvas);
+    });
+    cy.get(readySelector).should('be.visible');
+    cy.get('[data-testid="selected-system-context"]').should(
+      'contain.text',
+      '10477373803000',
+    );
+    cy.window().then((window) => {
+      expect((window as ProductWindow).__productRuntimeFailures).to.deep.equal(
+        [],
+      );
+    });
+  });
+
   it('requests complete density for the camera bounds as the view narrows', () => {
     cy.viewport(1280, 800);
     // Observe the normal API request. The product seed need not publish a
