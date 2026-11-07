@@ -10,6 +10,7 @@ ALLOWED_VISIBLE_ROOT_FILES = {
     'CHANGES.md',
     'CLAUDE.md',
     'docker-compose.local.yml',
+    'docker-compose.map-test.yml',
     'docker-compose.localtest.yml',
     'docker-compose.review-hosted.yml',
     'docker-compose.review.yml',
