@@ -50,9 +50,9 @@ describe('V3 map on local real catalogue data', () => {
         'ready',
         'truncated',
       ]);
-      expect(Number($density.attr('data-density-cell-count'))).to.be.greaterThan(
-        1_000,
-      );
+      expect(
+        Number($density.attr('data-density-cell-count')),
+      ).to.be.greaterThan(1_000);
     });
     captureSubmittedBabylonFrame('map-real-data/galaxy-density');
 
@@ -87,9 +87,9 @@ describe('V3 map on local real catalogue data', () => {
     );
     cy.get('[data-catalogue-star-count]', { timeout: 45_000 }).should(
       ($stars) => {
-        expect(Number($stars.attr('data-catalogue-star-count'))).to.be.greaterThan(
-          100,
-        );
+        expect(
+          Number($stars.attr('data-catalogue-star-count')),
+        ).to.be.greaterThan(100);
       },
     );
     captureSubmittedBabylonFrame('map-real-data/achenar-stars');
