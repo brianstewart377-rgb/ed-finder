@@ -190,6 +190,11 @@
   let panelToggleOrigin: HTMLElement | null = null;
   let stage = $state<HTMLDivElement>();
   let stageTop = $state(0);
+  // One string so markup reflowing can never split its phrases with newlines.
+  const MAP_SOURCES_NOTE =
+    'Stars use exact catalogue coordinates and class-specific presentation. ' +
+    'Amber marks active selections. Region geometry is the pinned in-game ' +
+    'source; no synthetic geography, stars, or density are substituted.';
   // Must match the phone breakpoint in this component's styles.
   const PHONE_STAGE_QUERY = '(max-width: 900px)';
   $effect(() => {
@@ -2330,11 +2335,7 @@
         label="Sources"
         title="Map sources and controls"
       >
-        <p class="map-note">
-          Stars use exact catalogue coordinates and class-specific presentation.
-          Amber marks active selections. Region geometry is the pinned in-game
-          source; no synthetic geography, stars, or density are substituted.
-        </p>
+        <p class="map-note">{MAP_SOURCES_NOTE}</p>
         {@render cameraHelp()}
       </MapToolPopout>
     {/snippet}

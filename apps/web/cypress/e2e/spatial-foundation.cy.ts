@@ -4,6 +4,11 @@ const canvasSelector = 'canvas[data-spatial-canvas]';
 const readySelector = '[role="status"][data-renderer-state="ready"]';
 
 const assertMapWindowLayout = (width: number, height: number) => {
+  // Cypress scrolls the whole document to reach controls inside the Finder
+  // panel. A person does not, so bring the map back before measuring it.
+  cy.get('[data-explore-map-window]').then(($window) => {
+    $window[0].scrollIntoView({ block: 'nearest' });
+  });
   cy.get('[data-explore-map-window]').should(($window) => {
     const window = $window[0];
     const bounds = window.getBoundingClientRect();
@@ -228,7 +233,16 @@ for (const [width, height] of [
     cy.get(canvasSelector).then(([canvas]) => {
       initialCanvas = canvas as HTMLCanvasElement;
     });
-    cy.get(opener).focus().click();
+    // Focus scrolls the button into view inside the result list like a
+    // keyboard user would; measure the list there, then click natively so
+    // Cypress's own scroll-to-top cannot move the list before the click.
+    cy.get(opener).focus();
+    cy.get('.result-list')
+      .invoke('scrollTop')
+      .then((position) => {
+        resultScrollTop = Number(position);
+      });
+    cy.get(opener).then(($button) => $button[0].click());
     if (phone) {
       // The Finder and the map take turns on a phone.
       cy.get('#finder-panel').should('not.be.visible');
@@ -386,7 +400,7 @@ for (const [width, height] of [
     assertNoHorizontalOverflow();
     if (!phone) {
       // Hide Finder gives the map the whole width with the same canvas.
-      cy.get('[data-finder-panel-hide]').click({ scrollBehavior: false });
+      cy.get('[data-finder-panel-hide]').click();
       cy.get('#finder-panel').should('not.be.visible');
       cy.get('[data-finder-panel-show]').should('be.focused');
       cy.get(canvasSelector).then(([canvas]) => {

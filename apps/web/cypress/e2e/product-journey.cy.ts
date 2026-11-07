@@ -78,11 +78,12 @@ const waitForExploreSettled = () => {
     'false',
   );
   // The one map canvas is always mounted. Wait for it to settle before
-  // browser automation reads the URL.
+  // browser automation reads the URL. At phone width the Finder covers the
+  // map (kept off screen), so readiness is checked without visibility.
   cy.get('body').then(($body) => {
     if (!$body.find(mapWindowSelector).length) return;
     cy.get(`${mapWindowSelector} ${readySelector}`, { timeout: 20_000 }).should(
-      'be.visible',
+      'exist',
     );
     cy.get(`${mapWindowSelector} .spatial-canvas`, { timeout: 20_000 }).should(
       'have.attr',
