@@ -147,4 +147,3 @@ describe('V3 map on local real catalogue data', () => {
     cy.then(() => expect(failures).to.deep.equal([]));
   });
 });
-
