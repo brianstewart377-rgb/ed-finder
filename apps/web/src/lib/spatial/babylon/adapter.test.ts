@@ -847,6 +847,124 @@ describe('Babylon spatial adapter boundary', () => {
     engine.dispose();
   });
 
+  it('reuses one grid line material across zoom rebuilds, so no shader is recompiled', () => {
+    const engine = new NullEngine();
+    const session = createBabylonSession(engine, 'WEBGL2');
+    const events = vi.fn();
+    const camera: GalaxySceneContract['camera'] = {
+      focusLy: { x: 0, y: 0, z: 0 },
+      distanceLy: 1_000,
+      bearingRad: 0,
+      pitchRad: 0.5,
+      projection: 'perspective',
+      revision: 1,
+    };
+    session.execute?.(
+      {
+        type: 'LOAD_SCENE',
+        scene: {
+          kind: 'galaxy',
+          revision: 1,
+          camera,
+          selection: [],
+          contributions: [],
+        },
+      },
+      events,
+    );
+    const scene = engine.scenes.at(-1)!;
+    const before = scene.getMeshByName('galaxy-reference-grid-major')!;
+    const material = before.material!;
+    expect(material).not.toBeNull();
+    for (const [revision, distanceLy] of [
+      [2, 20_000],
+      [3, 400],
+    ] as const) {
+      session.execute?.(
+        { type: 'SET_CAMERA', camera: { ...camera, distanceLy, revision } },
+        events,
+      );
+      const grid = [
+        'galaxy-reference-grid-minor',
+        'galaxy-reference-grid-major',
+        'galaxy-reference-grid-axes',
+      ]
+        .map((name) => scene.getMeshByName(name))
+        .filter((mesh) => mesh !== null);
+      expect(grid.length).toBeGreaterThan(0);
+      // The camera change rebuilt the grid geometry, but every family still
+      // draws with the one material, which was never disposed.
+      expect(before.isDisposed()).toBe(true);
+      // Identity checks without printing Babylon objects on failure.
+      for (const mesh of grid) expect(mesh.material === material).toBe(true);
+      expect(scene.materials.includes(material)).toBe(true);
+    }
+
+    session.dispose();
+  });
+
+  it('keeps the previous frame until a new scene is ready, but never waits forever', () => {
+    const engine = new NullEngine();
+    const session = createBabylonSession(engine, 'WEBGL2');
+    session.execute?.(
+      {
+        type: 'LOAD_SCENE',
+        scene: {
+          kind: 'galaxy',
+          revision: 1,
+          camera: {
+            focusLy: { x: 0, y: 0, z: 0 },
+            distanceLy: 1_000,
+            bearingRad: 0,
+            pitchRad: 0.5,
+            projection: 'perspective',
+            revision: 1,
+          },
+          selection: [],
+          contributions: [],
+        },
+      },
+      vi.fn(),
+    );
+    const scene = engine.scenes.at(-1)!;
+    const draw = vi.spyOn(scene, 'render');
+    const ready = vi.spyOn(scene, 'isReady').mockReturnValue(false);
+    // Not ready: present nothing and ask for another frame.
+    expect(session.render()).toBe(true);
+    expect(draw).not.toHaveBeenCalled();
+    ready.mockReturnValue(true);
+    session.render();
+    expect(draw).toHaveBeenCalledOnce();
+
+    // A material that never becomes ready must not stop drawing for good.
+    session.execute?.(
+      {
+        type: 'SET_CAMERA',
+        camera: {
+          focusLy: { x: 10, y: 0, z: 0 },
+          distanceLy: 1_000,
+          bearingRad: 0,
+          pitchRad: 0.5,
+          projection: 'perspective',
+          revision: 2,
+        },
+      },
+      vi.fn(),
+    );
+    ready.mockReturnValue(false);
+    draw.mockClear();
+    let attempts = 0;
+    while (draw.mock.calls.length === 0 && attempts < 1_000) {
+      session.render();
+      attempts += 1;
+    }
+    expect(draw).toHaveBeenCalledOnce();
+    expect(attempts).toBeGreaterThan(1);
+    expect(attempts).toBeLessThanOrEqual(121);
+
+    session.dispose();
+  });
+
   it('applies the density cross-fade immediately on LOAD_SCENE, without waiting for a camera move', () => {
     const payload = buildFixtureCatalogueDensity(
       [

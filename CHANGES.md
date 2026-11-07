@@ -11,6 +11,23 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-07 — Galaxy map: no shader stalls or blank frames while zooming
+
+The owner's recording showed the map "jumping about" while zooming, with
+single near-black frames at 15.2 s, 18.6 s and 20.7 s. Two causes, both in the
+Babylon adapter. The reference grid is rebuilt whenever zoom or pan changes
+its spacing, and each rebuild gave its lines a new material; disposing the
+old one released the shader, so it was compiled and linked again on most
+zoom steps (measured locally over one 24-step zoom: 17 relinks of that
+shader before, none after). Every grid rebuild now reuses one line material
+for the scene. Separately, a new or
+patched scene was drawn before its materials were ready (WebGPU loads shaders
+asynchronously), so a frame could miss whole layers such as the density
+glow. The renderer now presents nothing until the scene is ready and keeps
+the previous frame on screen, bounded to the existing 120 attempts so a
+material that never becomes ready cannot stop the map drawing. Tests fail on
+the previous adapter for both.
+
 ## 2026-11-07 — Explore: the galaxy map fills the window beside the Finder
 
 The owner found the Explore page wasted the space above the map. On the live
