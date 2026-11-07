@@ -364,6 +364,21 @@ rollback artifact. It does not require product READY, receipts, counts,
 (apply run 39113822236) and the 18 Search constraints are validated. The first
 F2d release, source `f667bb4d` (release run 39149556699), was accepted by
 promotion run 39149980927 and remains the minimum schema-compatible image.
+**Status (2026-11-07).** The eleventh F2d release, source `a894b181` (release
+run 42363810141), passed preflight run 42363955421 and was accepted by promotion
+run 42364039036 at 2026-11-07T10:28:40Z to slot green. App-only, no migration,
+no database writes and no backend change; the operator-code identity `7008c681…`
+and the ranking identity are unchanged. It is the fourth release on the
+installed through-023 schema and the first with the full-window Explore map: it
+carries the map beside a hide-able Finder panel (#1029), flash-free zooming
+(#1030), the smooth density glow (#1028), region names that stay on their stars
+while zooming (#1027), System Map body names and first-view fit (#1024) and the
+home page redesign (#1008, #1011, #1013). Its attestation is the accepted release
+in `deploy/v3-production/target-authority.json`, with the `96644cad` backend as
+the recorded rollback artifact. Public checks: health reports `a894b181`.
+Receipts:
+`docs/operations/evidence/2026-11-07-v3-production-preflight-receipt-run-42363955421.json`
+and `docs/operations/evidence/2026-11-07-v3-production-promotion-receipt-run-42364039036.json`.
 **Status (2026-11-03).** The tenth F2d release, source `96644cad` (release run
 41606910682), passed preflight run 41607843491 and was accepted by promotion
 run 41617007185 at 2026-11-03T10:11:14Z to slot blue. App-only, no migration,
@@ -378,8 +393,9 @@ backend change is the read-only density heatmap level choice in
 `coverage=complete` mode (#999). An earlier candidate from `108aed71` (release
 run 41596390207, preflight run 41606689793) was refused by the deployer's
 exact-main check after further merges and never reached the host. Its
-attestation is the accepted release in `deploy/v3-production/target-authority.json`,
-with the `9ff456e0` backend as the recorded rollback artifact. Public checks:
+attestation was the accepted release in `deploy/v3-production/target-authority.json`
+until the eleventh release above superseded it, with the `9ff456e0` backend as
+the recorded rollback artifact. Public checks:
 health reports `96644cad`; the Ratings V4 public smoke passed 8/8 from the
 owner's machine on CPython 3.14.8
 (`docs/operations/evidence/2026-11-03-v3-ratings-v4-public-smoke-96644cad.json`).

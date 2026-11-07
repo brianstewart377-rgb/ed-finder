@@ -11,6 +11,19 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-07 — Eleventh F2d release `a894b181` accepted: full-window Explore map live
+
+Records the eleventh accepted F2d release, approved by the owner. Release run
+42363810141 built source `a894b181`; preflight run 42363955421 passed;
+promotion run 42364039036 was accepted at 2026-11-07T10:28:40Z to slot green
+with `96644cad` as the recorded rollback artifact. App-only, no migration, no
+database writes and no backend change; installed schema through-023 unchanged.
+It puts the full-window Explore map, flash-free zooming, the smooth density
+glow, region names that stay on their stars, System Map body names and the
+home page redesign live. Updates the target authority, `CLAUDE.md`, the roadmap
+and the release runbook; receipts under
+`docs/operations/evidence/2026-11-07-v3-production-*`.
+
 ## 2026-11-07 — Galaxy map: no shader stalls or blank frames while zooming
 
 The owner's recording showed the map "jumping about" while zooming, with
