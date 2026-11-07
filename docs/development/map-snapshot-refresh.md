@@ -128,3 +128,44 @@ that can produce the first archive and a measured staging rehearsal. Until
 that path exists, this is a ready-to-run **consumer and acceptance contract**,
 not a claim that a fresh snapshot or real-data browser pass has happened.
 
+## Operator path to implement before the first capture
+
+The current V3 operator surface has a bounded read-only inventory operation,
+but no map-data export or approved transfer destination. A production backup
+restore is not the export path. Add a dedicated protected, manual operation on
+trusted `main` with two phases: a metadata/capacity **plan** that exports no
+rows, then a separately dispatched **capture** bound to that exact plan and
+source commit. It must verify the replacement-host identity and use a fixed
+read-only database role or read-only transaction. The caller must not supply
+SQL, a relation name, a filesystem path, a host, or a destination.
+
+The fixed data graph for the initial camera-path slice is:
+
+| Reader | Required published data |
+| --- | --- |
+| `/api/map/heatmap` | `v3_spatial.current_spatial_generation`, its `spatial_generation`, matching `cell_level` and all `cell_summary` levels |
+| `/api/map/systems` | `v3_meta.current_canonical_generation`, its `canonical_generation`, and bounded real `systems` and `bodies` rows in that generation's validated `v3_gen_*` schema |
+| Finder search and autocomplete | `v3_meta.current_derived_generation`, its `derived_generation`, two READY/published `derived_product` rows, and corresponding `v3_derived.system_search` and `system_archetype` rows plus the view/schema dependencies from the applied migration set |
+
+The operator must derive the exact row and column allowlist from those readers
+and the current SQL definitions, then review foreign-key and view dependencies.
+That review must explicitly inspect source provenance and free-text/JSON
+columns for indirect personal data; rejecting `v3_identity` and `v3_private`
+schemas is necessary but insufficient. Use a consistent source snapshot so
+the three publication pointers cannot describe different moments. Recheck the
+pointer triple before accepting the export and fail if it moved.
+
+The plan phase must report estimated row counts and bytes for every selected
+relation, the camera-path coordinate boxes, a maximum query time and source
+load budget, free space in staging and the destination, and a privacy-approved
+transfer/retention location. A whole-galaxy catalogue is approximately 198.5
+million systems in the current production lineage, so it is a separate
+capacity decision; a camera-path slice must not be called complete galaxy
+coverage. Capture must refuse missing capacity, destination authority,
+privacy approval, a changed source generation, or an unreviewed relation.
+Transfer the reviewed staging archive and receipt only through that approved
+destination; never through public Git, routine CI logs, or a generic workflow
+artifact. Once the local consumer passes its hash, inventory, pointer, API and
+visual gates, record the accepted archive identity and schedule the next
+marker/30-day check.
+
