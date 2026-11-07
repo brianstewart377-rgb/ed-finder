@@ -11,7 +11,7 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
-## 2026-11-07 — Galaxy map: region names stay in their regions; the galaxy stays on screen
+## 2026-11-07 — Galaxy map: region names stay in their regions, the galaxy stays on screen, controls float over the map
 
 Two owner reports. Region names "bounce like popcorn" while zooming: the
 solver pushed a crowded name into one of nine nearby slots, which could be in
@@ -33,7 +33,14 @@ focus within a disc around Sagittarius A* whose radius shrinks as the view
 widens: once the whole galaxy fits it stays centred, and zoomed in it can be
 explored but never dragged away. A view that is already further out (a
 restored link or a fly-to) is never yanked back; it can only move inward, and
-zooming out draws it in no faster than the allowance shrinks.
+zooming out draws it in no faster than the allowance shrinks. Third, the map
+wasted about 130 px under the canvas on stacked controls and status lines. The
+camera controls, range/grid/position readout and renderer status now float in
+a slim bar over the bottom of the map (scrolling over it still zooms), the
+Nearby systems list floats at the top right, and the star count and selection
+status sit in the map heading, so the canvas fills the window like the in-game
+map. The selected-system card and its Inspect / Plan links still appear under
+the map when a system is selected.
 
 ## 2026-11-07 — Eleventh F2d release `a894b181` accepted: full-window Explore map live
 

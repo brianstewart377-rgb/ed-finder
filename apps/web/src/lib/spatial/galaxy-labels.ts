@@ -543,7 +543,7 @@ function regionTextBox(
 
 const LABEL_GAP_PX = 6;
 /** Extra room a faded region name needs before it returns to full strength. */
-const UNMUTE_CLEARANCE_PX = 24;
+const UNMUTE_CLEARANCE_PX = 8;
 /** Steps tried between the screen edge and the centre to stay inside a region. */
 const REGION_INSIDE_SEARCH_STEPS = 24;
 

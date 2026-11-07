@@ -281,11 +281,11 @@ describe('Galaxy label projection and layout', () => {
           viewport,
           { previouslyMuted: new Set(wasMuted ? ['b-region'] : []) },
         ).find((entry) => entry.key === 'b-region')!.muted;
-      // 30px apart the two 14px-tall names no longer touch...
-      expect(faded(30, false)).toBe(false);
-      // ...but one that was faded stays faded until it is well clear,
-      expect(faded(30, true)).toBe(true);
-      expect(faded(60, true)).toBe(false);
+      // 20px apart the two 14px-tall names no longer touch...
+      expect(faded(20, false)).toBe(false);
+      // ...but one that was faded stays faded until it is clear by a margin,
+      expect(faded(20, true)).toBe(true);
+      expect(faded(32, true)).toBe(false);
       // and a real clash always fades.
       expect(faded(10, false)).toBe(true);
     });
