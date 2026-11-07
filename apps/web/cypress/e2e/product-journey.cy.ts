@@ -39,20 +39,25 @@ const visitExplore = (path = '/explore') => {
   });
 };
 
+// The map is always on screen beside the Finder panel. Show on map centres
+// it on the selection or anchor; at phone width, where the panel covers the
+// map, it also hides the panel.
 const openExploreMap = () => {
-  cy.get('[data-explore-map-open]').then(($trigger) => {
-    if ($trigger.attr('aria-expanded') !== 'true') cy.wrap($trigger).click();
+  cy.get('#finder-panel').then(($panel) => {
+    if ($panel.is(':visible')) cy.get('[data-explore-map-open]').click();
   });
-  cy.get(mapWindowSelector)
-    .should('be.visible')
-    .and('have.attr', 'aria-modal', 'false');
+  cy.get(mapWindowSelector).should('be.visible');
   cy.get(`${mapWindowSelector} ${canvasSelector}`).should('have.length', 1);
 };
 
-const closeExploreMap = () => {
-  cy.get('[data-map-window-close]').click();
-  cy.get(mapWindowSelector).should('not.exist');
-  cy.get(canvasSelector).should('not.exist');
+// Back to the Finder panel (a no-op when it is already shown).
+const showFinderPanel = () => {
+  cy.get('body').then(($body) => {
+    const show = $body.find('[data-finder-panel-show]');
+    if (show.length) cy.wrap(show).click();
+  });
+  cy.get('#finder-panel').should('be.visible');
+  cy.get(canvasSelector).should('have.length', 1);
 };
 
 const assertSpatialResultsReady = () => {
@@ -72,8 +77,8 @@ const waitForExploreSettled = () => {
     'aria-busy',
     'false',
   );
-  // Results are usable before a map is requested. If open, also wait for
-  // that one canvas to settle before browser automation reads the URL.
+  // The one map canvas is always mounted. Wait for it to settle before
+  // browser automation reads the URL.
   cy.get('body').then(($body) => {
     if (!$body.find(mapWindowSelector).length) return;
     cy.get(`${mapWindowSelector} ${readySelector}`, { timeout: 20_000 }).should(
@@ -386,9 +391,8 @@ const assertRetainedSelection = () => {
     .and('be.visible')
     .and('have.attr', 'data-map-label-selected', 'true')
     .and('contain.text', selected.name);
-  // Ranking/history steps use the results workspace. Suspend the GPU until
-  // the next explicit scene assertion instead of rendering through every URL read.
-  closeExploreMap();
+  // Ranking/history steps use the results in the Finder panel.
+  showFinderPanel();
 };
 
 const openMapLayers = () => {
@@ -436,7 +440,7 @@ const captureFinder = (state: 'any' | 'flexible' | 'flexible-explanation') => {
     '5,842 catalogue records',
   );
   closeMapLayers();
-  closeExploreMap();
+  showFinderPanel();
   cy.document().then((document) => {
     const style = document.createElement('style');
     style.textContent =
@@ -449,7 +453,8 @@ const captureFinder = (state: 'any' | 'flexible' | 'flexible-explanation') => {
   ]) {
     cy.viewport(width, height);
     cy.get('.results-panel').scrollIntoView();
-    cy.get(canvasSelector).should('not.exist');
+    // The Finder shares the screen with the one always-mounted map.
+    cy.get(canvasSelector).should('have.length', 1);
     cy.screenshot(
       `product/finder-${state}-${Cypress.browser.name}-${width}x${height}`,
       {
@@ -1011,11 +1016,15 @@ describe('V3 Explore to Inspect product checkpoint', () => {
       [390, 844],
     ]) {
       cy.viewport(width, height);
-      openExploreMap();
-      cy.get('[data-map-window-expand]').click();
-      cy.get(mapWindowSelector).should('have.attr', 'data-expanded', 'true');
-      closeExploreMap();
-      cy.get('[data-explore-map-open]').should('be.focused');
+      showFinderPanel();
+      // Hiding and restoring the Finder panel is presentation only.
+      cy.get('[data-finder-panel-hide]').click();
+      cy.get('#finder-panel').should('not.be.visible');
+      cy.get(mapWindowSelector)
+        .should('be.visible')
+        .and('have.attr', 'data-finder-panel-open', 'false');
+      cy.get('[data-finder-panel-show]').should('be.focused').click();
+      cy.get('[data-finder-panel-hide]').should('be.focused');
       cy.get('#system-search').should('have.value', 'Achenar');
       cy.get('#search-radius').should('have.value', '500');
       cy.get('[data-result-select][aria-pressed="true"]')

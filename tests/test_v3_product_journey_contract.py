@@ -99,11 +99,11 @@ def test_explore_map_window_product_coverage_keeps_state_and_single_runtime():
 
     for contract in (
         'const openExploreMap = () => {',
-        'const closeExploreMap = () => {',
+        'const showFinderPanel = () => {',
         '[data-explore-map-open]',
-        '[data-map-window-expand]',
-        "cy.get(mapWindowSelector).should('not.exist')",
-        "cy.get('[data-explore-map-open]').should('be.focused')",
+        '[data-finder-panel-hide]',
+        "'data-finder-panel-open', 'false'",
+        "cy.get('[data-finder-panel-hide]').should('be.focused')",
         "cy.get('@search.all').should('have.length', 4)",
         "cy.location('search').should('eq', retainedSearch)",
     ):
@@ -114,13 +114,13 @@ def test_explore_map_window_product_coverage_keeps_state_and_single_runtime():
         '[data-explore-map-window]',
         '[data-result-map-open]',
         "'aria-modal', 'false'",
-        "'data-expanded', 'true'",
+        "cy.get('#finder-panel').should('not.be.visible')",
         'expect(canvas).to.equal(initialCanvas)',
-        'expect(canvas).not.to.equal(initialCanvas)',
+        "cy.get('[inert]').should('not.exist')",
         'expect($list[0].scrollTop).to.equal(resultScrollTop)',
         "cy.get('@windowRankings.all').should('have.length', 1)",
         "cy.get('@windowSearch.all').should('have.length', 0)",
-        'const suspendedCounts = new Map<string, number>();',
+        'expect(requests).to.deep.equal(settled)',
         "'@windowDensity.all'",
         "'@windowCatalogue.all'",
         "'@windowNebulae.all'",
@@ -158,8 +158,8 @@ def test_explore_map_concept_has_measured_product_layout_and_popout_evidence():
         "expect(controls.top, 'camera controls sit below canvas').to.be.at.least(canvas.bottom)",
         "expect(document.documentElement.scrollWidth, 'page has no horizontal overflow') .to.be.at.most(document.documentElement.clientWidth)",
         'cy.viewport(768, 800)',
-        'product/explore-map-window-open-${Cypress.browser.name}-${width}x${height}',
-        'product/explore-map-expanded-${Cypress.browser.name}-${width}x${height}',
+        'product/explore-map-full-window-${Cypress.browser.name}-${width}x${height}',
+        'product/explore-map-finder-hidden-${Cypress.browser.name}-${width}x${height}',
         "'Achenar · Galaxy map'",
         "cy.contains(`${mapWindow} button`, /^Galaxy$/).click(",
         "cy.contains(`${mapWindow} button`, /^Local$/).click(",
@@ -170,7 +170,7 @@ def test_explore_map_concept_has_measured_product_layout_and_popout_evidence():
         "cy.get('[data-map-sources-trigger]').should('be.focused')",
         "'contain.text', 'exact catalogue coordinates'",
         "'contain.text', 'pinned in-game source'",
-        "cy.contains(`${mapWindow} button`, 'Back to results').click(",
+        "cy.get('[data-finder-panel-show]').click(",
         'const layoutRequestCounts = new Map<string, number>();',
         'layoutRequestCounts.set(alias, requests.length)',
         'for (const [alias, count] of layoutRequestCounts)',
@@ -178,7 +178,7 @@ def test_explore_map_concept_has_measured_product_layout_and_popout_evidence():
     ):
         assert normalized(contract) in compact
 
-    # The same numerical layout contract applies before and after expansion.
+    # The same numerical layout contract applies with the Finder shown and hidden.
     assert spatial.count('assertMapWindowLayout(width, height);') >= 2
     for tool in ('regions', 'sources'):
         assert f"cy.get('[data-map-{tool}-panel]')" in spatial

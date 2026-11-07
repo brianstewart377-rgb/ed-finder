@@ -104,14 +104,12 @@ export class ExploreViewState {
   starViewportSize = $state<GalaxyCameraViewport | null>(null);
   layerToggleRevision = $state(0);
   showNebulae = $state(true);
-  // The map window is route-local presentation, never URL or storage state.
-  mapOpen = $state(false);
-  mapExpanded = $state(false);
+  // The map is always on screen. Whether the Finder panel beside it is shown
+  // is route-local presentation, never URL or storage state.
+  finderPanelOpen = $state(true);
   mapCameraPreset = $state<'local' | 'galaxy' | null>(null);
-  mapWindowViewportSize = $state<GalaxyCameraViewport | null>(null);
   mapFocusedSystemId = $state<string | null>(null);
   mapResetCamera = $state<CameraState | null>(null);
-  mapReturnScroll = $state<{ x: number; y: number } | null>(null);
   regions: GalaxyRegionsPayload | null = $state.raw(null);
   regionContribution: SpatialContribution | null = $state.raw(null);
   regionState = $state<'loading' | 'ready' | 'failed'>('loading');
