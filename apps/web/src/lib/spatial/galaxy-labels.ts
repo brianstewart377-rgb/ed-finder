@@ -13,6 +13,7 @@ import {
 import { LOCAL_STAR_EXIT_LY } from './galaxy-detail-policy';
 import {
   findGalaxyRegionAt,
+  GALAXY_REGION_FILL_Y_LY,
   galaxyRegionsSceneLayer,
   type GalaxyRegionMapSource,
 } from './galaxy-regions';
@@ -682,7 +683,14 @@ export function layoutGalaxyLabels(
         x: edge.x + (centre.x - edge.x) * t,
         y: edge.y + (centre.y - edge.y) * t,
       };
-      const world = galaxyCameraPlanePoint(camera, point, viewport);
+      // The region drawn under this pixel lies on the fill plane, not on the
+      // (possibly elevated) focus plane.
+      const world = galaxyCameraPlanePoint(
+        camera,
+        point,
+        viewport,
+        GALAXY_REGION_FILL_Y_LY,
+      );
       if (!world) continue;
       const region = findGalaxyRegionAt(lookup, world);
       if (region && String(region.id) === regionId) return point;

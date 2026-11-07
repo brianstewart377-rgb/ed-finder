@@ -2002,6 +2002,29 @@ describe('SpatialCanvas', () => {
     bar.querySelector('button')!.dispatchEvent(wheel);
     expect(wheel.defaultPrevented).toBe(true);
     expect(lastGalaxyCamera().distanceLy).toBeLessThan(1_000);
+    // A pop-out opened from the bar (Sources) keeps its own scrolling.
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    const inside = document.createElement('p');
+    dialog.append(inside);
+    bar.append(dialog);
+    const runtime = adapter.runtimes[0]!;
+    runtime.dispatch.mockClear();
+    const dialogWheel = new WheelEvent('wheel', {
+      deltaY: -240,
+      clientX: 200,
+      clientY: 300,
+      bubbles: true,
+      cancelable: true,
+    });
+    inside.dispatchEvent(dialogWheel);
+    expect(dialogWheel.defaultPrevented).toBe(false);
+    expect(
+      runtime.dispatch.mock.calls.filter(
+        ([command]) => command.type === 'SET_CAMERA',
+      ),
+    ).toHaveLength(0);
+    dialog.remove();
   });
 
   it('keeps a zoomed-out galaxy centred when dragged or wheel-zoomed off centre', async () => {

@@ -844,8 +844,14 @@
   }
 
   function forwardMapWheel(node: HTMLElement): () => void {
-    node.addEventListener('wheel', mapWheel, { passive: false });
-    return () => node.removeEventListener('wheel', mapWheel);
+    // A pop-out opened from the bar (Sources) renders inside it; its own
+    // content must keep scrolling instead of zooming the map.
+    const overBar = (event: WheelEvent): void => {
+      if ((event.target as Element | null)?.closest('[role="dialog"]')) return;
+      mapWheel(event);
+    };
+    node.addEventListener('wheel', overBar, { passive: false });
+    return () => node.removeEventListener('wheel', overBar);
   }
 
   function pointerDown(event: PointerEvent): void {

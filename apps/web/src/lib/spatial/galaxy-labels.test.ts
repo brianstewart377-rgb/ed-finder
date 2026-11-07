@@ -16,6 +16,8 @@ import {
   SYSTEM_LABEL_GAP_PX,
   type GalaxyLabelCandidate,
 } from './galaxy-labels';
+import { galaxyCameraPlanePoint } from './galaxy-camera';
+import { GALAXY_REGION_FILL_Y_LY } from './galaxy-regions';
 
 const camera: CameraState = {
   focusLy: { x: 0, y: 0, z: 0 },
@@ -372,6 +374,35 @@ describe('Galaxy label projection and layout', () => {
       );
       expect(east).toBeDefined();
       expect(east!.xPx).toBeGreaterThanOrEqual(viewport.width / 2);
+    });
+
+    it('checks the region on the plane it is drawn on when the focus is raised', () => {
+      // Tilted and lifted 10,000 ly above the region plane, east of the
+      // border: a pixel's point on the focus plane is much nearer the camera
+      // than the region drawn beneath it, so the two can lie on opposite sides.
+      const raised: CameraState = {
+        focusLy: { x: 2_000, y: 10_000, z: 0 },
+        distanceLy: 10_000,
+        bearingRad: 0,
+        pitchRad: 0.55,
+        projection: 'perspective',
+        revision: 1,
+      };
+      const [east] = layoutGalaxyLabels(
+        [offScreenRegion('2', -40_000)],
+        raised,
+        viewport,
+        { regionLookup },
+      );
+      expect(east).toBeDefined();
+      const beneath = galaxyCameraPlanePoint(
+        raised,
+        { x: east!.xPx, y: east!.yPx },
+        viewport,
+        GALAXY_REGION_FILL_Y_LY,
+      );
+      expect(beneath).not.toBeNull();
+      expect(beneath!.x).toBeGreaterThanOrEqual(0);
     });
 
     it('omits a region with no part on screen, and every name without a lookup', () => {
