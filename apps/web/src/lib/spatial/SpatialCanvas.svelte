@@ -1979,14 +1979,16 @@
     font-size: 0.7rem;
     gap: 0.2rem 0.6rem;
   }
-  .renderer-status--overlay {
+  /* Qualified by the bar so it outranks the page-wide map-panel status style,
+     and pushed to the right even when the bar wraps onto a second row. */
+  .map-overlay-bar .renderer-status--overlay {
     min-height: 0;
-    margin: 0;
-    padding: 0.15rem 0.55rem;
+    margin: 0 0 0 auto;
+    padding: 0.1rem 0.45rem;
     border-radius: var(--radius-pill);
     background: color-mix(in srgb, var(--panel) 84%, transparent);
     color: var(--text-dim);
-    font-size: 0.68rem;
+    font-size: 0.62rem;
   }
   .nearby-systems--overlay {
     position: absolute;
