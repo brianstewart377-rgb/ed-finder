@@ -73,7 +73,9 @@ def load_manifest(path: Path) -> dict:
     if manifest.get("coverage_level") not in ("camera-path", "whole-galaxy"):
         raise ValueError("coverage_level must be camera-path or whole-galaxy")
     paths = manifest.get("camera_paths")
-    if not isinstance(paths, list) or not paths or not all(isinstance(item, str) and item for item in paths):
+    if not isinstance(paths, list) or not paths or not all(
+        isinstance(item, str) and item for item in paths
+    ):
         raise ValueError("camera_paths must identify the recorded journeys")
     relations = manifest.get("data_relations")
     if not isinstance(relations, list) or not all(isinstance(item, str) for item in relations):
@@ -122,11 +124,18 @@ def check_archive(manifest: dict, dump: Path, compose: Path) -> None:
             raise ValueError(f"unapproved TABLE DATA schema: {relation}")
     if not REQUIRED_RELATIONS <= relations:
         raise ValueError(f"missing map data relations: {sorted(REQUIRED_RELATIONS - relations)}")
-    if not {f"{manifest['relation_schema']}.systems", f"{manifest['relation_schema']}.bodies"} <= relations:
+    generation_relations = {
+        f"{manifest['relation_schema']}.systems",
+        f"{manifest['relation_schema']}.bodies",
+    }
+    if not generation_relations <= relations:
         raise ValueError("archive lacks published generation systems/bodies")
     if relations != set(manifest["data_relations"]):
         raise ValueError("TABLE DATA inventory differs from reviewed manifest")
-    print(f"Archive verified: {len(relations)} reviewed data relations, SHA-256 {digest.hexdigest()}")
+    print(
+        f"Archive verified: {len(relations)} reviewed data relations, "
+        f"SHA-256 {digest.hexdigest()}"
+    )
 
 
 def local_sql(compose: Path, sql: str) -> str:
