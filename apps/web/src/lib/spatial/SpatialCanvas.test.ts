@@ -1960,6 +1960,50 @@ describe('SpatialCanvas', () => {
     expect(lastGalaxyCamera().focusLy).toEqual(zoomed.focusLy);
   });
 
+  it('floats the controls over the map and still zooms when scrolled over them', async () => {
+    const fixture = buildGalaxyReviewFixtureScene();
+    const scene = {
+      ...fixture,
+      camera: { ...fixture.camera, distanceLy: 1_000 },
+    };
+    const view = render(SpatialCanvas, {
+      props: { scene, controlsOverlay: true },
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveAttribute(
+        'data-renderer-state',
+        'ready',
+      ),
+    );
+    const surface = view.container.querySelector('.map-systems-surface')!;
+    const bar = surface.querySelector('.map-overlay-bar')!;
+    expect(bar).not.toBeNull();
+    expect(
+      bar.contains(
+        screen.getByRole('group', { name: 'Galaxy camera controls' }),
+      ),
+    ).toBe(true);
+    expect(bar.contains(screen.getByRole('status'))).toBe(true);
+    const canvas = view.container.querySelector('canvas')!;
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({
+      left: 100,
+      top: 50,
+      width: 640,
+      height: 360,
+    } as DOMRect);
+    adapter.runtimes[0]!.dispatch.mockClear();
+    const wheel = new WheelEvent('wheel', {
+      deltaY: -240,
+      clientX: 200,
+      clientY: 390,
+      bubbles: true,
+      cancelable: true,
+    });
+    bar.querySelector('button')!.dispatchEvent(wheel);
+    expect(wheel.defaultPrevented).toBe(true);
+    expect(lastGalaxyCamera().distanceLy).toBeLessThan(1_000);
+  });
+
   it('keeps a zoomed-out galaxy centred when dragged or wheel-zoomed off centre', async () => {
     const fixture = buildGalaxyReviewFixtureScene();
     const scene = {

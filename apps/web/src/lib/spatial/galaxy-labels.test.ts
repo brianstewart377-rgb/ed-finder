@@ -281,7 +281,7 @@ describe('Galaxy label projection and layout', () => {
           viewport,
           { previouslyMuted: new Set(wasMuted ? ['b-region'] : []) },
         ).find((entry) => entry.key === 'b-region')!.muted;
-      // 30px apart the two 22px-tall names no longer touch...
+      // 30px apart the two 14px-tall names no longer touch...
       expect(faded(30, false)).toBe(false);
       // ...but one that was faded stays faded until it is well clear,
       expect(faded(30, true)).toBe(true);
@@ -310,8 +310,8 @@ describe('Galaxy label projection and layout', () => {
       const placed = layoutGalaxyLabels(
         [
           regionAt('a-region', 0, 0),
-          regionAt('b-region', 0, 20),
-          regionAt('c-region', 0, 40),
+          regionAt('b-region', 0, 10),
+          regionAt('c-region', 0, 20),
         ],
         camera,
         viewport,

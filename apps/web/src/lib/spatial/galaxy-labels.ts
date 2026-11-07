@@ -521,6 +521,26 @@ function estimateBox(
   };
 }
 
+/**
+ * The box a region name's text actually covers (0.63rem uppercase, about
+ * 7.2 px a character on one line). Fading only on a real overlap keeps names
+ * that merely sit near each other at full strength.
+ */
+function regionTextBox(
+  candidate: GalaxyLabelCandidate,
+  xPx: number,
+  yPx: number,
+): LabelBox {
+  const width = Math.min(224, candidate.text.length * 7.2 + 4);
+  const height = 14;
+  return {
+    left: xPx - width / 2,
+    right: xPx + width / 2,
+    top: yPx - height / 2,
+    bottom: yPx + height / 2,
+  };
+}
+
 const LABEL_GAP_PX = 6;
 /** Extra room a faded region name needs before it returns to full strength. */
 const UNMUTE_CLEARANCE_PX = 24;
@@ -698,7 +718,7 @@ export function layoutGalaxyLabels(
       ? clampIntoSafe(entry.candidate, entry.screen.xPx, entry.screen.yPx)
       : insideRegionOnScreen(entry.candidate, entry.screen);
     if (!position) continue;
-    const box = estimateBox(entry.candidate, position.x, position.y);
+    const box = regionTextBox(entry.candidate, position.x, position.y);
     const emphasised =
       entry.candidate.selected ||
       entry.candidate.hovered ||

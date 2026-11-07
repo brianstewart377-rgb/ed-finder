@@ -813,6 +813,41 @@
     event.preventDefault();
   }
 
+  /**
+   * Scrolling zooms the map, over the canvas or over the control bar that
+   * floats on it (the bar sits on the bottom of the map, where a commander
+   * expects the wheel to keep working).
+   */
+  function mapWheel(event: WheelEvent): void {
+    if (!canNavigate) return;
+    event.preventDefault();
+    const pixels =
+      event.deltaY *
+      (event.deltaMode === 1
+        ? 16
+        : event.deltaMode === 2
+          ? host.clientHeight
+          : 1);
+    const boundedPixels = Math.max(-400, Math.min(400, pixels));
+    if (canSystemNavigate) zoomSystem(boundedPixels);
+    else if (currentCamera)
+      navigateGalaxy(
+        currentCamera,
+        zoomGalaxyCameraTowards(
+          currentCamera,
+          boundedPixels,
+          canvasPoint({ x: event.clientX, y: event.clientY }),
+          viewport(),
+          cameraBounds,
+        ),
+      );
+  }
+
+  function forwardMapWheel(node: HTMLElement): () => void {
+    node.addEventListener('wheel', mapWheel, { passive: false });
+    return () => node.removeEventListener('wheel', mapWheel);
+  }
+
   function pointerDown(event: PointerEvent): void {
     if ((event.target as Element).closest('[data-map-interactive]')) return;
     if (!canNavigate) {
@@ -1358,30 +1393,7 @@
         resize(entry.contentRect.width, entry.contentRect.height);
       });
       observer.observe(host);
-      wheel = (event: WheelEvent): void => {
-        if (!canNavigate) return;
-        event.preventDefault();
-        const pixels =
-          event.deltaY *
-          (event.deltaMode === 1
-            ? 16
-            : event.deltaMode === 2
-              ? host.clientHeight
-              : 1);
-        const boundedPixels = Math.max(-400, Math.min(400, pixels));
-        if (canSystemNavigate) zoomSystem(boundedPixels);
-        else if (currentCamera)
-          navigateGalaxy(
-            currentCamera,
-            zoomGalaxyCameraTowards(
-              currentCamera,
-              boundedPixels,
-              canvasPoint({ x: event.clientX, y: event.clientY }),
-              viewport(),
-              cameraBounds,
-            ),
-          );
-      };
+      wheel = mapWheel;
       host.addEventListener('wheel', wheel, { passive: false });
       resize(host.clientWidth, host.clientHeight);
       void nextRuntime.start();
@@ -1752,7 +1764,7 @@
   {#if controlsOverlay}
     <!-- Floats over the bottom of the map. The bar itself lets drags through
          to the map; only its controls take the pointer. -->
-    <div class="map-overlay-bar">
+    <div class="map-overlay-bar" {@attach forwardMapWheel}>
       {#if canGalaxyNavigate}
         {@render galaxyCameraControls()}
         {#if !cameraActions}
@@ -2123,6 +2135,7 @@
      region. Region names never jump aside to make room; a name that would
      overlap a more important one fades instead, and only that fade eases. */
   .galaxy-label--region {
+    z-index: 1;
     transition: opacity 220ms ease-out;
     justify-content: center;
     color: color-mix(in srgb, var(--text-muted) 80%, transparent);
@@ -2135,8 +2148,12 @@
       0 0 6px var(--bg-void),
       0 0 14px color-mix(in srgb, var(--neon) 26%, transparent);
   }
+  /* A faded name sits under the names at full strength and drops its dark
+     halo, so it never smudges the name it overlaps. */
   .galaxy-label--region.is-muted {
-    opacity: 0.3;
+    z-index: 0;
+    opacity: 0.28;
+    text-shadow: none;
   }
   .galaxy-label--region.is-hovered {
     color: var(--neon-hi);
