@@ -23,6 +23,7 @@
     GALAXY_CAMERA_NAVIGATION_BOUNDS_LY,
     elevateGalaxyCameraByPixels,
     elevateGalaxyCameraStep,
+    keepGalaxyInView,
     orbitGalaxyCamera,
     panGalaxyCamera,
     pinchGalaxyCamera,
@@ -37,6 +38,7 @@
     catalogueDensitySceneLayer,
   } from './galaxy-density';
   import { galaxyReferenceGrid } from './galaxy-grid';
+  import { galaxyRegionsSceneLayer } from './galaxy-regions';
   import {
     galaxyLabelCandidates,
     galaxySystemPointIndex,
@@ -66,11 +68,15 @@
     onSystemSelect,
     systemInspectHref,
     onSystemInspect,
-    controlsBelow = false,
+    controlsOverlay = false,
     cameraActions,
   } = $props<{
-    /** Presentation only: Explore gives the canvas the remaining window height. */
-    controlsBelow?: boolean;
+    /**
+     * Presentation only: Explore floats the camera controls, readout, nearby
+     * list and renderer status over the map instead of stacking them below it,
+     * so the canvas gets the whole window, like the in-game map.
+     */
+    controlsOverlay?: boolean;
     cameraActions?: Snippet<[Snippet]>;
     scene?: SpatialSceneContract;
     focusTarget?: SpatialTarget | null;
@@ -213,8 +219,8 @@
   let labelCandidates = $state.raw<GalaxyLabelCandidate[]>([]);
   let visibleGalaxyLabels = $state.raw<ProjectedGalaxyLabel[]>([]);
   let labelCamera = $state.raw<CameraState | null>(null);
-  // The slot each region name held in the last layout (not reactive state).
-  let lastLabelSlots = new Map<string, number>();
+  // Region names faded in the last layout (not reactive state).
+  let lastMutedLabels = new Set<string>();
   // True until the nearby-name ranking has caught up with the camera. Hover
   // cards wait for this; the name overlay itself no longer does.
   const labelsMoving = $derived(
@@ -352,7 +358,7 @@
     if (nextScene?.kind !== 'galaxy' || !camera || !host) {
       labelCandidates = [];
       visibleGalaxyLabels = [];
-      lastLabelSlots = new Map();
+      lastMutedLabels = new Set();
       return;
     }
     if (cameraTransitionActive) return;
@@ -371,11 +377,17 @@
     return () => window.clearTimeout(timeout);
   });
   // Where each name sits is re-projected from the live camera on every change,
-  // so a name stays on its star while you zoom and pan instead of vanishing and
-  // reappearing somewhere else once the camera stops. Projecting the bounded
-  // candidate set is cheap. While the camera moves every region name keeps its
-  // slot (no shuffling mid-gesture); once it settles they ease clear of each
-  // other.
+  // so a name stays on its star or in its region while you zoom and pan
+  // instead of vanishing and reappearing somewhere else once the camera stops.
+  // Projecting the bounded candidate set is cheap. Region names never jump to
+  // make room: a name that would overlap a more important one fades instead,
+  // and a region whose name point leaves the screen keeps its name inside the
+  // visible part of the region.
+  const regionLookup = $derived(
+    scene?.kind === 'galaxy'
+      ? galaxyRegionsSceneLayer(scene)?.payload.lookup
+      : undefined,
+  );
   $effect(() => {
     void resizeRevision;
     const camera = currentCamera;
@@ -383,13 +395,11 @@
     if (scene?.kind !== 'galaxy' || !camera || !host) return;
     if (cameraTransitionActive) return;
     const solved = layoutGalaxyLabels(candidates, camera, viewport(), {
-      previousDisplacements: lastLabelSlots,
-      // Until the ranking has caught up with the camera the view is still
-      // moving: names ride along with their stars and nothing is re-shuffled.
-      lockDisplacements: labelCamera !== camera,
+      previouslyMuted: lastMutedLabels,
+      ...(regionLookup ? { regionLookup } : {}),
     });
-    lastLabelSlots = new Map(
-      solved.map((label) => [label.key, label.displacementIndex]),
+    lastMutedLabels = new Set(
+      solved.filter((label) => label.muted).map((label) => label.key),
     );
     visibleGalaxyLabels = solved;
   });
@@ -636,9 +646,19 @@
       });
   }
 
+  /**
+   * Apply a pan, zoom or pinch the commander made, keeping the galaxy on
+   * screen: zoomed out it stays centred, zoomed in it can be explored but
+   * never dragged away.
+   */
+  function navigateGalaxy(from: CameraState, next: CameraState): void {
+    setCamera(keepGalaxyInView(next, viewport(), from));
+  }
+
   function pan(x: number, y: number): void {
     if (currentCamera)
-      setCamera(
+      navigateGalaxy(
+        currentCamera,
         panGalaxyCamera(
           currentCamera,
           x,
@@ -650,7 +670,8 @@
   }
 
   function zoom(delta: number): void {
-    if (currentCamera) setCamera(zoomGalaxyCamera(currentCamera, delta));
+    if (currentCamera)
+      navigateGalaxy(currentCamera, zoomGalaxyCamera(currentCamera, delta));
   }
 
   function elevate(direction: 1 | -1): void {
@@ -792,6 +813,41 @@
     event.preventDefault();
   }
 
+  /**
+   * Scrolling zooms the map, over the canvas or over the control bar that
+   * floats on it (the bar sits on the bottom of the map, where a commander
+   * expects the wheel to keep working).
+   */
+  function mapWheel(event: WheelEvent): void {
+    if (!canNavigate) return;
+    event.preventDefault();
+    const pixels =
+      event.deltaY *
+      (event.deltaMode === 1
+        ? 16
+        : event.deltaMode === 2
+          ? host.clientHeight
+          : 1);
+    const boundedPixels = Math.max(-400, Math.min(400, pixels));
+    if (canSystemNavigate) zoomSystem(boundedPixels);
+    else if (currentCamera)
+      navigateGalaxy(
+        currentCamera,
+        zoomGalaxyCameraTowards(
+          currentCamera,
+          boundedPixels,
+          canvasPoint({ x: event.clientX, y: event.clientY }),
+          viewport(),
+          cameraBounds,
+        ),
+      );
+  }
+
+  function forwardMapWheel(node: HTMLElement): () => void {
+    node.addEventListener('wheel', mapWheel, { passive: false });
+    return () => node.removeEventListener('wheel', mapWheel);
+  }
+
   function pointerDown(event: PointerEvent): void {
     if ((event.target as Element).closest('[data-map-interactive]')) return;
     if (!canNavigate) {
@@ -890,7 +946,8 @@
       const previous = [canvasPoint(first), canvasPoint(second)] as const;
       drag.x = event.clientX;
       drag.y = event.clientY;
-      setCamera(
+      navigateGalaxy(
+        currentCamera,
         pinchGalaxyCamera(
           currentCamera,
           previous,
@@ -1336,29 +1393,7 @@
         resize(entry.contentRect.width, entry.contentRect.height);
       });
       observer.observe(host);
-      wheel = (event: WheelEvent): void => {
-        if (!canNavigate) return;
-        event.preventDefault();
-        const pixels =
-          event.deltaY *
-          (event.deltaMode === 1
-            ? 16
-            : event.deltaMode === 2
-              ? host.clientHeight
-              : 1);
-        const boundedPixels = Math.max(-400, Math.min(400, pixels));
-        if (canSystemNavigate) zoomSystem(boundedPixels);
-        else if (currentCamera)
-          setCamera(
-            zoomGalaxyCameraTowards(
-              currentCamera,
-              boundedPixels,
-              canvasPoint({ x: event.clientX, y: event.clientY }),
-              viewport(),
-              cameraBounds,
-            ),
-          );
-      };
+      wheel = mapWheel;
       host.addEventListener('wheel', wheel, { passive: false });
       resize(host.clientWidth, host.clientHeight);
       void nextRuntime.start();
@@ -1409,7 +1444,7 @@
 {#snippet galaxyCameraControls()}
   <div
     class="camera-toolbar"
-    class:camera-toolbar--below={controlsBelow}
+    class:camera-toolbar--overlay={controlsOverlay}
     role="group"
     aria-label="Galaxy camera controls"
   >
@@ -1476,8 +1511,21 @@
   </div>
 {/snippet}
 
+{#snippet rendererStatus()}
+  <p
+    class="renderer-status"
+    class:renderer-status--overlay={controlsOverlay}
+    role="status"
+    aria-live="polite"
+    data-renderer-state={status.state}
+    data-renderer-backend={statusBackend}
+  >
+    {statusLabel}
+  </p>
+{/snippet}
+
 {#if canGalaxyNavigate}
-  {#if !controlsBelow}
+  {#if !controlsOverlay}
     {@render galaxyCameraControls()}
     {@render galaxyCameraHelp()}
   {/if}
@@ -1649,16 +1697,15 @@
             class:is-selected={label.selected}
             class:is-hovered={label.hovered}
             class:is-current={label.current}
+            class:is-muted={label.muted}
             data-map-label-kind={label.kind}
             data-map-label-key={label.key}
             data-map-label-selected={label.selected || undefined}
+            data-map-label-muted={label.muted || undefined}
             data-map-label-anchor-x={label.anchorXPx}
             data-map-label-anchor-y={label.anchorYPx}
-            style:left={`${label.anchorXPx}px`}
-            style:top={`${label.anchorYPx}px`}
-            style:--label-dx={`${label.xPx - label.anchorXPx}px`}
-            style:--label-dy={`${label.yPx - label.anchorYPx}px`}
-            >{label.text}</span
+            style:left={`${label.xPx}px`}
+            style:top={`${label.yPx}px`}>{label.text}</span
           >
         {/if}
       {/each}
@@ -1683,7 +1730,11 @@
     {/if}
   </div>
   {#if canGalaxyNavigate}
-    <details class="nearby-systems" bind:open={nearbyOpen}>
+    <details
+      class="nearby-systems"
+      class:nearby-systems--overlay={controlsOverlay}
+      bind:open={nearbyOpen}
+    >
       <summary>Nearby systems ({nearbySystems.length})</summary>
       {#if nearbyOpen}
         {#if nearbySystems.length}
@@ -1709,6 +1760,21 @@
         {/if}
       {/if}
     </details>
+  {/if}
+  {#if controlsOverlay}
+    <!-- Floats over the bottom of the map. The bar itself lets drags through
+         to the map; only its controls take the pointer. -->
+    <div class="map-overlay-bar" {@attach forwardMapWheel}>
+      {#if canGalaxyNavigate}
+        {@render galaxyCameraControls()}
+        {#if !cameraActions}
+          <details class="camera-help">
+            <summary>Map controls</summary>{@render galaxyCameraHelp()}
+          </details>
+        {/if}
+      {/if}
+      {@render rendererStatus()}
+    </div>
   {/if}
   {#if hoveredSystem && !labelsMoving}
     <div
@@ -1737,26 +1803,12 @@
     </div>
   {/if}
 </div>
-{#if canGalaxyNavigate && controlsBelow}
-  {@render galaxyCameraControls()}
-  {#if !cameraActions}
-    <details class="camera-help">
-      <summary>Map controls</summary>{@render galaxyCameraHelp()}
-    </details>
-  {/if}
-{/if}
 {#if scene?.kind === 'system'}
   <SystemBodyLegend bodies={scene.bodies} />
 {/if}
-<p
-  class="renderer-status"
-  role="status"
-  aria-live="polite"
-  data-renderer-state={status.state}
-  data-renderer-backend={statusBackend}
->
-  {statusLabel}
-</p>
+{#if !controlsOverlay}
+  {@render rendererStatus()}
+{/if}
 
 <style>
   .system-keyboard-help {
@@ -1888,20 +1940,73 @@
     border-color: var(--neon);
     background: var(--neon-soft);
   }
-  .camera-toolbar--below {
-    flex-shrink: 0;
-    gap: 0.2rem;
+  .map-overlay-bar {
+    position: absolute;
+    z-index: 4;
+    right: 0.5rem;
+    bottom: 0.5rem;
+    left: 0.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 0.3rem 0.5rem;
+    pointer-events: none;
   }
-  .camera-toolbar--below button {
-    min-height: 2rem;
-    padding: 0.3rem 0.4rem;
+  .map-overlay-bar > :global(*) {
+    pointer-events: auto;
+  }
+  /* No backdrop-filter here: it would become the containing block for the
+     fixed-position Sources pop-out inside this bar and misplace it. */
+  .camera-toolbar--overlay {
+    flex: 0 1 auto;
+    min-width: 0;
+    gap: 0.2rem;
+    padding: 0.25rem 0.4rem;
+    border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--panel) 84%, transparent);
+  }
+  .camera-toolbar--overlay button {
+    min-height: 1.9rem;
+    padding: 0.25rem 0.45rem;
+    background: color-mix(in srgb, var(--panel-raised) 82%, transparent);
     font-size: 0.75rem;
   }
-  .camera-toolbar--below .camera-distance {
-    flex-basis: 100%;
+  .camera-toolbar--overlay .camera-distance {
+    margin-left: 0.4rem;
     justify-content: flex-start;
     font-size: 0.7rem;
     gap: 0.2rem 0.6rem;
+  }
+  /* Qualified by the bar so it outranks the page-wide map-panel status style,
+     and pushed to the right even when the bar wraps onto a second row. */
+  .map-overlay-bar .renderer-status--overlay {
+    min-height: 0;
+    margin: 0 0 0 auto;
+    padding: 0.1rem 0.45rem;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--panel) 84%, transparent);
+    color: var(--text-dim);
+    font-size: 0.62rem;
+  }
+  .nearby-systems--overlay {
+    position: absolute;
+    z-index: 4;
+    top: 0.5rem;
+    right: 0.5rem;
+    max-width: min(20rem, calc(100% - 1rem));
+    max-height: 45%;
+    overflow: auto;
+    margin: 0;
+    padding: 0.1rem 0.6rem;
+    border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--panel) 84%, transparent);
+    font-size: 0.75rem;
+  }
+  .nearby-systems--overlay summary {
+    padding: 0.25rem 0;
   }
   .camera-toolbar button:hover:not(:disabled) {
     background: var(--panel-raised);
@@ -2027,17 +2132,13 @@
     text-wrap: balance;
     line-height: 1.18;
   }
-  /* A name sits exactly on its anchor and follows the camera with no easing,
-     like the System Map names: one that trails its star reads as the wrong
-     star. Only the sideways shift a region name takes to clear a neighbour
-     (--label-dx/--label-dy) eases, so a rearrangement slides instead of
-     snapping. */
+  /* A name sits exactly on its point and follows the camera with no easing,
+     like the System Map names: one that trails its region reads as the wrong
+     region. Region names never jump aside to make room; a name that would
+     overlap a more important one fades instead, and only that fade eases. */
   .galaxy-label--region {
-    transform: translate(
-      calc(-50% + var(--label-dx, 0px)),
-      calc(-50% + var(--label-dy, 0px))
-    );
-    transition: transform 160ms ease-out;
+    z-index: 1;
+    transition: opacity 220ms ease-out;
     justify-content: center;
     color: color-mix(in srgb, var(--text-muted) 80%, transparent);
     font-size: 0.63rem;
@@ -2048,6 +2149,13 @@
       0 1px 2px var(--bg-void),
       0 0 6px var(--bg-void),
       0 0 14px color-mix(in srgb, var(--neon) 26%, transparent);
+  }
+  /* A faded name sits under the names at full strength and drops its dark
+     halo, so it never smudges the name it overlaps. */
+  .galaxy-label--region.is-muted {
+    z-index: 0;
+    opacity: 0.28;
+    text-shadow: none;
   }
   .galaxy-label--region.is-hovered {
     color: var(--neon-hi);

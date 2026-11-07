@@ -208,7 +208,7 @@ describe('Explore map', () => {
     expect(sessions[0]!.session.dispose).not.toHaveBeenCalled();
   });
 
-  it('places camera controls below the real canvas while retaining every existing action and readout', async () => {
+  it('floats camera controls, the readout and the renderer status over the map, retaining every action', async () => {
     render(ExploreMapWindow, {
       canvasProps: { scene: buildGalaxyReviewFixtureScene() },
       finderPanelOpen: true,
@@ -221,6 +221,17 @@ describe('Explore map', () => {
     });
     expect(canvas.compareDocumentPosition(controls)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    // Over the map, not stacked under it: the bar shares the map's surface,
+    // as do the renderer status and the Nearby systems list.
+    const surface = canvas.closest('.map-systems-surface')!;
+    const bar = controls.closest('.map-overlay-bar');
+    expect(bar).not.toBeNull();
+    expect(surface.contains(bar)).toBe(true);
+    expect(bar!.contains(screen.getByRole('status'))).toBe(true);
+    expect(surface.querySelector('.nearby-systems--overlay')).not.toBeNull();
+    expect(surface.closest('.map-window-content')!.lastElementChild).toBe(
+      surface,
     );
     for (const name of [
       'Zoom in',
