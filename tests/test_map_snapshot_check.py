@@ -44,7 +44,10 @@ class MapSnapshotCheckTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             dump = Path(temporary) / "map.dump"
             dump.write_bytes(archive)
-            with patch.object(check, "command", side_effect=[manifest["sha256"] + "  /tmp/map-snapshot.dump", listing]):
+            with patch.object(
+                check, "command",
+                side_effect=[manifest["sha256"] + "  /tmp/map-snapshot.dump", listing],
+            ):
                 with self.assertRaisesRegex(ValueError, "unapproved TABLE DATA schema"):
                     check.check_archive(manifest, dump, Path("docker-compose.map-test.yml"))
 
