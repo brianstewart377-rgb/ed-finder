@@ -1744,14 +1744,14 @@ export const createBabylonGalaxyScene = (
     ? createSelectedSystemMarker(scene, selectedPoint, markerSizeLy)
     : null;
 
+  // The density layer is already a soft glow. Blooming it as well renders
+  // every splat's full emissive colour into the glow target, which adds a flat
+  // grey plateau over the whole disc, so it stays out of the glow layer.
   const visualGlow = createGalaxyVisualFinish(
     scene,
-    [
-      densityMesh,
-      commanderHistoryMesh,
-      selectedMarker,
-      ...stellarAccentMeshes,
-    ].filter((mesh): mesh is Mesh => mesh !== null),
+    [commanderHistoryMesh, selectedMarker, ...stellarAccentMeshes].filter(
+      (mesh): mesh is Mesh => mesh !== null,
+    ),
   );
 
   const renderedLayers: RenderedLayerReceipt[] = [];
@@ -2669,16 +2669,12 @@ export const createBabylonSession = (
             : [...productContract.contributions, command.contribution],
         };
         const nextDensity = catalogueDensitySceneLayer(nextContract);
-        const previousDensityMesh = product.densityMesh;
-        if (previousDensityMesh) {
-          product.visualGlow.removeIncludedOnlyMesh(previousDensityMesh);
-          previousDensityMesh.dispose();
-        }
+        product.densityMesh?.dispose();
+        // Not added to the glow layer: see createBabylonGalaxyScene.
         const densityMesh = createCatalogueDensityMesh(
           product.scene,
           nextDensity,
         );
-        if (densityMesh) product.visualGlow.addIncludedOnlyMesh(densityMesh);
         const renderedLayers = [
           ...product.renderedLayers.filter(
             (receipt) => receipt.layerId !== 'catalogue-density',

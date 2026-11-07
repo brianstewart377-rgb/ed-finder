@@ -674,6 +674,9 @@ describe('Babylon spatial adapter boundary', () => {
     expect(product.densityMesh).not.toBeNull();
     expect(product.densityMesh?.thinInstanceCount).toBe(payload.cells.length);
     expect(product.densityMesh?.isPickable).toBe(false);
+    // Blooming the already-soft glow drew every splat at full emissive into
+    // the glow target and laid a flat grey plateau over the disc.
+    expect(product.visualGlow.hasMesh(product.densityMesh!)).toBe(false);
     expect(product.renderedLayers).toEqual([
       {
         contributionId: 'catalogue-density-base',
@@ -893,6 +896,11 @@ describe('Babylon spatial adapter boundary', () => {
 
     expect(densityMesh?.material?.alpha).toBeCloseTo(0.45, 5);
     expect(starMesh?.material?.alpha).toBeCloseTo(0.5, 5);
+    const glow = scene.effectLayers.find(
+      (layer) => layer.name === 'galaxy-emissive-glow',
+    );
+    expect(glow).toBeDefined();
+    expect(glow!.hasMesh(densityMesh!)).toBe(false);
 
     session.dispose();
     engine.dispose();
@@ -953,6 +961,12 @@ describe('Babylon spatial adapter boundary', () => {
 
     expect(densityMesh?.material?.alpha).toBeCloseTo(0.45, 5);
     expect(starMesh?.material?.alpha).toBeCloseTo(0.5, 5);
+    // A refreshed density layer must stay out of the glow layer as well.
+    const glow = scene.effectLayers.find(
+      (layer) => layer.name === 'galaxy-emissive-glow',
+    );
+    expect(glow).toBeDefined();
+    expect(glow!.hasMesh(densityMesh!)).toBe(false);
 
     session.dispose();
     engine.dispose();
