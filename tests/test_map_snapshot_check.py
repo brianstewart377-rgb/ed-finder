@@ -2,11 +2,14 @@
 
 import hashlib
 import json
+import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "dev"))
 
 import map_snapshot_check as check
 
