@@ -345,6 +345,9 @@ export function catalogueDensitySceneLayer(
   };
 }
 
+/** Furthest a catalogue-density splat reaches, in cells. */
+export const CATALOGUE_DENSITY_MAXIMUM_SUPPORT_CELLS = 2;
+
 /** Count-only visual transfer. It cannot invent occupied cells or positions. */
 export function catalogueDensityRadiusLy(
   systemCount: number,
@@ -360,9 +363,17 @@ export function catalogueDensityRadiusLy(
   if (!finiteNumber(cellSizeLy) || cellSizeLy <= 0) {
     throw new Error('Density radius requires a positive finite cell size');
   }
-  const normalized = Math.log1p(systemCount) / Math.log1p(maximumSystemCount);
-  // Dense neighbouring cells overlap just enough to read as a continuous
-  // stellar field. Sparse cells retain compact support, so smoothing cannot
-  // turn isolated catalogue records into a fabricated spiral arm.
-  return Math.min(cellSizeLy * 0.62, cellSizeLy * (0.08 + normalized * 0.54));
+  const normalized = Math.min(
+    1,
+    Math.log1p(systemCount) / Math.log1p(maximumSystemCount),
+  );
+  // Cells sit one cell apart, so a splat that stops short of its neighbours
+  // draws a grid of dots. Every splat reaches past its neighbours instead and
+  // equal cells sum to an even glow; the count only changes how far a cell's
+  // light spreads. Support stays compact (at most 2 cells), so an isolated
+  // record is a faint local haze, never a fabricated arm.
+  return Math.min(
+    cellSizeLy * CATALOGUE_DENSITY_MAXIMUM_SUPPORT_CELLS,
+    cellSizeLy * (1.6 + 0.4 * normalized),
+  );
 }
