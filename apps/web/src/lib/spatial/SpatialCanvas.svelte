@@ -45,7 +45,8 @@
     type GalaxyLabelCandidate,
     type ProjectedGalaxyLabel,
   } from './galaxy-labels';
-  import { fitSystemCameraToViewport } from './system-scene';
+  import { fitSystemCameraToViewport, systemBodyLayout } from './system-scene';
+  import { layoutSystemBodyLabels } from './system-labels';
   import GalaxySystemHoverCard from './GalaxySystemHoverCard.svelte';
   import SystemBodyLegend from './SystemBodyLegend.svelte';
 
@@ -105,6 +106,10 @@
   let currentSystemCamera = $state<SystemCameraState | null>(null);
   let homeCamera: CameraState | null = null;
   let homeSystemCamera: SystemCameraState | null = null;
+  // The contract overview of a system scene that loaded into a canvas with no
+  // size yet (it sits in a hidden tab panel). It is fitted, and the camera
+  // re-applied, on the first real size.
+  let pendingSystemRefit: SystemCameraState | null = null;
   const canGalaxyNavigate = $derived(scene?.kind === 'galaxy');
   const canSystemNavigate = $derived(scene?.kind === 'system');
   const canNavigate = $derived(canGalaxyNavigate || canSystemNavigate);
@@ -208,6 +213,10 @@
   let labelCandidates = $state.raw<GalaxyLabelCandidate[]>([]);
   let visibleGalaxyLabels = $state.raw<ProjectedGalaxyLabel[]>([]);
   let labelCamera = $state.raw<CameraState | null>(null);
+  // The slot each region name held in the last layout (not reactive state).
+  let lastLabelSlots = new Map<string, number>();
+  // True until the nearby-name ranking has caught up with the camera. Hover
+  // cards wait for this; the name overlay itself no longer does.
   const labelsMoving = $derived(
     cameraTransitionActive || labelCamera !== currentCamera,
   );
@@ -331,8 +340,9 @@
   const sceneTargetCount = $derived(targetCount(scene));
   const systemTargetCount = $derived(layerTargetCount(scene, 'finder-systems'));
   $effect(() => {
-    // Like viewport streaming, labels use the settled view. Never rank or solve
-    // overlap on CAMERA_CHANGED animation frames or during a held drag.
+    // Which names exist is decided on the settled view: ranking the nearby
+    // catalogue scans every streamed star, so never do it on CAMERA_CHANGED
+    // animation frames or during a held drag.
     void resizeRevision;
     const nextScene = scene;
     const camera = currentCamera;
@@ -342,24 +352,46 @@
     if (nextScene?.kind !== 'galaxy' || !camera || !host) {
       labelCandidates = [];
       visibleGalaxyLabels = [];
+      lastLabelSlots = new Map();
       return;
     }
     if (cameraTransitionActive) return;
     const timeout = window.setTimeout(() => {
-      const size = viewport();
       labelCandidates = galaxyLabelCandidates(
         { ...nextScene, camera },
         regionId,
         {
           hoveredSystemId64: systemId,
           anchor: reference ?? undefined,
-          viewport: size,
+          viewport: viewport(),
         },
       );
-      visibleGalaxyLabels = layoutGalaxyLabels(labelCandidates, camera, size);
       labelCamera = camera;
     }, 180);
     return () => window.clearTimeout(timeout);
+  });
+  // Where each name sits is re-projected from the live camera on every change,
+  // so a name stays on its star while you zoom and pan instead of vanishing and
+  // reappearing somewhere else once the camera stops. Projecting the bounded
+  // candidate set is cheap. While the camera moves every region name keeps its
+  // slot (no shuffling mid-gesture); once it settles they ease clear of each
+  // other.
+  $effect(() => {
+    void resizeRevision;
+    const camera = currentCamera;
+    const candidates = labelCandidates;
+    if (scene?.kind !== 'galaxy' || !camera || !host) return;
+    if (cameraTransitionActive) return;
+    const solved = layoutGalaxyLabels(candidates, camera, viewport(), {
+      previousDisplacements: lastLabelSlots,
+      // Until the ranking has caught up with the camera the view is still
+      // moving: names ride along with their stars and nothing is re-shuffled.
+      lockDisplacements: labelCamera !== camera,
+    });
+    lastLabelSlots = new Map(
+      solved.map((label) => [label.key, label.displacementIndex]),
+    );
+    visibleGalaxyLabels = solved;
   });
   const atlasRegionLabels = $derived(
     visibleGalaxyLabels.filter(
@@ -437,7 +469,15 @@
         // Fit the contract's overview to this canvas; Reset view returns to
         // it. A context recovery resumes the camera the canvas already owns
         // and must not fit (and compound) that already-fitted distance.
-        const fitted = fitSystemCameraToViewport(contractCamera, viewport());
+        //
+        // A canvas inside a hidden tab panel has no size yet. Fitting to the
+        // 1 × 1 stand-in would pick the wrong distance, so wait for a real
+        // size instead (refitSystemOverview).
+        const measurable = host.clientWidth >= 2 && host.clientHeight >= 2;
+        const fitted = measurable
+          ? fitSystemCameraToViewport(contractCamera, viewport())
+          : contractCamera;
+        pendingSystemRefit = measurable || restoring ? null : contractCamera;
         homeSystemCamera = fitted;
         currentSystemCamera = nextScene.camera;
         if (
@@ -560,6 +600,40 @@
       width: Math.max(1, host.clientWidth),
       height: Math.max(1, host.clientHeight),
     };
+  }
+
+  /**
+   * Fit a system overview that loaded before the canvas had a size, then apply
+   * it as a camera command (the same step Reset view takes) so the first
+   * frame at the real size is drawn. A camera the commander or the page has
+   * already moved is left where it is.
+   */
+  function refitSystemOverview(): void {
+    const contract = pendingSystemRefit;
+    if (
+      !contract ||
+      !runtime ||
+      status.state !== 'ready' ||
+      host.clientWidth < 2 ||
+      host.clientHeight < 2
+    )
+      return;
+    pendingSystemRefit = null;
+    // The scene may have changed to a galaxy while the canvas was hidden.
+    if (untrack(() => scene?.kind) !== 'system') return;
+    const fitted = fitSystemCameraToViewport(contract, viewport());
+    homeSystemCamera = fitted;
+    const current = untrack(() => currentSystemCamera);
+    const untouched =
+      !current ||
+      (current.semanticDistance === contract.semanticDistance &&
+        current.bearingRad === contract.bearingRad &&
+        current.pitchRad === contract.pitchRad);
+    if (untouched)
+      setSystemCamera({
+        ...fitted,
+        revision: Math.max(current?.revision ?? 0, contract.revision) + 1,
+      });
   }
 
   function pan(x: number, y: number): void {
@@ -1059,6 +1133,30 @@
     }
   }
 
+  // The System Map names its bodies without waiting for a hover. This is a
+  // projection of the camera the renderer already holds; the overlay below is
+  // inert and aria-hidden, and each name stays in the hover card and the
+  // Inspect Bodies list.
+  const systemLayouts = $derived(
+    scene?.kind === 'system' ? systemBodyLayout(scene.bodies) : [],
+  );
+  const systemLabels = $derived.by(() => {
+    void resizeRevision;
+    const camera = currentSystemCamera;
+    if (
+      scene?.kind !== 'system' ||
+      !host ||
+      !camera ||
+      camera.systemId64 !== scene.systemId64
+    ) {
+      return [];
+    }
+    return layoutSystemBodyLabels(systemLayouts, camera, {
+      width: host.clientWidth,
+      height: host.clientHeight,
+    });
+  });
+
   const cardPosition = $derived.by(() => {
     void resizeRevision;
     const width = host?.clientWidth ?? 640;
@@ -1225,6 +1323,7 @@
           dpr: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
         };
         activeRuntime.dispatch({ type: 'RESIZE', ...viewport });
+        refitSystemOverview();
         onViewportChange?.({ width: viewport.width, height: viewport.height });
         resizeRevision += 1;
         host
@@ -1508,7 +1607,7 @@
     </svg>
     <div
       class="galaxy-label-layer"
-      class:labels-moving={labelsMoving}
+      class:labels-moving={cameraTransitionActive}
       data-visible-label-count={visibleGalaxyLabels.length}
     >
       {#each renderedGalaxyLabels as label (label.key)}
@@ -1555,12 +1654,33 @@
             data-map-label-selected={label.selected || undefined}
             data-map-label-anchor-x={label.anchorXPx}
             data-map-label-anchor-y={label.anchorYPx}
-            style:left={`${label.xPx}px`}
-            style:top={`${label.yPx}px`}>{label.text}</span
+            style:left={`${label.anchorXPx}px`}
+            style:top={`${label.anchorYPx}px`}
+            style:--label-dx={`${label.xPx - label.anchorXPx}px`}
+            style:--label-dy={`${label.yPx - label.anchorYPx}px`}
+            >{label.text}</span
           >
         {/if}
       {/each}
     </div>
+    {#if systemLabels.length > 0}
+      <div
+        class="system-label-layer"
+        aria-hidden="true"
+        data-system-label-count={systemLabels.length}
+      >
+        {#each systemLabels as label (label.bodyId)}
+          <span
+            class="system-label system-label--{label.kind}"
+            class:is-selected={label.selected}
+            class:is-left={label.side === 'left'}
+            data-system-label-body-id={label.bodyId}
+            style:left={`${label.x}px`}
+            style:top={`${label.y}px`}>{label.text}</span
+          >
+        {/each}
+      </div>
+    {/if}
   </div>
   {#if canGalaxyNavigate}
     <details class="nearby-systems" bind:open={nearbyOpen}>
@@ -1699,6 +1819,9 @@
 
   .system-body-hover {
     position: absolute;
+    /* Above the name overlay (z-index 2): the card must stay readable when a
+       body's name is moved under it. */
+    z-index: 3;
     top: 0.75rem;
     right: 0.75rem;
     display: grid;
@@ -1822,6 +1945,51 @@
     overflow: hidden;
     pointer-events: none;
   }
+  .system-label-layer {
+    position: absolute;
+    z-index: 2;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  /* Positions follow the camera exactly, so there is no easing here: a name
+     that trails its body during an orbit drag reads as the wrong body. */
+  .system-label {
+    position: absolute;
+    max-width: 16rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transform: translate(0, -50%);
+    color: color-mix(in srgb, var(--text) 82%, transparent);
+    font-size: 0.7rem;
+    font-weight: 560;
+    line-height: 1.2;
+    letter-spacing: 0.02em;
+    text-shadow:
+      0 1px 2px var(--bg-void),
+      0 0 5px var(--bg-void),
+      0 0 12px var(--bg-void);
+  }
+  .system-label.is-left {
+    transform: translate(-100%, -50%);
+    text-align: right;
+  }
+  .system-label--star {
+    color: var(--text);
+    font-size: 0.76rem;
+    font-weight: 680;
+  }
+  .system-label--moon,
+  .system-label--other {
+    color: color-mix(in srgb, var(--text-muted) 88%, transparent);
+    font-size: 0.64rem;
+    font-weight: 520;
+  }
+  .system-label.is-selected {
+    color: var(--accent-hi);
+    font-weight: 720;
+  }
   .galaxy-label-leaders {
     position: absolute;
     z-index: 1;
@@ -1858,12 +2026,18 @@
     text-align: center;
     text-wrap: balance;
     line-height: 1.18;
-    will-change: left, top;
-    transition:
-      left 90ms ease-out,
-      top 90ms ease-out;
   }
+  /* A name sits exactly on its anchor and follows the camera with no easing,
+     like the System Map names: one that trails its star reads as the wrong
+     star. Only the sideways shift a region name takes to clear a neighbour
+     (--label-dx/--label-dy) eases, so a rearrangement slides instead of
+     snapping. */
   .galaxy-label--region {
+    transform: translate(
+      calc(-50% + var(--label-dx, 0px)),
+      calc(-50% + var(--label-dy, 0px))
+    );
+    transition: transform 160ms ease-out;
     justify-content: center;
     color: color-mix(in srgb, var(--text-muted) 80%, transparent);
     font-size: 0.63rem;
@@ -1928,6 +2102,11 @@
   .galaxy-label--atlas-right {
     justify-content: flex-start;
     text-align: left;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .galaxy-label--region {
+      transition: none;
+    }
   }
   .galaxy-label--system {
     pointer-events: auto;
