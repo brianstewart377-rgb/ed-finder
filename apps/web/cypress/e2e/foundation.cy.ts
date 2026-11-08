@@ -217,20 +217,25 @@ describe('ED-Finder V3 foundation', () => {
     cy.get('h1')
       .should('contain.text', 'Chart a promising system')
       .and('be.visible');
-    cy.get('canvas[data-spatial-canvas]').should('not.exist');
-    cy.get('[data-explore-map-open]').click();
+    // The map is part of the page beside the Finder, not opened on demand.
     cy.get(
       '[data-explore-map-window] [role="status"][data-renderer-state="ready"]',
       {
         timeout: 20_000,
       },
     ).should('be.visible');
+    cy.get('canvas[data-spatial-canvas]').should('have.length', 1);
     cy.reload();
     cy.get('h1')
       .should('contain.text', 'Chart a promising system')
       .and('be.visible');
-    cy.get('[data-explore-map-window]').should('not.exist');
-    cy.get('canvas[data-spatial-canvas]').should('not.exist');
+    cy.get(
+      '[data-explore-map-window] [role="status"][data-renderer-state="ready"]',
+      {
+        timeout: 20_000,
+      },
+    ).should('be.visible');
+    cy.get('canvas[data-spatial-canvas]').should('have.length', 1);
   });
 
   it('rejects unknown journey routes instead of rendering a placeholder', () => {

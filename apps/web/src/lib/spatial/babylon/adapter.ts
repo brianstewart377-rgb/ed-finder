@@ -247,6 +247,8 @@ export type BabylonGalaxyReferenceGrid = Readonly<{
   minorMesh: ReturnType<typeof CreateLineSystem> | null;
   majorMesh: ReturnType<typeof CreateLineSystem> | null;
   axisMesh: ReturnType<typeof CreateLineSystem> | null;
+  /** One line material shared by every grid rebuild in this scene. */
+  material: Material | null;
 }>;
 
 export type GalaxyRegionFillMesh = Readonly<{
@@ -580,6 +582,7 @@ function createFadedGridLines(
   lines: readonly GalaxyGridLine[],
   colour: Color3,
   centreAlpha: number,
+  material: Material | null,
 ): ReturnType<typeof CreateLineSystem> | null {
   if (lines.length === 0) return null;
   const edgeAlpha = centreAlpha * 0.12;
@@ -595,6 +598,7 @@ function createFadedGridLines(
         new Color4(colour.r, colour.g, colour.b, edgeAlpha),
       ]),
       updatable: false,
+      ...(material ? { material } : {}),
     },
     scene,
   );
@@ -603,31 +607,52 @@ function createFadedGridLines(
   return mesh;
 }
 
+/**
+ * The grid is rebuilt whenever zoom or pan changes its spacing. Every rebuild
+ * reuses one line material: a fresh material per rebuild released its shader
+ * and compiled and linked it again on each zoom step, which stalls the frame.
+ */
 function createGalaxyReferenceGrid(
   scene: Scene,
   camera: CameraState,
+  sharedMaterial: Material | null = null,
 ): BabylonGalaxyReferenceGrid {
   const engine = scene.getEngine();
   const spec = galaxyReferenceGrid(camera, {
     width: Math.max(1, engine.getRenderWidth()),
     height: Math.max(1, engine.getRenderHeight()),
   });
-  const minorMesh = createFadedGridLines(
-    scene,
+  let material = sharedMaterial;
+  const lines = (
+    name: string,
+    source: readonly GalaxyGridLine[],
+    colour: Color3,
+    centreAlpha: number,
+  ) => {
+    const mesh = createFadedGridLines(
+      scene,
+      name,
+      source,
+      colour,
+      centreAlpha,
+      material,
+    );
+    material ??= mesh?.material ?? null;
+    return mesh;
+  };
+  const minorMesh = lines(
     'galaxy-reference-grid-minor',
     spec.minorLines,
     new Color3(0.045, 0.2, 0.27),
     0.12,
   );
-  const majorMesh = createFadedGridLines(
-    scene,
+  const majorMesh = lines(
     'galaxy-reference-grid-major',
     spec.majorLines,
     new Color3(0.08, 0.37, 0.48),
     0.25,
   );
-  const axisMesh = createFadedGridLines(
-    scene,
+  const axisMesh = lines(
     'galaxy-reference-grid-axes',
     spec.axisLines,
     new Color3(0.78, 0.45, 0.1),
@@ -648,13 +673,16 @@ function createGalaxyReferenceGrid(
   if (minorMesh) minorMesh.metadata = metadata;
   if (majorMesh) majorMesh.metadata = metadata;
   if (axisMesh) axisMesh.metadata = metadata;
-  return { spec, minorMesh, majorMesh, axisMesh };
+  return { spec, minorMesh, majorMesh, axisMesh, material };
 }
 
-function disposeGalaxyReferenceGrid(grid: BabylonGalaxyReferenceGrid): void {
-  grid.minorMesh?.dispose();
-  grid.majorMesh?.dispose();
-  grid.axisMesh?.dispose();
+/** Disposes the grid lines but keeps the shared material for the next grid. */
+function disposeGalaxyReferenceGridLines(
+  grid: BabylonGalaxyReferenceGrid,
+): void {
+  grid.minorMesh?.dispose(false, false, true);
+  grid.majorMesh?.dispose(false, false, true);
+  grid.axisMesh?.dispose(false, false, true);
 }
 
 function refreshGalaxyReferenceGrid(
@@ -668,8 +696,13 @@ function refreshGalaxyReferenceGrid(
   if (candidate.key === product.referenceGrid.spec.key) {
     return product.referenceGrid;
   }
-  disposeGalaxyReferenceGrid(product.referenceGrid);
-  return createGalaxyReferenceGrid(product.scene, camera);
+  const next = createGalaxyReferenceGrid(
+    product.scene,
+    camera,
+    product.referenceGrid.material,
+  );
+  disposeGalaxyReferenceGridLines(product.referenceGrid);
+  return next;
 }
 
 function setStarBatchAlpha(batch: BabylonGalaxyStarBatch, alpha: number): void {
@@ -1323,14 +1356,13 @@ function createGalaxyVisualFinish(
   });
   glow.blurKernelSize = 20;
   glow.intensity = 0.42;
-  const includedMeshes = glowMeshes.length
-    ? glowMeshes
-    : [CreateSphere('galaxy-glow-guard', { diameter: 0.001 }, scene)];
-  if (!glowMeshes.length) {
-    includedMeshes[0]!.isVisible = false;
-    includedMeshes[0]!.isPickable = false;
-  }
-  for (const mesh of includedMeshes) glow.addIncludedOnlyMesh(mesh);
+  // Babylon treats an empty inclusion list as "every mesh". A permanent
+  // invisible guard keeps it non-empty, so removing the last glow mesh (for
+  // example the selection marker) never pulls the density layer into bloom.
+  const guard = CreateSphere('galaxy-glow-guard', { diameter: 0.001 }, scene);
+  guard.isVisible = false;
+  guard.isPickable = false;
+  for (const mesh of [guard, ...glowMeshes]) glow.addIncludedOnlyMesh(mesh);
   return glow;
 }
 
@@ -1744,14 +1776,14 @@ export const createBabylonGalaxyScene = (
     ? createSelectedSystemMarker(scene, selectedPoint, markerSizeLy)
     : null;
 
+  // The density layer is already a soft glow. Blooming it as well renders
+  // every splat's full emissive colour into the glow target, which adds a flat
+  // grey plateau over the whole disc, so it stays out of the glow layer.
   const visualGlow = createGalaxyVisualFinish(
     scene,
-    [
-      densityMesh,
-      commanderHistoryMesh,
-      selectedMarker,
-      ...stellarAccentMeshes,
-    ].filter((mesh): mesh is Mesh => mesh !== null),
+    [commanderHistoryMesh, selectedMarker, ...stellarAccentMeshes].filter(
+      (mesh): mesh is Mesh => mesh !== null,
+    ),
   );
 
   const renderedLayers: RenderedLayerReceipt[] = [];
@@ -2669,16 +2701,12 @@ export const createBabylonSession = (
             : [...productContract.contributions, command.contribution],
         };
         const nextDensity = catalogueDensitySceneLayer(nextContract);
-        const previousDensityMesh = product.densityMesh;
-        if (previousDensityMesh) {
-          product.visualGlow.removeIncludedOnlyMesh(previousDensityMesh);
-          previousDensityMesh.dispose();
-        }
+        product.densityMesh?.dispose();
+        // Not added to the glow layer: see createBabylonGalaxyScene.
         const densityMesh = createCatalogueDensityMesh(
           product.scene,
           nextDensity,
         );
-        if (densityMesh) product.visualGlow.addIncludedOnlyMesh(densityMesh);
         const renderedLayers = [
           ...product.renderedLayers.filter(
             (receipt) => receipt.layerId !== 'catalogue-density',
@@ -2908,6 +2936,16 @@ export const createBabylonSession = (
           );
         }
       }
+      // Until every material in a new or patched scene is ready (WebGPU loads
+      // shaders asynchronously), present nothing and keep the previous frame
+      // on screen. Rendering early drew a frame without whole layers, such as
+      // the density glow: the one-frame dark flash. Bounded, so a material that
+      // never becomes ready cannot stop the map from drawing.
+      if (!activeScene.isReady(true) && readinessAttemptsRemaining > 0) {
+        readinessAttemptsRemaining -= 1;
+        warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
+        return true;
+      }
       // A demand-rendered WebGPU frame still needs the engine frame boundary:
       // endFrame submits Babylon's queued GPU commands. WebGL can appear to
       // work without it, which previously hid a black WebGPU canvas.
@@ -2916,12 +2954,6 @@ export const createBabylonSession = (
         activeScene.render();
       } finally {
         engine.endFrame();
-      }
-      const ready = activeScene.isReady(true);
-      readinessAttemptsRemaining = Math.max(0, readinessAttemptsRemaining - 1);
-      if (!ready) {
-        warmupFramesRemaining = BABYLON_SCENE_WARMUP_FRAMES;
-        return readinessAttemptsRemaining > 0 || transition !== null;
       }
       warmupFramesRemaining = Math.max(0, warmupFramesRemaining - 1);
       return warmupFramesRemaining > 0 || transition !== null;

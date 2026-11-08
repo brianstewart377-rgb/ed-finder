@@ -1,9 +1,9 @@
 # ED-Finder V3 Roadmap
 
-## Where things stand (2026-11-03)
+## Where things stand (2026-11-07)
 
-- **Production:** app `96644cad`, the tenth F2d release, was accepted on
-  2026-11-03 in slot blue; rollback artifact `9ff456e0`. The Finder archetype UI
+- **Production:** app `a894b181`, the eleventh F2d release, was accepted on
+  2026-11-07 in slot green; rollback artifact `96644cad`. The Finder archetype UI
   is **ON**, per owner decision #974 ([release evidence](operations/v3-production-application-release.md#f3-finder-cutover--product-publish-promotion-gate)).
 - **Database:** installed schema is [through-023](operations/evidence/2026-11-02-v3-production-migration-apply-023-receipt-run-41449682997.json)
   (023 = the Search name-prefix index, applied 2026-11-02).
@@ -25,6 +25,13 @@
 - **Finder:** [body-count filters](#programme-status--2026-09-26) for anchored
   Any searches and the refresh-safe `near` search anchor are live in `9ff456e0`;
   anchored picked-archetype filters still need a probe and re-attestation.
+- **Explore is a full-window galaxy map (live in `a894b181`):** the Finder sits
+  in a hide-able panel beside it (owner decision 2026-11-07, replacing the
+  on-demand map window); region names stay on their stars while zooming, the
+  density layer is a smooth glow, zooming no longer stalls or flashes, and the
+  System Map names its bodies. Fair star sampling, star fade by zoom, drop lines,
+  fly-in distance and region names that still overlap where the map is crowded
+  near the core (by design no name is dropped) are the next map items.
 - **Galaxy and System Map fixes live in `9ff456e0`:** the density/local-star
   hand-off and density error state, Finder markers independent of catalogue
   stars, and System Map planet classes with a legend; camera controls, the Layers
@@ -401,6 +408,18 @@ newer dated source wins).
   then the post-go-live work recorded in the 2026-10-21 entries. Known
   follow-ups: the dense-window development sort is slow near the galactic core,
   and the PR #877 visual polish list.
+- **Production app promoted to `a894b181`, the eleventh F2d release (2026-11-07).**
+  Owner-approved ("Release the Kraken!"). Release run 42363810141, preflight run
+  42363955421, promote run 42364039036 (receipt `created_at`
+  `2026-11-07T10:28:40Z`, active slot blue→green, `status: accepted`); app-only,
+  no migration, no database writes, no backend change. Carries the full-window
+  Explore map beside the Finder (#1029), flash-free zooming (#1030), the smooth
+  density glow (#1028), region names that stay on their stars while zooming
+  (#1027), System Map body names and first-view fit (#1024), and the home page
+  redesign (#1008, #1011, #1013); the on-demand map window steps (#1009, #1012)
+  are superseded by #1029. The `96644cad` backend is the recorded rollback
+  artifact. Public Ratings V4 smoke 8/8. Receipts under
+  `docs/operations/evidence/2026-11-07-*`.
 - **Production app promoted to `96644cad`, the tenth F2d release (2026-11-03).**
   Owner-approved. Release run 41606910682, preflight run 41607843491, promote
   run 41617007185 (receipt `created_at` `2026-11-03T10:11:14Z`, active slot
