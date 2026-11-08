@@ -42,9 +42,7 @@ import { COMMANDER_HISTORY_GALAXY_BOUNDS } from '$lib/spatial/commander-history-
 import ExploreWorkspaceTestHost from './ExploreWorkspaceTestHost.svelte';
 import { ExploreViewState } from './explore-view-state.svelte';
 
-// Existing map contracts explicitly begin with the map open. The M09 cases
-// below use renderComponent/the closed renderEnabled option to exercise the
-// product's default and real Show on map controls.
+// The map is always on screen beside the Finder panel.
 function render(
   component: typeof ExploreWorkspaceTestHost,
   props: ComponentProps<typeof ExploreWorkspaceTestHost> = {},
@@ -56,7 +54,6 @@ function render(
       featureGate.enabled,
       applicationStores,
     );
-  viewState.mapOpen = true;
   return renderComponent(component, { ...props, viewState });
 }
 
@@ -1598,7 +1595,6 @@ function renderEnabled(
   query = 'page_size=1',
   state: App.PageState = {},
   viewState?: ExploreViewState,
-  mapOpen = true,
 ) {
   const entries = [
     { url: new URL(`http://localhost/explore?${query}`), state },
@@ -1627,7 +1623,6 @@ function renderEnabled(
       featureGate.enabled,
       applicationStores,
     );
-  stateOwner.mapOpen = mapOpen;
   const component = renderComponent(ExploreWorkspaceTestHost, {
     viewState: stateOwner,
     initialPage: entries[0],
@@ -2838,7 +2833,7 @@ describe('ExploreWorkspace enabled Finder ranking surface', () => {
     const tooltip = await screen.findByRole('tooltip', {
       name: `System ${star.name}`,
     });
-    expect(screen.getByRole('dialog', { name: /Galaxy map$/ })).toHaveAttribute(
+    expect(screen.getByRole('region', { name: /Galaxy map$/ })).toHaveAttribute(
       'data-hovered-system-id',
       star.id64,
     );
@@ -5361,724 +5356,586 @@ describe.each([false, true])(
   },
 );
 
-describe.each([false, true])('M09 on-demand map with F4=%s', (enabled) => {
-  function regionFixture() {
-    return galaxyRegions.buildGalaxyRegionsPayload(
-      {
-        version: 1,
-        origin: { x: -49_985, z: -24_105 },
-        pixel_scale: 49.34939759036145,
-        regions: ['', ...galaxyRegions.GALAXY_REGION_NAMES],
-        regionmap: Array.from({ length: 2_048 }, (_, row) => [
-          [2_048, row === 0 ? 0 : Math.min(42, Math.floor(row / 49) + 1)],
-        ]),
-      },
-      galaxyRegions.GALAXY_REGION_SOURCE_SHA256,
-    );
-  }
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    queryClient.clear();
-    localStorage.clear();
-    stubRuntime();
-    mockFacadeDefaults();
-    featureGate.enabled = enabled;
-    mockRankedPages();
-    vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
-    vi.mocked(api.getSystem).mockResolvedValue(anchorDetail(anchorA));
-    vi.spyOn(
-      galaxyRegions,
-      'fetchAuthoritativeGalaxyRegions',
-    ).mockRejectedValue(new Error('No region fixture'));
-    vi.spyOn(galaxyNebulae, 'fetchGalaxyNebulae').mockRejectedValue(
-      new Error('No nebula fixture'),
-    );
-  });
-
-  afterEach(() => {
-    cleanup();
-    queryClient.clear();
-    featureGate.enabled = false;
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
-  });
-
-  it('leaves Show on map unavailable when selected coordinates are missing', async () => {
-    vi.mocked(api.searchExploreSystems).mockResolvedValue({
-      ...finderPage(0, 3),
-      results: [{ ...rankedRows[0], coords: undefined }],
-    });
-    renderEnabled(
-      `${enabled ? 'page_size=3&' : ''}near=${anchorA.id64}`,
-      { anchor: anchorA },
-      undefined,
-      false,
-    );
-    const selection = await screen.findByRole('button', {
-      name: /Ranked 1.*9007199254741001/,
-    });
-    await fireEvent.click(selection);
-    for (const opener of screen.getAllByRole('button', { name: 'Show on map' }))
-      expect(opener).toBeDisabled();
-    expect(
-      screen.getByText('Map coordinates unavailable for the selected system.'),
-    ).toBeVisible();
-    expect(runtimeAdapter.create).not.toHaveBeenCalled();
-    expect(api.getCatalogueViewportSystems).not.toHaveBeenCalled();
-  });
-
-  it('starts closed and keeps map queries suspended until Show on map', async () => {
-    renderEnabled('', {}, undefined, false);
-    await tick();
-    expect(screen.getByRole('combobox', { name: 'System name' })).toBeVisible();
-    expect(
-      screen.queryByRole('dialog', { name: /Galaxy map$/ }),
-    ).not.toBeInTheDocument();
-    expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(0);
-    expect(runtimeAdapter.create).not.toHaveBeenCalled();
-    expect(api.searchExploreSystems).not.toHaveBeenCalled();
-    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
-    expect(api.getCatalogueViewportSystems).not.toHaveBeenCalled();
-    expect(api.getMapHeatmap).not.toHaveBeenCalled();
-    expect(galaxyNebulae.fetchGalaxyNebulae).not.toHaveBeenCalled();
-
-    const opener = screen.getByRole('button', { name: 'Show on map' });
-    opener.focus();
-    await fireEvent.click(opener);
-    const map = await screen.findByRole('dialog', { name: /Galaxy map$/ });
-    expect(map).toHaveAccessibleName('Galaxy map');
-    const local = within(map).getByRole('button', { name: 'Local' });
-    expect(local).toBeDisabled();
-    expect(local).toHaveAccessibleDescription(/select.*system/i);
-    expect(map).toHaveAttribute('aria-modal', 'false');
-    expect(document.querySelector('[inert]')).toBeNull();
-    await waitFor(() => expect(runtimeAdapter.create).toHaveBeenCalledTimes(1));
-    await fireEvent.click(
-      within(map).getByRole('button', { name: 'Close map' }),
-    );
-    expect(opener).toHaveFocus();
-    expect(
-      runtimeAdapter.create.mock.results[0].value.dispose,
-    ).toHaveBeenCalledTimes(1);
-    expect(api.searchExploreSystems).not.toHaveBeenCalled();
-    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
-  });
-
-  it.each(['regions', 'sources'] as const)(
-    'keeps the %s tool non-modal with topmost Escape ownership and focus return',
-    async (tool) => {
-      renderEnabled('', {}, undefined, false);
-      await fireEvent.click(
-        screen.getByRole('button', { name: 'Show on map' }),
+describe.each([false, true])(
+  'Full-window map beside the Finder with F4=%s',
+  (enabled) => {
+    function regionFixture() {
+      return galaxyRegions.buildGalaxyRegionsPayload(
+        {
+          version: 1,
+          origin: { x: -49_985, z: -24_105 },
+          pixel_scale: 49.34939759036145,
+          regions: ['', ...galaxyRegions.GALAXY_REGION_NAMES],
+          regionmap: Array.from({ length: 2_048 }, (_, row) => [
+            [2_048, row === 0 ? 0 : Math.min(42, Math.floor(row / 49) + 1)],
+          ]),
+        },
+        galaxyRegions.GALAXY_REGION_SOURCE_SHA256,
       );
-      const map = await screen.findByRole('dialog', { name: 'Galaxy map' });
-      const trigger = map.querySelector<HTMLButtonElement>(
-        `[data-map-${tool}-trigger]`,
-      )!;
-      expect(trigger).toBeInTheDocument();
-      trigger.focus();
-      await fireEvent.click(trigger);
-      const panel = map.querySelector<HTMLElement>(`[data-map-${tool}-panel]`)!;
-      expect(panel).toHaveAttribute('role', 'dialog');
-      expect(panel).toHaveAttribute('aria-modal', 'false');
-      expect(trigger).toHaveAttribute('aria-expanded', 'true');
-      expect(trigger).toHaveAttribute('aria-controls', panel.id);
-      expect(isTopmostPopout(panel)).toBe(true);
-      expect(document.querySelector('[inert]')).toBeNull();
-      if (tool === 'sources') {
-        expect(panel).toHaveTextContent(
-          'Stars use exact catalogue coordinates',
-        );
-        expect(panel).toHaveTextContent(
-          'Region geometry is the pinned in-game source',
-        );
-      } else {
-        await waitFor(() =>
-          expect(panel).toHaveTextContent(
-            'The authoritative region resource failed validation.',
-          ),
-        );
-        expect(
-          within(panel).getByRole('button', { name: 'Retry regions' }),
-        ).toBeEnabled();
-      }
-      const accessibility = await axe.run(map, {
-        rules: { 'color-contrast': { enabled: false } },
+    }
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      queryClient.clear();
+      localStorage.clear();
+      stubRuntime();
+      mockFacadeDefaults();
+      featureGate.enabled = enabled;
+      mockRankedPages();
+      vi.mocked(api.getMapHeatmap).mockResolvedValue(pyramidFixture);
+      vi.mocked(api.getSystem).mockResolvedValue(anchorDetail(anchorA));
+      vi.spyOn(
+        galaxyRegions,
+        'fetchAuthoritativeGalaxyRegions',
+      ).mockRejectedValue(new Error('No region fixture'));
+      vi.spyOn(galaxyNebulae, 'fetchGalaxyNebulae').mockRejectedValue(
+        new Error('No nebula fixture'),
+      );
+    });
+
+    afterEach(() => {
+      cleanup();
+      queryClient.clear();
+      featureGate.enabled = false;
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    });
+
+    function finderPanel(): HTMLElement {
+      return document.getElementById('finder-panel')!;
+    }
+
+    it('leaves Show on map unavailable when selected coordinates are missing', async () => {
+      vi.mocked(api.searchExploreSystems).mockResolvedValue({
+        ...finderPage(0, 3),
+        results: [{ ...rankedRows[0], coords: undefined }],
       });
-      expect(accessibility.violations).toEqual([]);
-      const later = document.createElement('div');
-      const unregister = registerPopout(later);
-      try {
-        await fireEvent.keyDown(window, { key: 'Escape' });
-        expect(panel).toBeInTheDocument();
-        expect(map).toBeInTheDocument();
-      } finally {
-        unregister();
-      }
-      await fireEvent.keyDown(window, { key: 'Escape' });
-      expect(panel).not.toBeInTheDocument();
-      expect(trigger).toHaveFocus();
-      expect(trigger).toHaveAttribute('aria-expanded', 'false');
-      expect(isTopmostPopout(map)).toBe(true);
+      renderEnabled(`${enabled ? 'page_size=3&' : ''}near=${anchorA.id64}`, {
+        anchor: anchorA,
+      });
+      const selection = await screen.findByRole('button', {
+        name: /Ranked 1.*9007199254741001/,
+      });
+      await fireEvent.click(selection);
+      for (const opener of screen.getAllByRole('button', {
+        name: 'Show on map',
+      }))
+        expect(opener).toBeDisabled();
+      expect(
+        screen.getByText(
+          'Map coordinates unavailable for the selected system.',
+        ),
+      ).toBeVisible();
+    });
+
+    it('opens with the map on screen beside the Finder and runs no Finder query', async () => {
+      renderEnabled('');
+      await tick();
+      expect(
+        screen.getByRole('combobox', { name: 'System name' }),
+      ).toBeVisible();
+      // The Finder panel is a labelled region named by the page heading.
+      const panel = screen.getByRole('region', {
+        name: 'Chart a promising system.',
+      });
+      expect(panel).toBe(finderPanel());
+      expect(panel).not.toHaveAttribute('hidden');
+      const map = await screen.findByRole('region', { name: 'Galaxy map' });
+      expect(screen.queryByRole('dialog', { name: /Galaxy map$/ })).toBeNull();
+      for (const name of ['Close map', 'Expand', 'Back to results'])
+        expect(within(map).queryByRole('button', { name })).toBeNull();
+      const local = within(map).getByRole('button', { name: 'Local' });
+      expect(local).toBeDisabled();
+      expect(local).toHaveAccessibleDescription(/select.*system/i);
+      expect(document.querySelector('[inert]')).toBeNull();
+      await waitFor(() =>
+        expect(runtimeAdapter.create).toHaveBeenCalledTimes(1),
+      );
       expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(
         1,
       );
-      expect(runtimeAdapter.create).toHaveBeenCalledOnce();
       expect(api.searchExploreSystems).not.toHaveBeenCalled();
       expect(api.getArchetypeRankings).not.toHaveBeenCalled();
-      await fireEvent.keyDown(window, { key: 'Escape' });
-      expect(map).not.toBeInTheDocument();
-    },
-  );
+    });
 
-  it('uses Local, Galaxy and Centre on as existing camera requests and retains region actions', async () => {
-    const regions = regionFixture();
-    vi.mocked(galaxyRegions.fetchAuthoritativeGalaxyRegions).mockResolvedValue(
-      regions,
-    );
-    const viewState = new ExploreViewState(
-      () => mockedPage,
-      enabled,
-      applicationStores,
-    );
-    renderEnabled(
-      `${enabled ? 'page_size=3&' : ''}near=${anchorA.id64}`,
-      { anchor: anchorA },
-      viewState,
-      false,
-    );
-    const results = await screen.findByRole('list', { name: 'System results' });
-    await fireEvent.click(
-      await within(results).findByRole('button', {
-        name: /Ranked 2.*9007199254741002/,
-      }),
-    );
-    await fireEvent.click(
-      within(results).getByRole('button', { name: 'Show on map' }),
-    );
-    const map = await screen.findByRole('dialog', {
-      name: 'Ranked 2 · Galaxy map',
-    });
-    await waitFor(() => expect(viewState.regionState).toBe('ready'));
-    await waitFor(() => expect(currentScene()).toBeDefined());
-    const selected = currentScene().selection;
-    const searchCount = vi.mocked(api.searchExploreSystems).mock.calls.length;
-    const url = mockedPage.url.href;
-    const local = within(map).getByRole('button', { name: 'Local' });
-    const galaxy = within(map).getByRole('button', { name: 'Galaxy' });
-    expect(local).toHaveAttribute('data-map-camera-preset', 'local');
-    expect(galaxy).toHaveAttribute('data-map-camera-preset', 'galaxy');
-    expect(local).toBeEnabled();
-    await fireEvent.click(galaxy);
-    expect(galaxy).toHaveAttribute('aria-pressed', 'true');
-    expect(local).toHaveAttribute('aria-pressed', 'false');
-    const overview = viewState.cameraRequest;
-    expect(overview?.pitchRad).toBe(Math.PI / 2);
-    expect(overview?.distanceLy).toBeGreaterThan(100_000);
-    await fireEvent.click(local);
-    expect(local).toHaveAttribute('aria-pressed', 'true');
-    expect(galaxy).toHaveAttribute('aria-pressed', 'false');
-    expect(viewState.cameraRequest).toMatchObject({
-      focusLy: rankedRows[1].coords,
-      distanceLy: 400,
-    });
-    expect(currentScene().kind).toBe('galaxy');
-    await fireEvent.click(galaxy);
-    await fireEvent.click(
-      within(map).getByRole('button', { name: 'Centre on Ranked 2' }),
-    );
-    expect(viewState.cameraRequest).toMatchObject({
-      focusLy: rankedRows[1].coords,
-      distanceLy: 400,
-    });
-    expect(currentScene().selection).toEqual(selected);
-    await fireEvent.click(
-      within(map).getByRole('button', { name: 'Regions 42' }),
-    );
-    const panel = map.querySelector<HTMLElement>('[data-map-regions-panel]')!;
-    expect(panel.querySelectorAll('[data-galaxy-region-option]')).toHaveLength(
-      42,
-    );
-    const picker = within(panel).getByRole('combobox', {
-      name: 'Galactic region',
-    });
-    const viewSelected = within(panel).getByRole('button', {
-      name: 'View selected',
-    });
-    expect(viewSelected).toBeDisabled();
-    await fireEvent.change(picker, { target: { value: '1' } });
-    expect(viewState.selectedRegionId).toBe('1');
-    expect(
-      panel.querySelector('[data-selected-region-id="1"]'),
-    ).toBeInTheDocument();
-    await fireEvent.click(viewSelected);
-    expect(viewState.cameraRequest).toMatchObject({
-      focusLy: regions.regions[0].labelLy,
-      distanceLy: 18_000,
-    });
-    await fireEvent.click(
-      within(panel).getByRole('button', { name: 'All 42 regions' }),
-    );
-    expect(viewState.cameraRequest).toMatchObject({
-      focusLy: overview!.focusLy,
-      distanceLy: overview!.distanceLy,
-      pitchRad: overview!.pitchRad,
-    });
-    expect(mockedPage.url.href).toBe(url);
-    expect(api.searchExploreSystems).toHaveBeenCalledTimes(searchCount);
-    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
-    expect(
-      galaxyRegions.fetchAuthoritativeGalaxyRegions,
-    ).toHaveBeenCalledOnce();
-    expect(runtimeAdapter.create).toHaveBeenCalledOnce();
-    expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(1);
-  });
-
-  it('keeps an explicit Local camera choice when pending regions arrive after opening an unselected map', async () => {
-    let finishRegions!: (regions: galaxyRegions.GalaxyRegionsPayload) => void;
-    vi.mocked(galaxyRegions.fetchAuthoritativeGalaxyRegions).mockImplementation(
-      () => new Promise((resolve) => (finishRegions = resolve)),
-    );
-    vi.mocked(api.autocompleteSystems).mockResolvedValue({
-      results: [anchorA],
-    });
-    const viewState = new ExploreViewState(
-      () => mockedPage,
-      enabled,
-      applicationStores,
-    );
-    renderEnabled('', {}, viewState, false);
-    await fireEvent.click(screen.getByRole('button', { name: 'Show on map' }));
-    await waitFor(() => expect(currentScene()).toBeDefined());
-    expect(viewState.initialGalaxyViewRequested).toBe(false);
-    expect(viewState.regionState).toBe('loading');
-    await fireEvent.input(
-      screen.getByRole('combobox', { name: 'System name' }),
-      {
-        target: { value: 'Anchor A' },
+    it.each(['regions', 'sources'] as const)(
+      'keeps the %s tool non-modal with topmost Escape ownership and focus return',
+      async (tool) => {
+        renderEnabled('');
+        const map = await screen.findByRole('region', { name: 'Galaxy map' });
+        const trigger = map.querySelector<HTMLButtonElement>(
+          `[data-map-${tool}-trigger]`,
+        )!;
+        expect(trigger).toBeInTheDocument();
+        trigger.focus();
+        await fireEvent.click(trigger);
+        const panel = map.querySelector<HTMLElement>(
+          `[data-map-${tool}-panel]`,
+        )!;
+        expect(panel).toHaveAttribute('role', 'dialog');
+        expect(panel).toHaveAttribute('aria-modal', 'false');
+        expect(trigger).toHaveAttribute('aria-expanded', 'true');
+        expect(trigger).toHaveAttribute('aria-controls', panel.id);
+        expect(isTopmostPopout(panel)).toBe(true);
+        expect(document.querySelector('[inert]')).toBeNull();
+        if (tool === 'sources') {
+          expect(panel).toHaveTextContent(
+            'Stars use exact catalogue coordinates',
+          );
+          expect(panel).toHaveTextContent(
+            'Region geometry is the pinned in-game source',
+          );
+        } else {
+          await waitFor(() =>
+            expect(panel).toHaveTextContent(
+              'The authoritative region resource failed validation.',
+            ),
+          );
+          expect(
+            within(panel).getByRole('button', { name: 'Retry regions' }),
+          ).toBeEnabled();
+        }
+        const accessibility = await axe.run(map, {
+          rules: { 'color-contrast': { enabled: false } },
+        });
+        expect(accessibility.violations).toEqual([]);
+        const later = document.createElement('div');
+        const unregister = registerPopout(later);
+        try {
+          await fireEvent.keyDown(window, { key: 'Escape' });
+          expect(panel).toBeInTheDocument();
+        } finally {
+          unregister();
+        }
+        await fireEvent.keyDown(window, { key: 'Escape' });
+        expect(panel).not.toBeInTheDocument();
+        expect(trigger).toHaveFocus();
+        expect(trigger).toHaveAttribute('aria-expanded', 'false');
+        // The map is part of the page, so a further Escape leaves it alone.
+        await fireEvent.keyDown(window, { key: 'Escape' });
+        expect(map).toBeInTheDocument();
+        expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(
+          1,
+        );
+        expect(runtimeAdapter.create).toHaveBeenCalledOnce();
+        expect(api.searchExploreSystems).not.toHaveBeenCalled();
+        expect(api.getArchetypeRankings).not.toHaveBeenCalled();
       },
     );
-    await fireEvent.click(
-      await screen.findByRole('option', { name: /Anchor A/ }),
-    );
-    await fireEvent.click(
-      await screen.findByRole('button', {
-        name: /Ranked 2.*9007199254741002/,
-      }),
-    );
-    await fireEvent.click(screen.getByRole('button', { name: 'Local' }));
-    const local = viewState.cameraRequest;
-    expect(local).toMatchObject({
-      focusLy: rankedRows[1].coords,
-      distanceLy: 400,
-    });
-    const revision = viewState.cameraRequestRevision;
-    finishRegions(regionFixture());
-    await waitFor(() => expect(viewState.regionState).toBe('ready'));
-    await tick();
-    expect(viewState.cameraRequest).toEqual(local);
-    expect(viewState.cameraRequestRevision).toBe(revision);
-    expect(screen.getByRole('button', { name: 'Local' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-    expect(runtimeAdapter.create).toHaveBeenCalledOnce();
-    expect(api.searchExploreSystems).toHaveBeenCalledOnce();
-    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
-  });
 
-  it('keeps Inspect and Plan here reachable from the selected-system footer', async () => {
-    renderEnabled(
-      `${enabled ? 'page_size=3&' : ''}near=${anchorA.id64}`,
-      { anchor: anchorA },
-      undefined,
-      false,
-    );
-    const results = await screen.findByRole('list', { name: 'System results' });
-    await fireEvent.click(
-      await within(results).findByRole('button', {
-        name: /Ranked 2.*9007199254741002/,
-      }),
-    );
-    await fireEvent.click(
-      within(results).getByRole('button', { name: 'Show on map' }),
-    );
-    const map = await screen.findByRole('dialog', {
-      name: 'Ranked 2 · Galaxy map',
-    });
-    const origin = mockedPage.url.searchParams.toString();
-    const inspect = within(map).getByRole('link', { name: 'Inspect Ranked 2' });
-    const href = new URL(inspect.getAttribute('href')!, mockedPage.url);
-    expect(href.pathname).toBe('/inspect');
-    expect(href.searchParams.get('system')).toBe(rankedRows[1].id64);
-    expect(
-      within(map).getByRole('link', { name: 'Plan here' }),
-    ).toHaveAttribute('href', `/plan?system=${rankedRows[1].id64}`);
-    expect(
-      map.querySelector(`[data-selected-system-card="${rankedRows[1].id64}"]`),
-    ).toBeInTheDocument();
-    expect(map.querySelector('.selection-status')).toHaveAttribute(
-      'aria-live',
-      'polite',
-    );
-    if (enabled) {
-      mockedGoto.mockClear();
-      await fireEvent.click(inspect);
-      const destination = new URL(mockedGoto.mock.lastCall![0], mockedPage.url);
-      expect(destination.pathname).toBe('/inspect');
-      expect(destination.searchParams.get('system')).toBe(rankedRows[1].id64);
-      expect(destination.searchParams.get('from')).toBe(origin);
-      expect(mockedGoto.mock.lastCall![1].state.anchor).toEqual(anchorA);
-    }
-  });
-
-  it.each(['loading', 'empty'] as const)(
-    'dismisses %s autocomplete before closing the non-modal map on Escape',
-    async (state) => {
-      if (state === 'loading')
-        vi.mocked(api.autocompleteSystems).mockImplementation(
-          () => new Promise(() => {}),
-        );
-      else
-        vi.mocked(api.autocompleteSystems).mockResolvedValue({ results: [] });
-      renderEnabled('', {}, undefined, false);
-      const opener = screen.getByRole('button', { name: 'Show on map' });
-      await fireEvent.click(opener);
-      await screen.findByRole('dialog', { name: /Galaxy map$/ });
-      const input = screen.getByRole('combobox', { name: 'System name' });
-      input.focus();
-      await fireEvent.input(input, { target: { value: 'Qzz' } });
-      await screen.findByText(
-        state === 'loading' ? 'Searching catalogue…' : 'No matching systems.',
+    it('uses Local, Galaxy and Centre on as existing camera requests and retains region actions', async () => {
+      const regions = regionFixture();
+      vi.mocked(
+        galaxyRegions.fetchAuthoritativeGalaxyRegions,
+      ).mockResolvedValue(regions);
+      const viewState = new ExploreViewState(
+        () => mockedPage,
+        enabled,
+        applicationStores,
       );
-      expect(input).toHaveAttribute('aria-expanded', 'true');
-      await fireEvent.keyDown(input, { key: 'Escape' });
-      expect(input).toHaveAttribute('aria-expanded', 'false');
-      expect(input).toHaveFocus();
-      expect(
-        screen.queryByRole('listbox', { name: 'System suggestions' }),
-      ).not.toBeInTheDocument();
-      expect(
-        screen.getByRole('dialog', { name: /Galaxy map$/ }),
-      ).toBeInTheDocument();
-      await fireEvent.keyDown(input, { key: 'Escape' });
-      expect(
-        screen.queryByRole('dialog', { name: /Galaxy map$/ }),
-      ).not.toBeInTheDocument();
-      expect(opener).toHaveFocus();
-      expect(input).toHaveValue('Qzz');
-      expect(api.searchExploreSystems).not.toHaveBeenCalled();
-      expect(api.getArchetypeRankings).not.toHaveBeenCalled();
-    },
-  );
-
-  it('retains search, scroll, selection and camera through Show, Expand, topmost Escape and reopen', async () => {
-    const viewState = new ExploreViewState(
-      () => mockedPage,
-      enabled,
-      applicationStores,
-    );
-    renderEnabled(
-      `${enabled ? 'page_size=3&' : ''}near=${anchorA.id64}&radius=250&bodies=elw_count:1-`,
-      { anchor: anchorA },
-      viewState,
-      false,
-    );
-    const list = await screen.findByRole('list', { name: 'System results' });
-    await fireEvent.click(
-      await within(list).findByRole('button', {
-        name: /Ranked 2.*9007199254741002/,
-      }),
-    );
-    await fireEvent.input(
-      screen.getByRole('combobox', { name: 'System name' }),
-      { target: { value: 'Unsubmitted draft' } },
-    );
-    list.scrollTop = 256;
-    await fireEvent.scroll(list);
-    const committedUrl = mockedPage.url.href;
-    const beforeSearch = vi.mocked(api.searchExploreSystems).mock.calls.length;
-    const opener = within(list).getByRole('button', {
-      name: /Show .*on map|Show on map/,
-    });
-    opener.focus();
-    await fireEvent.click(opener);
-    await waitFor(() => expect(currentScene()).toBeDefined());
-    expect(viewState.mapOpen).toBe(true);
-    expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(1);
-    const first = runtimeAdapter.create.mock.results[0].value;
-    expect(first.subscribe).toHaveBeenCalledTimes(1);
-    await waitFor(() =>
-      expect(runtimeCommands()).toContainEqual(
-        expect.objectContaining({
-          type: 'SET_CAMERA',
-          transition: { durationMs: 650, reducedMotion: true },
-        }),
-      ),
-    );
-    expect(document.querySelector('.spatial-canvas')).toHaveAttribute(
-      'data-camera-transition-active',
-      'false',
-    );
-
-    const camera = {
-      ...currentScene().camera,
-      focusLy: { x: 100, y: 20, z: 300 },
-      distanceLy: 400,
-      bearingRad: 0.25,
-      pitchRad: 0.65,
-      revision: 17,
-    };
-    emitRuntime({ type: 'CAMERA_CHANGED', camera });
-    await waitFor(() => expect(viewState.streamCamera).toEqual(camera));
-    const layers = within(await openLayers());
-    await fireEvent.click(layers.getByRole('switch', { name: 'Nebulae' }));
-    await fireEvent.keyDown(window, { key: 'Escape' });
-    expect(
-      screen.queryByRole('dialog', { name: 'Map layers' }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole('dialog', { name: /Galaxy map$/ }),
-    ).toBeInTheDocument();
-    await fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
-    expect(viewState.mapExpanded).toBe(true);
-    expect(runtimeAdapter.create).toHaveBeenCalledTimes(1);
-    await fireEvent.keyDown(window, { key: 'Escape' });
-    expect(viewState.mapOpen).toBe(false);
-    expect(viewState.mapExpanded).toBe(false);
-    expect(opener).toHaveFocus();
-    expect(list.scrollTop).toBe(256);
-    expect(first.dispose).toHaveBeenCalledTimes(1);
-    expect(first.subscribe.mock.results[0].value).toHaveBeenCalledTimes(1);
-    expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(0);
-    expect(mockedPage.url.href).toBe(committedUrl);
-    expect(screen.getByRole('combobox', { name: 'System name' })).toHaveValue(
-      'Unsubmitted draft',
-    );
-    expect(screen.getByRole('combobox', { name: 'Within' })).toHaveValue('250');
-    expect(screen.getByText('Earth-like ≥ 1')).toBeInTheDocument();
-    expect(
-      within(list).getByRole('button', { name: /Ranked 2.*9007199254741002/ }),
-    ).toHaveAttribute('aria-pressed', 'true');
-    const catalogueCount = vi.mocked(api.getCatalogueViewportSystems).mock.calls
-      .length;
-    const densityCount = vi.mocked(api.getMapHeatmap).mock.calls.length;
-    await queryClient.invalidateQueries({ queryKey: ['map-heatmap'] });
-    await queryClient.invalidateQueries({
-      queryKey: [...queryKeys.all, 'map', 'catalogue-stars'],
-    });
-    await tick();
-    expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(
-      catalogueCount,
-    );
-    expect(api.getMapHeatmap).toHaveBeenCalledTimes(densityCount);
-
-    await fireEvent.click(opener);
-    await waitFor(() => expect(runtimeAdapter.create).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(currentScene().camera).toEqual(camera));
-    expect(viewState.showNebulae).toBe(false);
-    expect(viewState.starDetailMode).toBe('local');
-    expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(1);
-    expect(
-      runtimeAdapter.create.mock.results[1].value.subscribe,
-    ).toHaveBeenCalledTimes(1);
-    await fireEvent.click(screen.getByRole('button', { name: 'Close map' }));
-    expect(opener).toHaveFocus();
-    expect(api.searchExploreSystems).toHaveBeenCalledTimes(beforeSearch);
-    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
-    expect(mockedPage.url.href).toBe(committedUrl);
-  });
-
-  it('restores the measured normal-window size before reopening without fetching new catalogue cells', async () => {
-    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(793);
-    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(501);
-    vi.mocked(api.searchExploreSystems).mockResolvedValue({
-      ...finderPage(0, 1, 1),
-      results: [
-        {
-          ...rankedRows[0],
-          coords: { x: 67.5, y: -119.47, z: 24.84 },
-        },
-      ],
-    });
-    const viewState = new ExploreViewState(
-      () => mockedPage,
-      enabled,
-      applicationStores,
-    );
-    renderEnabled(
-      `near=${anchorA.id64}`,
-      { anchor: anchorA },
-      viewState,
-      false,
-    );
-    const results = await screen.findByRole('list', { name: 'System results' });
-    await fireEvent.click(
-      await within(results).findByRole('button', {
-        name: /Ranked 1.*9007199254741001/,
-      }),
-    );
-    const opener = within(results).getByRole('button', { name: 'Show on map' });
-    await fireEvent.click(opener);
-    await waitFor(() => expect(currentScene()).toBeDefined());
-    await waitForCatalogueCells();
-    expect(viewState.starViewportSize).toEqual({ width: 793, height: 501 });
-    expect(viewState.mapWindowViewportSize).toEqual({
-      width: 793,
-      height: 501,
-    });
-    const camera = viewState.retainedCamera!.camera;
-    expect(camera).toMatchObject({
-      focusLy: { x: 67.5, y: -119.47, z: 24.84 },
-      distanceLy: 400,
-    });
-    const catalogueCount = vi.mocked(api.getCatalogueViewportSystems).mock.calls
-      .length;
-    expect(catalogueCount).toBeGreaterThan(0);
-
-    await fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
-    runtimeResizeObserverCallback(
-      [
-        {
-          contentRect: { width: 1205, height: 501 },
-        } as unknown as ResizeObserverEntry,
-      ],
-      {} as ResizeObserver,
-    );
-    await tick();
-    await waitForCatalogueCells();
-    expect(viewState.starViewportSize).toEqual({ width: 1205, height: 501 });
-    expect(viewState.mapWindowViewportSize).toEqual({
-      width: 793,
-      height: 501,
-    });
-    expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(
-      catalogueCount,
-    );
-    await fireEvent.click(screen.getByRole('button', { name: 'Close map' }));
-    expect(viewState.starViewportSize).toEqual({ width: 793, height: 501 });
-    expect(viewState.retainedCamera?.camera).toEqual(camera);
-
-    // The adapter is created before SpatialCanvas reports its first DOM size.
-    // Reopening must not reactivate queries against the disposed expanded size.
-    const createRuntime = runtimeAdapter.create.getMockImplementation()!;
-    runtimeAdapter.create.mockImplementationOnce((canvas, onStatus) => {
-      expect(viewState.starViewportSize).toEqual({ width: 793, height: 501 });
-      expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(
-        catalogueCount,
+      renderEnabled(
+        `${enabled ? 'page_size=3&' : ''}near=${anchorA.id64}`,
+        { anchor: anchorA },
+        viewState,
       );
-      return createRuntime(canvas, onStatus);
-    });
-    await fireEvent.click(opener);
-    await waitFor(() => expect(runtimeAdapter.create).toHaveBeenCalledTimes(2));
-    await waitFor(() =>
-      expect(viewState.starViewportSize).toEqual({ width: 793, height: 501 }),
-    );
-    await waitForCatalogueCells();
-    expect(currentScene().camera).toEqual(camera);
-    expect(viewState.retainedCamera?.camera).toEqual(camera);
-    expect(api.getCatalogueViewportSystems).toHaveBeenCalledTimes(
-      catalogueCount,
-    );
-    expect(api.searchExploreSystems).toHaveBeenCalledOnce();
-    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
-    expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(1);
-  });
-
-  it('captures the normal DOM geometry when Expand is clicked before the renderer reports its first viewport', async () => {
-    const viewState = new ExploreViewState(
-      () => mockedPage,
-      enabled,
-      applicationStores,
-    );
-    const createRuntime = runtimeAdapter.create.getMockImplementation()!;
-    runtimeAdapter.create.mockImplementationOnce((canvas, onStatus) => {
-      // The window and header already exist while the lazy renderer starts;
-      // SpatialCanvas has not called onViewportChange at this point.
-      expect(viewState.starViewportSize).toBeNull();
-      expect(viewState.mapWindowViewportSize).toBeNull();
-      screen.getByRole('button', { name: 'Expand' }).click();
-      expect(viewState.mapExpanded).toBe(true);
-      expect(viewState.mapWindowViewportSize).toEqual({
-        width: 640,
-        height: 360,
+      const results = await screen.findByRole('list', {
+        name: 'System results',
       });
-      return createRuntime(canvas, onStatus);
+      await fireEvent.click(
+        await within(results).findByRole('button', {
+          name: /Ranked 2.*9007199254741002/,
+        }),
+      );
+      const map = await screen.findByRole('region', {
+        name: 'Ranked 2 · Galaxy map',
+      });
+      await waitFor(() => expect(viewState.regionState).toBe('ready'));
+      await waitFor(() => expect(currentScene()).toBeDefined());
+      const selected = currentScene().selection;
+      const searchCount = vi.mocked(api.searchExploreSystems).mock.calls.length;
+      const url = mockedPage.url.href;
+      const local = within(map).getByRole('button', { name: 'Local' });
+      const galaxy = within(map).getByRole('button', { name: 'Galaxy' });
+      expect(local).toHaveAttribute('data-map-camera-preset', 'local');
+      expect(galaxy).toHaveAttribute('data-map-camera-preset', 'galaxy');
+      expect(local).toBeEnabled();
+      await fireEvent.click(galaxy);
+      expect(galaxy).toHaveAttribute('aria-pressed', 'true');
+      expect(local).toHaveAttribute('aria-pressed', 'false');
+      const overview = viewState.cameraRequest;
+      expect(overview?.pitchRad).toBe(Math.PI / 2);
+      expect(overview?.distanceLy).toBeGreaterThan(100_000);
+      await fireEvent.click(local);
+      expect(local).toHaveAttribute('aria-pressed', 'true');
+      expect(galaxy).toHaveAttribute('aria-pressed', 'false');
+      expect(viewState.cameraRequest).toMatchObject({
+        focusLy: rankedRows[1].coords,
+        distanceLy: 400,
+      });
+      expect(currentScene().kind).toBe('galaxy');
+      await fireEvent.click(galaxy);
+      await fireEvent.click(
+        within(map).getByRole('button', { name: 'Centre on Ranked 2' }),
+      );
+      expect(viewState.cameraRequest).toMatchObject({
+        focusLy: rankedRows[1].coords,
+        distanceLy: 400,
+      });
+      expect(currentScene().selection).toEqual(selected);
+      await fireEvent.click(
+        within(map).getByRole('button', { name: 'Regions 42' }),
+      );
+      const panel = map.querySelector<HTMLElement>('[data-map-regions-panel]')!;
+      expect(
+        panel.querySelectorAll('[data-galaxy-region-option]'),
+      ).toHaveLength(42);
+      const picker = within(panel).getByRole('combobox', {
+        name: 'Galactic region',
+      });
+      const viewSelected = within(panel).getByRole('button', {
+        name: 'View selected',
+      });
+      expect(viewSelected).toBeDisabled();
+      await fireEvent.change(picker, { target: { value: '1' } });
+      expect(viewState.selectedRegionId).toBe('1');
+      expect(
+        panel.querySelector('[data-selected-region-id="1"]'),
+      ).toBeInTheDocument();
+      await fireEvent.click(viewSelected);
+      expect(viewState.cameraRequest).toMatchObject({
+        focusLy: regions.regions[0].labelLy,
+        distanceLy: 18_000,
+      });
+      await fireEvent.click(
+        within(panel).getByRole('button', { name: 'All 42 regions' }),
+      );
+      expect(viewState.cameraRequest).toMatchObject({
+        focusLy: overview!.focusLy,
+        distanceLy: overview!.distanceLy,
+        pitchRad: overview!.pitchRad,
+      });
+      expect(mockedPage.url.href).toBe(url);
+      expect(api.searchExploreSystems).toHaveBeenCalledTimes(searchCount);
+      expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+      expect(
+        galaxyRegions.fetchAuthoritativeGalaxyRegions,
+      ).toHaveBeenCalledOnce();
+      expect(runtimeAdapter.create).toHaveBeenCalledOnce();
+      expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(
+        1,
+      );
     });
-    renderEnabled('', {}, viewState, false);
-    await fireEvent.click(screen.getByRole('button', { name: 'Show on map' }));
-    await waitFor(() => expect(currentScene()).toBeDefined());
-    expect(viewState.mapExpanded).toBe(true);
-    await fireEvent.click(screen.getByRole('button', { name: 'Close map' }));
-    expect(viewState.starViewportSize).toEqual({ width: 640, height: 360 });
-    expect(runtimeAdapter.create).toHaveBeenCalledOnce();
-  });
 
-  it('reuses the measured density viewport on reopen instead of requesting fallback dimensions', async () => {
-    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(793);
-    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(501);
-    const viewState = new ExploreViewState(
-      () => mockedPage,
-      enabled,
-      applicationStores,
-    );
-    renderEnabled('', {}, viewState, false);
-    const opener = screen.getByRole('button', { name: 'Show on map' });
-    await fireEvent.click(opener);
-    await waitFor(() => expect(currentScene()).toBeDefined());
-    const camera = {
-      ...currentScene().camera,
-      distanceLy: 10_000,
-      focusLy: { x: 30_000, y: 0, z: 0 },
-      revision: 7,
-    };
-    emitRuntime({ type: 'CAMERA_CHANGED', camera });
-    await waitFor(() => expect(viewState.streamCamera).toEqual(camera));
-    await waitFor(() => expect(api.getMapHeatmap).toHaveBeenCalled());
-    await waitFor(() =>
-      expect(queryClient.isFetching({ queryKey: ['map-heatmap'] })).toBe(0),
-    );
-    const normalCount = vi.mocked(api.getMapHeatmap).mock.calls.length;
-    const normalRequest = vi.mocked(api.getMapHeatmap).mock.lastCall![0];
-
-    await fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
-    runtimeResizeObserverCallback(
-      [
+    it('keeps an explicit Local camera choice when pending regions arrive after the map starts unselected', async () => {
+      let finishRegions!: (regions: galaxyRegions.GalaxyRegionsPayload) => void;
+      vi.mocked(
+        galaxyRegions.fetchAuthoritativeGalaxyRegions,
+      ).mockImplementation(
+        () => new Promise((resolve) => (finishRegions = resolve)),
+      );
+      vi.mocked(api.autocompleteSystems).mockResolvedValue({
+        results: [anchorA],
+      });
+      const viewState = new ExploreViewState(
+        () => mockedPage,
+        enabled,
+        applicationStores,
+      );
+      renderEnabled('', {}, viewState);
+      await waitFor(() => expect(currentScene()).toBeDefined());
+      expect(viewState.initialGalaxyViewRequested).toBe(false);
+      expect(viewState.regionState).toBe('loading');
+      await fireEvent.input(
+        screen.getByRole('combobox', { name: 'System name' }),
         {
-          contentRect: { width: 1205, height: 501 },
-        } as unknown as ResizeObserverEntry,
-      ],
-      {} as ResizeObserver,
-    );
-    // Existing overview streaming follows a genuinely different footprint.
-    await waitFor(() =>
-      expect(vi.mocked(api.getMapHeatmap).mock.calls.length).toBeGreaterThan(
-        normalCount,
-      ),
-    );
-    await waitFor(() =>
-      expect(queryClient.isFetching({ queryKey: ['map-heatmap'] })).toBe(0),
-    );
-    expect(vi.mocked(api.getMapHeatmap).mock.lastCall![0]).not.toEqual(
-      normalRequest,
-    );
-    const expandedCount = vi.mocked(api.getMapHeatmap).mock.calls.length;
-    await fireEvent.click(screen.getByRole('button', { name: 'Close map' }));
-    expect(viewState.starViewportSize).toEqual({ width: 793, height: 501 });
-    expect(viewState.retainedCamera?.camera).toEqual(camera);
-    expect(api.getMapHeatmap).toHaveBeenCalledTimes(expandedCount);
+          target: { value: 'Anchor A' },
+        },
+      );
+      await fireEvent.click(
+        await screen.findByRole('option', { name: /Anchor A/ }),
+      );
+      await fireEvent.click(
+        await screen.findByRole('button', {
+          name: /Ranked 2.*9007199254741002/,
+        }),
+      );
+      await fireEvent.click(screen.getByRole('button', { name: 'Local' }));
+      const local = viewState.cameraRequest;
+      expect(local).toMatchObject({
+        focusLy: rankedRows[1].coords,
+        distanceLy: 400,
+      });
+      const revision = viewState.cameraRequestRevision;
+      finishRegions(regionFixture());
+      await waitFor(() => expect(viewState.regionState).toBe('ready'));
+      await tick();
+      expect(viewState.cameraRequest).toEqual(local);
+      expect(viewState.cameraRequestRevision).toBe(revision);
+      expect(screen.getByRole('button', { name: 'Local' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+      expect(runtimeAdapter.create).toHaveBeenCalledOnce();
+      expect(api.searchExploreSystems).toHaveBeenCalledOnce();
+      expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+    });
 
-    await fireEvent.click(opener);
-    await waitFor(() => expect(runtimeAdapter.create).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(currentScene().camera).toEqual(camera));
-    await waitFor(() =>
-      expect(queryClient.isFetching({ queryKey: ['map-heatmap'] })).toBe(0),
+    it('keeps Inspect and Plan here reachable from the selected-system footer', async () => {
+      renderEnabled(`${enabled ? 'page_size=3&' : ''}near=${anchorA.id64}`, {
+        anchor: anchorA,
+      });
+      const results = await screen.findByRole('list', {
+        name: 'System results',
+      });
+      await fireEvent.click(
+        await within(results).findByRole('button', {
+          name: /Ranked 2.*9007199254741002/,
+        }),
+      );
+      const map = await screen.findByRole('region', {
+        name: 'Ranked 2 · Galaxy map',
+      });
+      const origin = mockedPage.url.searchParams.toString();
+      const inspect = within(map).getByRole('link', {
+        name: 'Inspect Ranked 2',
+      });
+      const href = new URL(inspect.getAttribute('href')!, mockedPage.url);
+      expect(href.pathname).toBe('/inspect');
+      expect(href.searchParams.get('system')).toBe(rankedRows[1].id64);
+      expect(
+        within(map).getByRole('link', { name: 'Plan here' }),
+      ).toHaveAttribute('href', `/plan?system=${rankedRows[1].id64}`);
+      expect(
+        map.querySelector(
+          `[data-selected-system-card="${rankedRows[1].id64}"]`,
+        ),
+      ).toBeInTheDocument();
+      expect(map.querySelector('.selection-status')).toHaveAttribute(
+        'aria-live',
+        'polite',
+      );
+      if (enabled) {
+        mockedGoto.mockClear();
+        await fireEvent.click(inspect);
+        const destination = new URL(
+          mockedGoto.mock.lastCall![0],
+          mockedPage.url,
+        );
+        expect(destination.pathname).toBe('/inspect');
+        expect(destination.searchParams.get('system')).toBe(rankedRows[1].id64);
+        expect(destination.searchParams.get('from')).toBe(origin);
+        expect(mockedGoto.mock.lastCall![1].state.anchor).toEqual(anchorA);
+      }
+    });
+
+    it.each(['loading', 'empty'] as const)(
+      'dismisses %s autocomplete on Escape and keeps the map',
+      async (state) => {
+        if (state === 'loading')
+          vi.mocked(api.autocompleteSystems).mockImplementation(
+            () => new Promise(() => {}),
+          );
+        else
+          vi.mocked(api.autocompleteSystems).mockResolvedValue({ results: [] });
+        renderEnabled('');
+        const map = await screen.findByRole('region', { name: /Galaxy map$/ });
+        const input = screen.getByRole('combobox', { name: 'System name' });
+        input.focus();
+        await fireEvent.input(input, { target: { value: 'Qzz' } });
+        await screen.findByText(
+          state === 'loading' ? 'Searching catalogue…' : 'No matching systems.',
+        );
+        expect(input).toHaveAttribute('aria-expanded', 'true');
+        await fireEvent.keyDown(input, { key: 'Escape' });
+        expect(input).toHaveAttribute('aria-expanded', 'false');
+        expect(input).toHaveFocus();
+        expect(
+          screen.queryByRole('listbox', { name: 'System suggestions' }),
+        ).not.toBeInTheDocument();
+        await fireEvent.keyDown(input, { key: 'Escape' });
+        expect(map).toBeInTheDocument();
+        expect(input).toHaveFocus();
+        expect(input).toHaveValue('Qzz');
+        expect(api.searchExploreSystems).not.toHaveBeenCalled();
+        expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+      },
     );
-    expect(viewState.starViewportSize).toEqual({ width: 793, height: 501 });
-    expect(viewState.retainedCamera?.camera).toEqual(camera);
-    expect(api.getMapHeatmap).toHaveBeenCalledTimes(expandedCount);
-    expect(api.searchExploreSystems).not.toHaveBeenCalled();
-    expect(api.getArchetypeRankings).not.toHaveBeenCalled();
-  });
-});
+
+    it('hides and restores the Finder panel keeping search, scroll, selection and the one canvas', async () => {
+      const viewState = new ExploreViewState(
+        () => mockedPage,
+        enabled,
+        applicationStores,
+      );
+      renderEnabled(
+        `${enabled ? 'page_size=3&' : ''}near=${anchorA.id64}&radius=250&bodies=elw_count:1-`,
+        { anchor: anchorA },
+        viewState,
+      );
+      const list = await screen.findByRole('list', { name: 'System results' });
+      await fireEvent.click(
+        await within(list).findByRole('button', {
+          name: /Ranked 2.*9007199254741002/,
+        }),
+      );
+      await fireEvent.input(
+        screen.getByRole('combobox', { name: 'System name' }),
+        { target: { value: 'Unsubmitted draft' } },
+      );
+      list.scrollTop = 256;
+      await fireEvent.scroll(list);
+      await waitFor(() => expect(currentScene()).toBeDefined());
+      const canvas = document.querySelector('[data-spatial-canvas] canvas');
+      const first = runtimeAdapter.create.mock.results[0].value;
+      const committedUrl = mockedPage.url.href;
+      const beforeSearch = vi.mocked(api.searchExploreSystems).mock.calls
+        .length;
+
+      const hide = screen.getByRole('button', { name: 'Hide Finder' });
+      expect(hide).toHaveAttribute('aria-controls', 'finder-panel');
+      expect(hide).toHaveAttribute('aria-expanded', 'true');
+      hide.focus();
+      await fireEvent.click(hide);
+      expect(viewState.finderPanelOpen).toBe(false);
+      expect(finderPanel()).toHaveAttribute('hidden');
+      const map = screen.getByRole('region', { name: /Galaxy map$/ });
+      const show = within(map).getByRole('button', { name: 'Show Finder' });
+      await waitFor(() => expect(show).toHaveFocus());
+      // A scroll event while hidden must not overwrite the retained position.
+      list.scrollTop = 0;
+      await fireEvent.scroll(list);
+      expect(viewState.resultScrollTop).toBe(256);
+
+      await fireEvent.click(show);
+      expect(viewState.finderPanelOpen).toBe(true);
+      expect(finderPanel()).not.toHaveAttribute('hidden');
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', { name: 'Hide Finder' }),
+        ).toHaveFocus(),
+      );
+      expect(list.scrollTop).toBe(256);
+      expect(
+        within(map).queryByRole('button', { name: 'Show Finder' }),
+      ).toBeNull();
+      expect(document.querySelector('[data-spatial-canvas] canvas')).toBe(
+        canvas,
+      );
+      expect(runtimeAdapter.create).toHaveBeenCalledOnce();
+      expect(first.dispose).not.toHaveBeenCalled();
+      expect(screen.getByRole('combobox', { name: 'System name' })).toHaveValue(
+        'Unsubmitted draft',
+      );
+      expect(screen.getByRole('combobox', { name: 'Within' })).toHaveValue(
+        '250',
+      );
+      expect(screen.getByText('Earth-like ≥ 1')).toBeInTheDocument();
+      expect(
+        within(list).getByRole('button', {
+          name: /Ranked 2.*9007199254741002/,
+        }),
+      ).toHaveAttribute('aria-pressed', 'true');
+      expect(mockedPage.url.href).toBe(committedUrl);
+      expect(api.searchExploreSystems).toHaveBeenCalledTimes(beforeSearch);
+      expect(api.getArchetypeRankings).not.toHaveBeenCalled();
+    });
+
+    it('at phone width Show on map hides the panel over the map and Show Finder returns to the result', async () => {
+      vi.stubGlobal('matchMedia', (query: string) => ({
+        matches:
+          query === '(prefers-reduced-motion: reduce)' ||
+          query === '(max-width: 900px)',
+      }));
+      const viewState = new ExploreViewState(
+        () => mockedPage,
+        enabled,
+        applicationStores,
+      );
+      renderEnabled(
+        `${enabled ? 'page_size=3&' : ''}near=${anchorA.id64}`,
+        { anchor: anchorA },
+        viewState,
+      );
+      const list = await screen.findByRole('list', { name: 'System results' });
+      await fireEvent.click(
+        await within(list).findByRole('button', {
+          name: /Ranked 2.*9007199254741002/,
+        }),
+      );
+      list.scrollTop = 96;
+      await fireEvent.scroll(list);
+      const opener = within(list).getByRole('button', { name: 'Show on map' });
+      opener.focus();
+      await fireEvent.click(opener);
+      expect(viewState.finderPanelOpen).toBe(false);
+      expect(finderPanel()).toHaveAttribute('hidden');
+      expect(viewState.retainedCamera?.camera).toMatchObject({
+        focusLy: rankedRows[1].coords,
+        distanceLy: 400,
+      });
+      const show = screen.getByRole('button', { name: 'Show Finder' });
+      await waitFor(() => expect(show).toHaveFocus());
+      await fireEvent.click(show);
+      expect(viewState.finderPanelOpen).toBe(true);
+      await waitFor(() => expect(opener).toHaveFocus());
+      expect(list.scrollTop).toBe(96);
+      expect(runtimeAdapter.create).toHaveBeenCalledOnce();
+    });
+
+    it.each([true, false])(
+      'passes axe across the whole page with the Finder panel shown: %s',
+      async (shown) => {
+        renderEnabled(`${enabled ? 'page_size=3&' : ''}near=${anchorA.id64}`, {
+          anchor: anchorA,
+        });
+        await screen.findByRole('list', { name: 'System results' });
+        await screen.findByRole('region', { name: /Galaxy map$/ });
+        if (!shown)
+          await fireEvent.click(
+            screen.getByRole('button', { name: 'Hide Finder' }),
+          );
+        // Landmark rules need the real document root (the page's <main>).
+        const result = await axe.run(document.body, {
+          rules: { 'color-contrast': { enabled: false } },
+        });
+        expect(result.violations).toEqual([]);
+      },
+    );
+
+    it('Show on map on a wide screen focuses the system and keeps the Finder panel', async () => {
+      const viewState = new ExploreViewState(
+        () => mockedPage,
+        enabled,
+        applicationStores,
+      );
+      renderEnabled(
+        `${enabled ? 'page_size=3&' : ''}near=${anchorA.id64}`,
+        { anchor: anchorA },
+        viewState,
+      );
+      const list = await screen.findByRole('list', { name: 'System results' });
+      await fireEvent.click(
+        await within(list).findByRole('button', {
+          name: /Ranked 2.*9007199254741002/,
+        }),
+      );
+      const mapSection = document.querySelector<HTMLElement>(
+        '[data-explore-map-window]',
+      )!;
+      const scrollIntoView = vi.fn();
+      mapSection.scrollIntoView = scrollIntoView;
+      await fireEvent.click(
+        within(list).getByRole('button', { name: 'Show on map' }),
+      );
+      expect(viewState.finderPanelOpen).toBe(true);
+      expect(finderPanel()).not.toHaveAttribute('hidden');
+      await tick();
+      expect(scrollIntoView).not.toHaveBeenCalled();
+      expect(viewState.retainedCamera?.camera).toMatchObject({
+        focusLy: rankedRows[1].coords,
+        distanceLy: 400,
+      });
+      expect(viewState.mapCameraPreset).toBe('local');
+    });
+  },
+);

@@ -11,6 +11,126 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-07 — Eleventh F2d release `a894b181` accepted: full-window Explore map live
+
+Records the eleventh accepted F2d release, approved by the owner. Release run
+42363810141 built source `a894b181`; preflight run 42363955421 passed;
+promotion run 42364039036 was accepted at 2026-11-07T10:28:40Z to slot green
+with `96644cad` as the recorded rollback artifact. App-only, no migration, no
+database writes and no backend change; installed schema through-023 unchanged.
+It puts the full-window Explore map, flash-free zooming, the smooth density
+glow, region names that stay on their stars, System Map body names and the
+home page redesign live. The public Ratings V4 smoke passed 8/8. Updates the
+target authority, `CLAUDE.md`, the roadmap and the release runbook; receipts
+under `docs/operations/evidence/2026-11-07-*`.
+
+## 2026-11-07 — Galaxy map: no shader stalls or blank frames while zooming
+
+The owner's recording showed the map "jumping about" while zooming, with
+single near-black frames at 15.2 s, 18.6 s and 20.7 s. Two causes, both in the
+Babylon adapter. The reference grid is rebuilt whenever zoom or pan changes
+its spacing, and each rebuild gave its lines a new material; disposing the
+old one released the shader, so it was compiled and linked again on most
+zoom steps (measured locally over one 24-step zoom: 17 relinks of that
+shader before, none after). Every grid rebuild now reuses one line material
+for the scene. Separately, a new or
+patched scene was drawn before its materials were ready (WebGPU loads shaders
+asynchronously), so a frame could miss whole layers such as the density
+glow. The renderer now presents nothing until the scene is ready and keeps
+the previous frame on screen, bounded to the existing 120 attempts so a
+material that never becomes ready cannot stop the map drawing. Tests fail on
+the previous adapter for both.
+
+## 2026-11-07 — Explore: the galaxy map fills the window beside the Finder
+
+The owner found the Explore page wasted the space above the map. On the live
+site at 1760×900 the map started 1,264 px down the page, under the title,
+search, nine archetype cards and filters; on main the on-demand map window
+opened 877 px down. Owner decision (2026-11-07, redesign plan §7.6): a
+game-style full-window map. The map is now always on screen, filling the
+window below the site header, and the Finder (search, archetypes, body
+filters, results) is a panel on its left with **Hide Finder** / **Show
+Finder**; Saved and Compare stay below. The panel is compact: smaller
+heading, archetype names without their descriptions on screen (still read
+out), and Body filters beside Results per page. On a phone the Finder and the
+map take turns; the map keeps its size off screen while the Finder shows, so
+taking turns never resizes the canvas or refetches its area. This replaces the
+on-demand window (Show on map opening it, Expand, Close, Back to results);
+Show on map now centres the map on the system. No API, URL or storage change.
+Unit tests cover the panel toggle (scroll, selection, search and the one
+canvas kept), the phone turn-taking, and no new requests; the Cypress journeys
+and their Python contract assert the new layout at 1280×800, 768×800 and
+390×844.
+
+## 2026-11-06 — Galaxy map: smooth density glow instead of a grid of dots
+
+From mid zoom the galaxy's catalogue-density layer drew as a regular lattice of
+dots with stripes. Each occupied cell is one soft splat at its centroid, but a
+splat stopped short of its neighbours one cell away (radius at most 0.62 of a
+cell), so the gaps showed. Splats now reach 1.6–2 cells (more for denser
+cells) with a tapered Gaussian kernel whose support is still compact, and
+overlapping light is added rather than painted over (order-independent), so
+equal neighbouring cells sum to an even glow; a test pins the lattice ripple
+below 2%. Per-cell intensity is lower and steeper so only dense regions
+saturate. The density layer is no longer in the glow (bloom) layer: blooming
+an already soft field drew every splat at full emissive into the glow target
+and laid a flat grey plateau over the disc. Presentation version is now
+`stellar-glow-v3`. Before/after was checked with the real scene builder on live
+`/api/map/heatmap` cells at four views. The glow layer now always keeps an
+invisible guard mesh in its inclusion list: Babylon treats an empty list as
+"every mesh", so deselecting the only glowing mesh would otherwise have put
+the density layer back into bloom (Codex review).
+
+## 2026-11-06 — Galaxy map: names stay on their stars while you zoom
+
+Galaxy-map region and system names used to disappear the moment the camera
+moved and come back about 0.2 s after it stopped, each region name nudged up
+to 100 px by a collision shuffle, so zooming made every name jump somewhere
+else. Names are now re-projected from the live camera on every change and are
+never hidden by camera movement (only during an animated flight): they stay on
+their anchors and follow with no easing. While the camera moves, every region
+name keeps the slot it had, with no shuffling mid-gesture; once the camera
+settles, names that overlap ease (160 ms, off under reduced motion) into a clear
+slot, preferring the one they held, and only return to their anchor with room
+to spare. Region names claim space in a fixed order instead of nearest-to-centre,
+so neighbours no longer swap places as you zoom. Choosing which nearby star
+names exist still waits for the camera to settle. The test that pinned the old
+"re-place only after the camera settles" rule now asserts the new one.
+
+## 2026-11-06 — Codex worker model pin returned to `gpt-6.1-sol` at `high` effort
+
+By owner decision, the Contabo Codex worker returns from `gpt-6-astra` at
+`xhigh` effort to `gpt-6.1-sol` at `high` effort, the pin it had before the
+2026-10-31 change. Both execution modes keep the single hard-pinned model
+contract (`--ignore-user-config --strict-config --model … --config
+model_reasoning_effort=…`). Requests still cannot choose a model or effort, and
+the governance test now rejects the `gpt-6-astra` and `xhigh` literals instead
+of the old `gpt-6.1-sol` and `high` ones. The change takes effect for new Codex
+runs once it is on `main`; a run already in progress keeps the pin it started
+with.
+
+## 2026-11-05 — System Map: body names and a reliable first view
+
+The 3D System Map opened blank or tiny when it loaded inside a hidden Inspect
+tab: the scene was fitted to a canvas with no size yet, and nothing re-fitted
+it once the tab showed. The canvas now keeps the contract overview until it
+has a real size, fits it then and applies it as a camera command. A camera the
+commander moved while the tab was hidden is left alone, and Reset view still
+returns to the fitted overview.
+
+The map also names its bodies without a hover. Stars and planets carry an
+always-visible name; moons are named once their own glyph is large enough to
+read. Names never overlap each other or another body's glyph, the selected body
+always keeps its name, and bodies whose parent is unknown are named last. The
+words every body in a system shares (the system name) are dropped from planet
+and moon names, so `Hyades Sector AB-W b2-3 A 1` reads `1` beside its star's
+full name.
+
+The overlay is a pure projection of the camera the renderer already holds
+(`system-labels.ts`); a unit test pins it to Babylon's own projection. It is
+inert and `aria-hidden`: every name is still in the hover card, the legend and
+the Inspect Bodies list, and no renderer, API or data contract changes.
+
 ## 2026-11-04 — UI redesign: Plan header primary action and one-row header
 
 Small slice of bringing the Colony Planner header closer to the concept image. Web only (one class name and some CSS); no API, SQL, workflow or provenance change, and nothing is deployed.

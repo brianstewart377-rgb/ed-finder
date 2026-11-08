@@ -186,7 +186,40 @@
   let regionLoadAttempt = 0;
   let regionsLoading = false;
   let mapSection = $state<HTMLDivElement>();
-  let mapOpener = $state<HTMLElement | null>(null);
+  // The control that hid the Finder panel gets focus back when it reopens.
+  let panelToggleOrigin: HTMLElement | null = null;
+  let stage = $state<HTMLDivElement>();
+  let stageTop = $state(0);
+  // One string so markup reflowing can never split its phrases with newlines.
+  const MAP_SOURCES_NOTE =
+    'Stars use exact catalogue coordinates and class-specific presentation. ' +
+    'Amber marks active selections. Region geometry is the pinned in-game ' +
+    'source; no synthetic geography, stars, or density are substituted.';
+  // Must match the phone breakpoint in this component's styles.
+  const PHONE_STAGE_QUERY = '(max-width: 900px)';
+  $effect(() => {
+    const element = stage;
+    if (!element) return;
+    // The selected-system bar above the page comes and goes with the
+    // selection, which moves the stage without a window resize.
+    void $selectedSystem.value;
+    void $selectedSystem.hydrated;
+    // The map fills the window below the site header. The header wraps at
+    // narrower widths, so measure where the stage starts in the document.
+    const measure = () => {
+      stageTop = Math.max(
+        0,
+        Math.round(element.getBoundingClientRect().top + window.scrollY),
+      );
+    };
+    measure();
+    const frame = requestAnimationFrame(measure);
+    window.addEventListener('resize', measure);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('resize', measure);
+    };
+  });
   let nebulaLoadAttempt = 0;
   let nebulaController: AbortController | null = null;
   let resultList = $state<HTMLUListElement>();
@@ -713,7 +746,7 @@
     ),
   );
   const catalogueStars = createGalaxyStarQuery(
-    () => (viewState.mapOpen ? starViewport : null),
+    () => starViewport,
     () => viewState.streamCamera?.focusLy ?? { x: 0, y: 0, z: 0 },
   );
   const footprintKey = $derived(JSON.stringify(starViewport));
@@ -754,10 +787,7 @@
       );
     },
     enabled:
-      viewState.mapOpen &&
-      showTravelHeatmap &&
-      journeyViewport !== null &&
-      travelAccountId !== null,
+      showTravelHeatmap && journeyViewport !== null && travelAccountId !== null,
     staleTime: 20_000,
     retry: (failureCount, error) =>
       !(error instanceof ApiError && error.status === 401) && failureCount < 1,
@@ -769,7 +799,7 @@
   const journalSummary = createQuery(() => ({
     queryKey: [...queryKeys.auth(), travelAccountId, 'journal-summary'],
     queryFn: ({ signal }) => getCommanderJournalSummary(signal),
-    enabled: viewState.mapOpen && showTravelHeatmap && travelAccountId !== null,
+    enabled: showTravelHeatmap && travelAccountId !== null,
     staleTime: 20_000,
     retry: (failureCount, error) =>
       !(error instanceof ApiError && error.status === 401) && failureCount < 1,
@@ -843,7 +873,7 @@
       queryFn: ({ signal }) => getMapHeatmap(request, signal),
       // Enabled across the zoomed-out + overlap band; below `nearLy` density is
       // fully faded so no fetch needed.
-      enabled: viewState.mapOpen && densityEnabled,
+      enabled: densityEnabled,
       staleTime: 60_000,
       placeholderData: (previousData) => previousData,
     };
@@ -1228,9 +1258,6 @@
       // Snapshot them only when visual scene inputs change. Neither timestamps
       // nor placeholder bookkeeping may rebuild all the scene contributions.
       void viewState.densityRemovalRevision;
-      // A reopened canvas starts from the last CPU camera snapshot. This
-      // visibility revision does not replace any query or scene contribution.
-      void viewState.mapOpen;
       return buildExploreGalaxyScene(systems, selectedId, ++sceneSequence, {
         finderContribution,
         finderRevision,
@@ -1404,11 +1431,6 @@
     event: MouseEvent,
     system: ExploreSystem | null = selectedMapSystem,
   ): void {
-    if (!viewState.mapOpen) {
-      if (resultList) viewState.captureResultScroll(resultList.scrollTop);
-      viewState.mapReturnScroll = { x: window.scrollX, y: window.scrollY };
-    }
-    mapOpener = event.currentTarget as HTMLElement;
     const point =
       system?.id64 === selectedMapSystem?.id64
         ? selectedWindowPoint
@@ -1439,80 +1461,43 @@
     // An already-selected result can have a completed or queued FLY_TO. The
     // explicit camera request above, or the retained camera on reopen, wins.
     viewState.completedFocusRevision = viewState.focusRevision;
-    viewState.mapOpen = true;
+    // On a wide screen the map is already beside the results, so this only
+    // centres it. At phone width the Finder covers the map: hide the panel.
+    if (window.matchMedia(PHONE_STAGE_QUERY).matches) hideFinderPanel(event);
+  }
+
+  function hideFinderPanel(event: MouseEvent): void {
+    panelToggleOrigin = event.currentTarget as HTMLElement;
+    if (resultList) viewState.captureResultScroll(resultList.scrollTop);
+    viewState.finderPanelOpen = false;
     void tick().then(() => {
-      const closeBounds = mapSection
-        ?.querySelector('[data-map-window-close]')
-        ?.getBoundingClientRect();
-      if (
-        window.matchMedia('(max-width: 900px)').matches ||
-        (closeBounds &&
-          (closeBounds.top < 0 ||
-            (mapSection?.getBoundingClientRect().bottom ?? 0) >
-              window.innerHeight))
-      )
+      // At phone width the map fills the screen below the scrolled-away
+      // header; on a wide screen it is already in view.
+      if (window.matchMedia(PHONE_STAGE_QUERY).matches)
         mapSection?.scrollIntoView?.({ behavior: 'instant', block: 'start' });
+      mapSection
+        ?.querySelector<HTMLElement>('[data-finder-panel-show]')
+        ?.focus({ preventScroll: true });
     });
   }
 
-  function expandMap(): void {
-    if (!viewState.mapExpanded && !viewState.mapWindowViewportSize) {
-      // The header can be used before the lazy renderer reports its first
-      // viewport. Keep the normal window's real geometry in that case too.
-      const canvasHost =
-        mapSection?.querySelector<HTMLElement>('.spatial-canvas');
-      if (canvasHost?.clientWidth && canvasHost.clientHeight)
-        viewState.mapWindowViewportSize = {
-          width: canvasHost.clientWidth,
-          height: canvasHost.clientHeight,
-        };
-    }
-    if (
-      resultList &&
-      !viewState.mapExpanded &&
-      !window.matchMedia('(max-width: 900px)').matches
-    )
-      viewState.captureResultScroll(resultList.scrollTop);
-    viewState.mapExpanded = !viewState.mapExpanded;
+  function showFinderPanel(): void {
+    viewState.finderPanelOpen = true;
     void tick().then(() => {
-      if (!viewState.mapExpanded && resultList)
-        viewState.restoreResultScroll(resultList);
-      // Hiding/restoring the results rail can move the grid through browser
-      // scroll anchoring. Keep both window edges reachable after that layout.
-      const bounds = mapSection?.getBoundingClientRect();
-      if (bounds && (bounds.top < 0 || bounds.bottom > window.innerHeight))
-        mapSection?.scrollIntoView?.({ behavior: 'instant', block: 'start' });
-    });
-  }
-
-  function closeMap(): void {
-    viewState.mapOpen = false;
-    viewState.mapExpanded = false;
-    // Reopening restores the normal window. Retain its last measured geometry
-    // rather than briefly using the disposed expanded canvas's dimensions.
-    viewState.starViewportSize = viewState.mapWindowViewportSize;
-    spatialCameraTransitionActive = false;
-    void tick().then(() => {
+      // The results keep their scroll position, and focus returns to the
+      // control that hid the panel (or the search box).
       if (resultList) viewState.restoreResultScroll(resultList);
-      const previous = viewState.mapReturnScroll;
-      if (
-        previous &&
-        (window.scrollX !== previous.x || window.scrollY !== previous.y)
-      )
-        window.scrollTo({
-          left: previous.x,
-          top: previous.y,
-          behavior: 'instant',
-        });
+      const target = panelToggleOrigin?.isConnected
+        ? panelToggleOrigin
+        : searchInput;
+      target?.focus({
+        preventScroll: !window.matchMedia(PHONE_STAGE_QUERY).matches,
+      });
     });
   }
 
   function captureResultScroll(event: Event): void {
-    if (
-      viewState.mapOpen &&
-      (viewState.mapExpanded || window.matchMedia('(max-width: 900px)').matches)
-    )
-      return;
+    if (!viewState.finderPanelOpen) return;
     viewState.captureResultScroll(
       (event.currentTarget as HTMLUListElement).scrollTop,
     );
@@ -1557,10 +1542,6 @@
 
   function retainCamera(camera: CameraState): void {
     viewState.retainedCamera = { finderRevision, camera };
-    if (!viewState.mapOpen) {
-      updateStreamCamera(camera);
-      return;
-    }
     pendingViewportCamera = camera;
     if (viewportCameraTimeout !== null) {
       window.clearTimeout(viewportCameraTimeout);
@@ -1786,11 +1767,9 @@
       );
       viewState.regionResourceRevision += 1;
       viewState.regionState = 'ready';
-      if (viewState.mapOpen && !viewState.initialGalaxyViewRequested) {
+      if (!viewState.initialGalaxyViewRequested) {
         viewState.initialGalaxyViewRequested = true;
-        void tick().then(() => {
-          if (viewState.mapOpen) overview();
-        });
+        void tick().then(overview);
       }
     } catch {
       if (attempt !== regionLoadAttempt) return;
@@ -1825,47 +1804,16 @@
   }
 
   $effect(() => {
-    const open = viewState.mapOpen;
     const nebulaeEnabled = viewState.showNebulae;
     untrack(() => {
-      if (open) {
-        if (!viewState.regions && viewState.regionState !== 'failed')
-          void loadRegions();
-        if (
-          nebulaeEnabled &&
-          !viewState.nebulae &&
-          viewState.nebulaState !== 'failed'
-        )
-          void loadNebulae();
-        return;
-      }
-      // Dropping the catalogue viewport removes its active observers and
-      // aborts their work. Other spatial queries retain their cached receipts
-      // but must not finish retries or dispatch while the canvas is absent.
-      void queryClient.cancelQueries({ queryKey: ['map-heatmap'] });
-      if (travelAccountId !== null)
-        void queryClient.cancelQueries({
-          queryKey: queryKeys.commanderTravel(
-            travelAccountId,
-            journeyViewport ?? {
-              minX: 0,
-              maxX: 0,
-              minY: 0,
-              maxY: 0,
-              minZ: 0,
-              maxZ: 0,
-              limit: 1,
-            },
-          ),
-        });
-      nebulaController?.abort();
-      nebulaController = null;
-      if (viewportCameraTimeout !== null) {
-        window.clearTimeout(viewportCameraTimeout);
-        viewportCameraTimeout = null;
-      }
-      if (pendingViewportCamera) updateStreamCamera(pendingViewportCamera);
-      pendingViewportCamera = null;
+      if (!viewState.regions && viewState.regionState !== 'failed')
+        void loadRegions();
+      if (
+        nebulaeEnabled &&
+        !viewState.nebulae &&
+        viewState.nebulaState !== 'failed'
+      )
+        void loadNebulae();
     });
   });
 
@@ -1898,916 +1846,920 @@
 
 <WorkspaceHeader />
 <main class="explore-page product-page">
-  <header class="product-intro">
-    <div>
-      <p class="eyebrow">Explore · Finder</p>
-      <h1>Chart a promising system.</h1>
-    </div>
-    <p>
-      Search the catalogue, compare real nearby results, and carry one exact
-      system into Inspect.
-    </p>
-  </header>
-
-  <nav class="shortlist-nav" aria-label="Your saved systems">
-    <a href="#saved-systems"
-      >Pinned and watched systems ({$pins.value.length} pinned)</a
-    >
-    <a href="#compare-systems">Compare ({$compare.value.length})</a>
-  </nav>
-
-  <section class="finder-bar" aria-labelledby="finder-title">
-    <div>
-      <p class="eyebrow">Discovery anchor</p>
-      <h2 id="finder-title">Find systems near a known star</h2>
-    </div>
-    <div class="combobox-wrap">
-      <label for="system-search">System name</label>
-      <div class="search-control">
-        <Search aria-hidden="true" size={19} />
-        <input
-          id="system-search"
-          type="search"
-          placeholder="Try Sol, Achenar, Lave…"
-          autocomplete="off"
-          role="combobox"
-          aria-autocomplete="list"
-          aria-expanded={autocompleteOpen && normalizedQuery.length >= 2}
-          aria-controls="system-suggestions"
-          aria-activedescendant={autocompleteOpen &&
-          suggestionRows[activeSuggestion]
-            ? `suggestion-${activeSuggestion}`
-            : undefined}
-          bind:this={searchInput}
-          bind:value={viewState.query}
-          oninput={handleQueryInput}
-          onfocus={() => (autocompleteOpen = normalizedQuery.length >= 2)}
-          onkeydown={handleQueryKeydown}
-        />
-      </div>
-      {#if autocompleteOpen && normalizedQuery.length >= 2}
-        <div
-          id="system-suggestions"
-          class="suggestions"
-          role="listbox"
-          aria-label="System suggestions"
-        >
-          {#if suggestions.isPending}
-            <p role="status">Searching catalogue…</p>
-          {:else if suggestions.isError}
-            <div role="alert">
-              <p>Typeahead is unavailable.</p>
-              <button type="button" onclick={() => suggestions.refetch()}
-                >Retry</button
-              >
-            </div>
-          {:else if suggestionRows.length === 0}
-            <p>No matching systems.</p>
-          {:else}
-            {#each suggestionRows as hit, index (hit.id64)}
-              <button
-                id={`suggestion-${index}`}
-                type="button"
-                role="option"
-                aria-selected={index === activeSuggestion}
-                class:active={index === activeSuggestion}
-                onmousedown={(event) => event.preventDefault()}
-                onclick={() => chooseSuggestion(hit)}
-              >
-                <span>{hit.name}</span><code>{hit.id64}</code>
-              </button>
-            {/each}
-          {/if}
-        </div>
-      {/if}
-    </div>
-  </section>
-
-  {#snippet bodyFilterTools()}
-    <BodyFilters
-      value={viewState.bodyFilters}
-      disabled={bodyFiltersPaused}
-      paused={bodyFiltersPaused}
-      onapply={(value) => void commitBodyFilters(value)}
-      onremove={removeBodyFilter}
-      onclear={() => void commitBodyFilters({})}
-    />
-  {/snippet}
-
-  {#if anchor}
-    <p class="committed-anchor">
-      Search anchor: {anchor.name}
-      <button
-        type="button"
-        class="quiet-button"
-        aria-label={`Clear anchor ${anchor.name}`}
-        onclick={clearAnchor}>Clear</button
-      >
-    </p>
-    {#if FINDER_F4_ENABLED && viewState.rankingState.archetype !== 'any'}
-      <p>
-        Archetype ranking is galaxy-wide today; choose Any to search around {anchor.name}.
-      </p>
-    {/if}
-  {/if}
-  {#if FINDER_F4_ENABLED}
-    <ArchetypePicker
-      archetype={viewState.rankingState.archetype}
-      minimumTier={viewState.rankingState.minimumTier}
-      onArchetypeChange={(archetype) =>
-        commitRanking({ archetype, minimumTier: null })}
-      onMinimumTierChange={(minimumTier) => commitRanking({ minimumTier })}
-      rankingTools={bodyFilterTools}
-    />
-    <label class="page-size"
-      >Results per page
-      <input
-        type="number"
-        min="1"
-        max="50"
-        step="1"
-        value={viewState.rankingState.pageSize}
-        onchange={(event) =>
-          commitRanking({ pageSize: event.currentTarget.valueAsNumber })}
-      />
-    </label>
-  {:else}
-    {@render bodyFilterTools()}
-  {/if}
-
-  {#if viewState.rankingNotice}
-    <p role="status" class="ranking-status">{viewState.rankingNotice}</p>
-  {/if}
-
   <div
-    class="explore-grid"
-    class:is-map-open={viewState.mapOpen}
-    class:is-map-expanded={viewState.mapExpanded}
+    class="explore-stage"
+    class:is-finder-hidden={!viewState.finderPanelOpen}
+    bind:this={stage}
+    style:--explore-stage-top={`${stageTop}px`}
   >
     <section
-      class="results-panel"
-      aria-labelledby="results-title"
-      aria-busy={viewState.hasResultsIntent &&
-        (FINDER_F4_ENABLED
-          ? updatingResults
-          : results.isFetching || catalogueStars.isFetching)}
+      id="finder-panel"
+      class="finder-panel"
+      aria-labelledby="explore-title"
+      hidden={!viewState.finderPanelOpen}
     >
-      <div class="panel-heading">
+      <header class="product-intro">
         <div>
-          <p class="eyebrow">Catalogue results</p>
-          <h2 id="results-title">
-            {FINDER_F4_ENABLED && viewState.rankingState.archetype !== 'any'
-              ? `Galaxy-wide ${activeArchetypeLabel} ranking`
-              : anchor
-                ? `Near ${anchor.name}`
-                : viewState.hasResultsIntent
-                  ? 'Galaxy-wide opportunities'
-                  : 'Systems'}
-          </h2>
+          <p class="eyebrow">Explore · Finder</p>
+          <h1 id="explore-title">Chart a promising system.</h1>
         </div>
-        {#if FINDER_F4_ENABLED && displayedResults}
-          <FinderResultRanking
-            variant="summary"
-            page={displayedResults.page}
-            archetype={displayedResults.finderState!.archetype}
-          />
-        {:else}<span>{systems.length} shown</span>{/if}
-      </div>
-
-      <div class="search-scope">
-        <p id="results-scope">{resultsScope}</p>
         <button
           type="button"
-          class="secondary-button pill-action"
-          data-explore-map-open
-          aria-controls="explore-map-window"
-          aria-expanded={viewState.mapOpen}
-          disabled={selectedMapSystem !== null && !selectedWindowPoint}
-          onclick={(event) => showMap(event)}>Show on map</button
+          class="quiet-button finder-panel-toggle"
+          data-finder-panel-hide
+          aria-controls="finder-panel"
+          aria-expanded="true"
+          onclick={hideFinderPanel}>Hide Finder</button
         >
-        {#if selectedMapSystem && !selectedWindowPoint}
-          <span>Map coordinates unavailable for the selected system.</span>
-        {/if}
-        <label class="search-radius" for="search-radius">
-          Within
-          <select
-            id="search-radius"
-            value={effectiveRadius}
-            disabled={bodyFiltersPaused}
-            aria-describedby={bodyFiltersPaused
-              ? 'search-radius-disabled'
-              : Object.keys(viewState.bodyFilters).length > 0
-                ? 'search-radius-capped'
-                : undefined}
-            onchange={(event) =>
-              commitRadius(Number(event.currentTarget.value))}
-          >
-            {#each SEARCH_RADIUS_OPTIONS as option (option)}
-              <option
-                value={option}
-                disabled={!bodyFiltersPaused &&
-                  Object.keys(viewState.bodyFilters).length > 0 &&
-                  option > FILTERED_SEARCH_RADIUS_CAP_LY}
-                >{option.toLocaleString('en-US')} LY</option
-              >
-            {/each}
-          </select>
-        </label>
-        {#if bodyFiltersPaused}
-          <p id="search-radius-disabled" class="radius-hint">
-            Search radius works when you search near a system with Any selected.
-          </p>
-        {:else if Object.keys(viewState.bodyFilters).length > 0}
-          <p id="search-radius-capped" class="radius-hint">
-            Body filters limit the search to {FILTERED_SEARCH_RADIUS_CAP_LY} LY{radiusCappedByFilters
-              ? `; your ${viewState.radius.toLocaleString('en-US')} LY radius resumes when the filters are cleared`
-              : ''}.
-          </p>
-        {/if}
-      </div>
+      </header>
 
-      {#if FINDER_F4_ENABLED && viewState.hasResultsIntent}
-        <div role="status" aria-live="polite" class="ranking-status">
-          {#if updatingResults}
-            <p>
-              {displayedResults ? 'Updating… ' : ''}{viewState.rankingState
-                .archetype === 'any'
-                ? 'Searching systems…'
-                : `Ranking systems for ${activeArchetypeLabel}…`}
-            </p>
-          {:else if currentResponse && displayedResults && !results.isError}
-            <span
-              >{displayedResults.page.count}
-              {displayedResults.page.count === 1 ? 'result' : 'results'} on this page.</span
+      <nav class="shortlist-nav" aria-label="Your saved systems">
+        <a href="#saved-systems"
+          >Pinned and watched systems ({$pins.value.length} pinned)</a
+        >
+        <a href="#compare-systems">Compare ({$compare.value.length})</a>
+      </nav>
+
+      <section class="finder-bar" aria-labelledby="finder-title">
+        <div>
+          <p class="eyebrow">Discovery anchor</p>
+          <h2 id="finder-title">Find systems near a known star</h2>
+        </div>
+        <div class="combobox-wrap">
+          <label for="system-search">System name</label>
+          <div class="search-control">
+            <Search aria-hidden="true" size={19} />
+            <input
+              id="system-search"
+              type="search"
+              placeholder="Try Sol, Achenar, Lave…"
+              autocomplete="off"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={autocompleteOpen && normalizedQuery.length >= 2}
+              aria-controls="system-suggestions"
+              aria-activedescendant={autocompleteOpen &&
+              suggestionRows[activeSuggestion]
+                ? `suggestion-${activeSuggestion}`
+                : undefined}
+              bind:this={searchInput}
+              bind:value={viewState.query}
+              oninput={handleQueryInput}
+              onfocus={() => (autocompleteOpen = normalizedQuery.length >= 2)}
+              onkeydown={handleQueryKeydown}
+            />
+          </div>
+          {#if autocompleteOpen && normalizedQuery.length >= 2}
+            <div
+              id="system-suggestions"
+              class="suggestions"
+              role="listbox"
+              aria-label="System suggestions"
             >
+              {#if suggestions.isPending}
+                <p role="status">Searching catalogue…</p>
+              {:else if suggestions.isError}
+                <div role="alert">
+                  <p>Typeahead is unavailable.</p>
+                  <button type="button" onclick={() => suggestions.refetch()}
+                    >Retry</button
+                  >
+                </div>
+              {:else if suggestionRows.length === 0}
+                <p>No matching systems.</p>
+              {:else}
+                {#each suggestionRows as hit, index (hit.id64)}
+                  <button
+                    id={`suggestion-${index}`}
+                    type="button"
+                    role="option"
+                    aria-selected={index === activeSuggestion}
+                    class:active={index === activeSuggestion}
+                    onmousedown={(event) => event.preventDefault()}
+                    onclick={() => chooseSuggestion(hit)}
+                  >
+                    <span>{hit.name}</span><code>{hit.id64}</code>
+                  </button>
+                {/each}
+              {/if}
+            </div>
           {/if}
         </div>
-        {#if results.isError}
-          <div class="state-card error" role="alert">
-            <h3>
-              {rankingDataNotReady
-                ? 'Ranking data not ready'
-                : 'Ranking temporarily unavailable'}
-            </h3>
-            <p>
-              {rankingDataNotReady
-                ? 'Archetype rankings are unavailable until Finder ranking data is published.'
-                : viewState.rankingState.archetype !== 'any'
-                  ? 'Archetype rankings are temporarily unavailable. Try again shortly.'
-                  : 'Discovery results could not be loaded. Try again shortly.'}
-            </p>
-            <button type="button" onclick={() => results.refetch()}
-              >Retry</button
-            >
-            {#if viewState.rankingState.archetype !== 'any'}
-              <button
-                type="button"
-                onclick={() => commitRanking({ archetype: 'any' })}
-                >Choose Any</button
-              >
-            {/if}
-          </div>
-        {:else if currentResponse && !results.isFetching && results.data?.page.total === 0}
-          <div class="state-card">
-            <p>
-              {viewState.rankingState.archetype === 'any'
-                ? 'No systems match this discovery area. Choose another anchor.'
-                : `No systems meet minimum tier ${viewState.rankingState.minimumTier} for ${activeArchetypeLabel}.`}
-            </p>
-            {#if viewState.rankingState.archetype !== 'any'}
-              {#if viewState.rankingState.minimumTier !== 'B'}
-                <button
-                  type="button"
-                  onclick={() => commitRanking({ minimumTier: 'B' })}
-                  >Reset to tier B</button
-                >
-              {/if}
-              <button
-                type="button"
-                onclick={() => commitRanking({ archetype: 'any' })}
-                >Choose Any</button
-              >
-            {/if}
-          </div>
+      </section>
+
+      {#snippet bodyFilterTools()}
+        <BodyFilters
+          value={viewState.bodyFilters}
+          disabled={bodyFiltersPaused}
+          paused={bodyFiltersPaused}
+          onapply={(value) => void commitBodyFilters(value)}
+          onremove={removeBodyFilter}
+          onclear={() => void commitBodyFilters({})}
+        />
+      {/snippet}
+
+      {#if anchor}
+        <p class="committed-anchor">
+          Search anchor: {anchor.name}
+          <button
+            type="button"
+            class="quiet-button"
+            aria-label={`Clear anchor ${anchor.name}`}
+            onclick={clearAnchor}>Clear</button
+          >
+        </p>
+        {#if FINDER_F4_ENABLED && viewState.rankingState.archetype !== 'any'}
+          <p>
+            Archetype ranking is galaxy-wide today; choose Any to search around {anchor.name}.
+          </p>
         {/if}
       {/if}
-
-      {#if !viewState.hasResultsIntent}
-        <div class="state-card">
-          <p>Search for a system above to see what is near it.</p>
+      {#snippet finderTools()}
+        <div class="finder-tools">
+          {@render bodyFilterTools()}
+          <label class="page-size"
+            >Results per page
+            <input
+              type="number"
+              min="1"
+              max="50"
+              step="1"
+              value={viewState.rankingState.pageSize}
+              onchange={(event) =>
+                commitRanking({ pageSize: event.currentTarget.valueAsNumber })}
+            />
+          </label>
         </div>
-      {:else if !FINDER_F4_ENABLED && results.isPending && catalogueStars.isPending}
-        <div class="state-card" role="status">
-          <Sparkles aria-hidden="true" />
-          <p>Building a real-system shortlist…</p>
-        </div>
-      {:else if !FINDER_F4_ENABLED && results.isError && (reviewLabRun || systems.length === 0)}
-        <div class="state-card error" role="alert">
-          <p>Discovery results could not be loaded.</p>
-          <button
-            class="secondary-button"
-            type="button"
-            onclick={() => results.refetch()}>Retry search</button
-          >
-        </div>
-      {:else if !FINDER_F4_ENABLED && reviewLabRun && results.data?.results.length === 0}
-        <div class="state-card" role="status">
-          <p>No systems match this discovery area.</p>
-        </div>
-      {:else if !FINDER_F4_ENABLED && systems.length === 0}
-        <div class="state-card">
-          <p>No systems match this discovery area. Choose another anchor.</p>
-        </div>
+      {/snippet}
+      {#if FINDER_F4_ENABLED}
+        <ArchetypePicker
+          compact
+          archetype={viewState.rankingState.archetype}
+          minimumTier={viewState.rankingState.minimumTier}
+          onArchetypeChange={(archetype) =>
+            commitRanking({ archetype, minimumTier: null })}
+          onMinimumTierChange={(minimumTier) => commitRanking({ minimumTier })}
+          rankingTools={finderTools}
+        />
       {:else}
-        <ul
-          class="result-list"
-          bind:this={resultList}
-          onscroll={captureResultScroll}
-          aria-label="System results"
-          aria-describedby="results-scope"
-        >
-          {#each systems as system (system.id64)}
-            <li
-              class:selected={$selectedSystem.value === system.id64}
-              data-system-result={system.id64}
+        {@render bodyFilterTools()}
+      {/if}
+
+      {#if viewState.rankingNotice}
+        <p role="status" class="ranking-status">{viewState.rankingNotice}</p>
+      {/if}
+
+      <section
+        class="results-panel"
+        aria-labelledby="results-title"
+        aria-busy={viewState.hasResultsIntent &&
+          (FINDER_F4_ENABLED
+            ? updatingResults
+            : results.isFetching || catalogueStars.isFetching)}
+      >
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Catalogue results</p>
+            <h2 id="results-title">
+              {FINDER_F4_ENABLED && viewState.rankingState.archetype !== 'any'
+                ? `Galaxy-wide ${activeArchetypeLabel} ranking`
+                : anchor
+                  ? `Near ${anchor.name}`
+                  : viewState.hasResultsIntent
+                    ? 'Galaxy-wide opportunities'
+                    : 'Systems'}
+            </h2>
+          </div>
+          {#if FINDER_F4_ENABLED && displayedResults}
+            <FinderResultRanking
+              variant="summary"
+              page={displayedResults.page}
+              archetype={displayedResults.finderState!.archetype}
+            />
+          {:else}<span>{systems.length} shown</span>{/if}
+        </div>
+
+        <div class="search-scope">
+          <p id="results-scope">{resultsScope}</p>
+          <button
+            type="button"
+            class="secondary-button pill-action"
+            data-explore-map-open
+            aria-controls="explore-map-window"
+            disabled={selectedMapSystem !== null && !selectedWindowPoint}
+            onclick={(event) => showMap(event)}>Show on map</button
+          >
+          {#if selectedMapSystem && !selectedWindowPoint}
+            <span>Map coordinates unavailable for the selected system.</span>
+          {/if}
+          <label class="search-radius" for="search-radius">
+            Within
+            <select
+              id="search-radius"
+              value={effectiveRadius}
+              disabled={bodyFiltersPaused}
+              aria-describedby={bodyFiltersPaused
+                ? 'search-radius-disabled'
+                : Object.keys(viewState.bodyFilters).length > 0
+                  ? 'search-radius-capped'
+                  : undefined}
+              onchange={(event) =>
+                commitRadius(Number(event.currentTarget.value))}
             >
-              <button
-                class="result-select"
-                type="button"
-                data-result-select
-                aria-pressed={$selectedSystem.value === system.id64}
-                onclick={() => selectResult(system)}
-                onkeydown={(event) => handleResultKeydown(event, system)}
-              >
-                <span class="result-title"
-                  ><strong
-                    id={FINDER_F4_ENABLED
-                      ? `finder-result-heading-${system.id64}`
-                      : undefined}
-                    >{system.name ?? `System ${system.id64}`}</strong
-                  ><code>{system.id64}</code></span
+              {#each SEARCH_RADIUS_OPTIONS as option (option)}
+                <option
+                  value={option}
+                  disabled={!bodyFiltersPaused &&
+                    Object.keys(viewState.bodyFilters).length > 0 &&
+                    option > FILTERED_SEARCH_RADIUS_CAP_LY}
+                  >{option.toLocaleString('en-US')} LY</option
                 >
+              {/each}
+            </select>
+          </label>
+          {#if bodyFiltersPaused}
+            <p id="search-radius-disabled" class="radius-hint">
+              Search radius works when you search near a system with Any
+              selected.
+            </p>
+          {:else if Object.keys(viewState.bodyFilters).length > 0}
+            <p id="search-radius-capped" class="radius-hint">
+              Body filters limit the search to {FILTERED_SEARCH_RADIUS_CAP_LY} LY{radiusCappedByFilters
+                ? `; your ${viewState.radius.toLocaleString('en-US')} LY radius resumes when the filters are cleared`
+                : ''}.
+            </p>
+          {/if}
+        </div>
+
+        {#if FINDER_F4_ENABLED && viewState.hasResultsIntent}
+          <div role="status" aria-live="polite" class="ranking-status">
+            {#if updatingResults}
+              <p>
+                {displayedResults ? 'Updating… ' : ''}{viewState.rankingState
+                  .archetype === 'any'
+                  ? 'Searching systems…'
+                  : `Ranking systems for ${activeArchetypeLabel}…`}
+              </p>
+            {:else if currentResponse && displayedResults && !results.isError}
+              <span
+                >{displayedResults.page.count}
+                {displayedResults.page.count === 1 ? 'result' : 'results'} on this
+                page.</span
+              >
+            {/if}
+          </div>
+          {#if results.isError}
+            <div class="state-card error" role="alert">
+              <h3>
+                {rankingDataNotReady
+                  ? 'Ranking data not ready'
+                  : 'Ranking temporarily unavailable'}
+              </h3>
+              <p>
+                {rankingDataNotReady
+                  ? 'Archetype rankings are unavailable until Finder ranking data is published.'
+                  : viewState.rankingState.archetype !== 'any'
+                    ? 'Archetype rankings are temporarily unavailable. Try again shortly.'
+                    : 'Discovery results could not be loaded. Try again shortly.'}
+              </p>
+              <button type="button" onclick={() => results.refetch()}
+                >Retry</button
+              >
+              {#if viewState.rankingState.archetype !== 'any'}
+                <button
+                  type="button"
+                  onclick={() => commitRanking({ archetype: 'any' })}
+                  >Choose Any</button
+                >
+              {/if}
+            </div>
+          {:else if currentResponse && !results.isFetching && results.data?.page.total === 0}
+            <div class="state-card">
+              <p>
+                {viewState.rankingState.archetype === 'any'
+                  ? 'No systems match this discovery area. Choose another anchor.'
+                  : `No systems meet minimum tier ${viewState.rankingState.minimumTier} for ${activeArchetypeLabel}.`}
+              </p>
+              {#if viewState.rankingState.archetype !== 'any'}
+                {#if viewState.rankingState.minimumTier !== 'B'}
+                  <button
+                    type="button"
+                    onclick={() => commitRanking({ minimumTier: 'B' })}
+                    >Reset to tier B</button
+                  >
+                {/if}
+                <button
+                  type="button"
+                  onclick={() => commitRanking({ archetype: 'any' })}
+                  >Choose Any</button
+                >
+              {/if}
+            </div>
+          {/if}
+        {/if}
+
+        {#if !viewState.hasResultsIntent}
+          <div class="state-card">
+            <p>Search for a system above to see what is near it.</p>
+          </div>
+        {:else if !FINDER_F4_ENABLED && results.isPending && catalogueStars.isPending}
+          <div class="state-card" role="status">
+            <Sparkles aria-hidden="true" />
+            <p>Building a real-system shortlist…</p>
+          </div>
+        {:else if !FINDER_F4_ENABLED && results.isError && (reviewLabRun || systems.length === 0)}
+          <div class="state-card error" role="alert">
+            <p>Discovery results could not be loaded.</p>
+            <button
+              class="secondary-button"
+              type="button"
+              onclick={() => results.refetch()}>Retry search</button
+            >
+          </div>
+        {:else if !FINDER_F4_ENABLED && reviewLabRun && results.data?.results.length === 0}
+          <div class="state-card" role="status">
+            <p>No systems match this discovery area.</p>
+          </div>
+        {:else if !FINDER_F4_ENABLED && systems.length === 0}
+          <div class="state-card">
+            <p>No systems match this discovery area. Choose another anchor.</p>
+          </div>
+        {:else}
+          <ul
+            class="result-list"
+            bind:this={resultList}
+            onscroll={captureResultScroll}
+            aria-label="System results"
+            aria-describedby="results-scope"
+          >
+            {#each systems as system (system.id64)}
+              <li
+                class:selected={$selectedSystem.value === system.id64}
+                data-system-result={system.id64}
+              >
+                <button
+                  class="result-select"
+                  type="button"
+                  data-result-select
+                  aria-pressed={$selectedSystem.value === system.id64}
+                  onclick={() => selectResult(system)}
+                  onkeydown={(event) => handleResultKeydown(event, system)}
+                >
+                  <span class="result-title"
+                    ><strong
+                      id={FINDER_F4_ENABLED
+                        ? `finder-result-heading-${system.id64}`
+                        : undefined}
+                      >{system.name ?? `System ${system.id64}`}</strong
+                    ><code>{system.id64}</code></span
+                  >
+                  {#if FINDER_F4_ENABLED && displayedResults && !(viewState.rankingState.archetype === 'any' && displayedResults.finderState!.archetype !== 'any')}
+                    <FinderResultRanking
+                      variant="row"
+                      {system}
+                      archetype={displayedResults.finderState!.archetype}
+                    />
+                  {/if}
+                  <span class="result-facts">
+                    {#if system.distance != null}<span
+                        >{FINDER_F4_ENABLED
+                          ? `${system.distance.toFixed(2)} LY`
+                          : `${system.distance.toFixed(1)} ly`}{displayedSearchRadius !=
+                        null
+                          ? ` · within ${displayedSearchRadius.toLocaleString('en-US')} LY`
+                          : ''}</span
+                      >{/if}
+                    {#if system.primaryEconomy}<span
+                        >{system.primaryEconomy}</span
+                      >{/if}
+                    {#if population(system.population)}<span
+                        >{population(system.population)} population</span
+                      >{/if}
+                    {#if system.main_star_type}<span
+                        >{starClassLabel(system.main_star_type)}</span
+                      >{/if}
+                  </span>
+                </button>
+                {#if selectedId === system.id64}
+                  <button
+                    type="button"
+                    class="result-map-action secondary-button pill-action"
+                    data-result-map-open
+                    aria-controls="explore-map-window"
+                    disabled={!selectedWindowPoint}
+                    onclick={(event) => showMap(event, system)}
+                    >Show on map</button
+                  >
+                {/if}
+                <!-- eslint-disable svelte/no-navigation-without-resolve -- inspectHref resolves the Inspect route -->
+                <a
+                  class="inspect-link secondary-button"
+                  href={FINDER_F4_ENABLED
+                    ? inspectHref(system.id64, page.url)
+                    : resolve(`/inspect?system=${system.id64}`)}
+                  onclick={FINDER_F4_ENABLED
+                    ? (event) => followInspect(event, system.id64)
+                    : undefined}
+                  aria-label={`Inspect ${system.name ?? system.id64}`}
+                >
+                  Inspect <ArrowRight aria-hidden="true" size={16} />
+                </a>
+                <!-- eslint-enable svelte/no-navigation-without-resolve -->
                 {#if FINDER_F4_ENABLED && displayedResults && !(viewState.rankingState.archetype === 'any' && displayedResults.finderState!.archetype !== 'any')}
-                  <FinderResultRanking
-                    variant="row"
+                  <ArchetypeExplanation
                     {system}
+                    expected={system.ranking_provenance ?? null}
                     archetype={displayedResults.finderState!.archetype}
+                    headingId={`finder-result-heading-${system.id64}`}
                   />
                 {/if}
-                <span class="result-facts">
-                  {#if system.distance != null}<span
-                      >{FINDER_F4_ENABLED
-                        ? `${system.distance.toFixed(2)} LY`
-                        : `${system.distance.toFixed(1)} ly`}{displayedSearchRadius !=
-                      null
-                        ? ` · within ${displayedSearchRadius.toLocaleString('en-US')} LY`
-                        : ''}</span
-                    >{/if}
-                  {#if system.primaryEconomy}<span>{system.primaryEconomy}</span
-                    >{/if}
-                  {#if population(system.population)}<span
-                      >{population(system.population)} population</span
-                    >{/if}
-                  {#if system.main_star_type}<span
-                      >{starClassLabel(system.main_star_type)}</span
-                    >{/if}
-                </span>
-              </button>
-              {#if selectedId === system.id64}
-                <button
-                  type="button"
-                  class="result-map-action secondary-button pill-action"
-                  data-result-map-open
-                  aria-controls="explore-map-window"
-                  aria-expanded={viewState.mapOpen}
-                  disabled={!selectedWindowPoint}
-                  onclick={(event) => showMap(event, system)}
-                  >Show on map</button
-                >
-              {/if}
-              <!-- eslint-disable svelte/no-navigation-without-resolve -- inspectHref resolves the Inspect route -->
-              <a
-                class="inspect-link secondary-button"
-                href={FINDER_F4_ENABLED
-                  ? inspectHref(system.id64, page.url)
-                  : resolve(`/inspect?system=${system.id64}`)}
-                onclick={FINDER_F4_ENABLED
-                  ? (event) => followInspect(event, system.id64)
-                  : undefined}
-                aria-label={`Inspect ${system.name ?? system.id64}`}
-              >
-                Inspect <ArrowRight aria-hidden="true" size={16} />
-              </a>
-              <!-- eslint-enable svelte/no-navigation-without-resolve -->
-              {#if FINDER_F4_ENABLED && displayedResults && !(viewState.rankingState.archetype === 'any' && displayedResults.finderState!.archetype !== 'any')}
-                <ArchetypeExplanation
-                  {system}
-                  expected={system.ranking_provenance ?? null}
-                  archetype={displayedResults.finderState!.archetype}
-                  headingId={`finder-result-heading-${system.id64}`}
-                />
-              {/if}
-              <div class="finder-actions"><SystemActions {system} /></div>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-      {#if FINDER_F4_ENABLED && displayedResults}
-        <nav class="result-paging" aria-label="Result pages">
-          <button
-            type="button"
-            class="quiet-button"
-            disabled={!currentResponse ||
-              updatingResults ||
-              displayedResults.page.offset === 0}
-            onclick={() =>
-              commitRanking(
-                {
-                  offset: Math.max(
-                    0,
-                    displayedResults!.page.offset -
+                <div class="finder-actions"><SystemActions {system} /></div>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        {#if FINDER_F4_ENABLED && displayedResults}
+          <nav class="result-paging" aria-label="Result pages">
+            <button
+              type="button"
+              class="quiet-button"
+              disabled={!currentResponse ||
+                updatingResults ||
+                displayedResults.page.offset === 0}
+              onclick={() =>
+                commitRanking(
+                  {
+                    offset: Math.max(
+                      0,
+                      displayedResults!.page.offset -
+                        displayedResults!.page.page_size,
+                    ),
+                  },
+                  false,
+                )}>Previous</button
+            >
+            <button
+              type="button"
+              class="quiet-button"
+              disabled={!currentResponse ||
+                updatingResults ||
+                displayedResults.page.offset +
+                  displayedResults.page.page_size >=
+                  displayedResults.page.navigable_total}
+              onclick={() =>
+                commitRanking(
+                  {
+                    offset:
+                      displayedResults!.page.offset +
                       displayedResults!.page.page_size,
-                  ),
-                },
-                false,
-              )}>Previous</button
-          >
-          <button
-            type="button"
-            class="quiet-button"
-            disabled={!currentResponse ||
-              updatingResults ||
-              displayedResults.page.offset + displayedResults.page.page_size >=
-                displayedResults.page.navigable_total}
-            onclick={() =>
-              commitRanking(
-                {
-                  offset:
-                    displayedResults!.page.offset +
-                    displayedResults!.page.page_size,
-                },
-                false,
-              )}>Next</button
-          >
-        </nav>
-      {/if}
+                  },
+                  false,
+                )}>Next</button
+            >
+          </nav>
+        {/if}
+      </section>
     </section>
 
-    {#if viewState.mapOpen}
-      {#snippet mapCameraActions(cameraHelp: Snippet)}
-        {#if selectedMapSystem}
-          <button
-            type="button"
-            class="centre-system"
-            disabled={!selectedWindowPoint}
-            onclick={centreSelectedSystem}>Centre on {selectedMapName}</button
-          >
-        {/if}
-        <MapToolPopout
-          kind="sources"
-          label="Sources"
-          title="Map sources and controls"
+    {#snippet mapCameraActions(cameraHelp: Snippet)}
+      {#if selectedMapSystem}
+        <button
+          type="button"
+          class="centre-system"
+          disabled={!selectedWindowPoint}
+          onclick={centreSelectedSystem}>Centre on {selectedMapName}</button
         >
-          <p class="map-note">
-            Stars use exact catalogue coordinates and class-specific
-            presentation. Amber marks active selections. Region geometry is the
-            pinned in-game source; no synthetic geography, stars, or density are
-            substituted.
-          </p>
-          {@render cameraHelp()}
-        </MapToolPopout>
-      {/snippet}
-      <ExploreMapWindow
-        bind:element={mapSection}
-        selectedSystemName={selectedMapName}
-        expanded={viewState.mapExpanded}
-        onExpand={expandMap}
-        onClose={closeMap}
-        opener={mapOpener ?? searchInput}
-        fallbackFocus={searchInput}
-        hoveredSystemId={viewState.hoveredSystemId}
-        canvasProps={{
-          scene,
-          cameraActions: mapCameraActions,
-          resetCamera: viewState.mapResetCamera,
-          anchorPoint: mapAnchorPoint,
-          onSystemSelect: selectMapSystem,
-          systemInspectHref: (point) =>
-            FINDER_F4_ENABLED
-              ? inspectHref(parseId64(point.systemId64), page.url)
-              : resolve(`/inspect?system=${point.systemId64}`),
-          onSystemInspect: FINDER_F4_ENABLED
-            ? (event, point) =>
-                followInspect(event, parseId64(point.systemId64))
-            : undefined,
-          onViewportChange: (viewport) => {
-            if (!viewState.mapExpanded)
-              viewState.mapWindowViewportSize = viewport;
-            if (
-              viewState.starViewportSize?.width !== viewport.width ||
-              viewState.starViewportSize?.height !== viewport.height
-            )
-              viewState.starViewportSize = viewport;
-          },
-          cameraRequest:
-            viewState.cameraRequestRevision ===
-            viewState.appliedCameraRequestRevision
-              ? null
-              : viewState.cameraRequest,
-          cameraRequestRevision: viewState.cameraRequestRevision,
-          focusTarget:
-            viewState.focusRevision === viewState.completedFocusRevision
-              ? null
-              : viewState.focusTarget,
-          focusRevision: viewState.focusRevision,
-          contributionPatch:
-            FINDER_F4_ENABLED && showDensity
-              ? viewState.densityContribution
-              : null,
-          contributionPatchRevision: FINDER_F4_ENABLED
-            ? (viewState.densityContribution?.revision ?? 0)
-            : 0,
-          onRuntimeEvent: handleRuntimeEvent,
-          onTransitionChange: handleCameraTransitionChange,
-        }}
+      {/if}
+      <MapToolPopout
+        kind="sources"
+        label="Sources"
+        title="Map sources and controls"
       >
-        {#snippet beforeCanvas()}
-          <div class="map-layer-toolbar">
-            <div
-              class="map-camera-presets"
-              role="group"
-              aria-label="Camera presets"
-            >
-              <button
-                type="button"
-                data-map-camera-preset="local"
-                aria-pressed={viewState.mapCameraPreset === 'local'}
-                disabled={localCameraUnavailable !== null}
-                aria-describedby={localCameraUnavailable
-                  ? 'local-camera-reason'
-                  : undefined}
-                title={localCameraUnavailable ?? 'Focus on the selected system'}
-                onclick={centreSelectedSystem}>Local</button
-              >
-              <button
-                type="button"
-                data-map-camera-preset="galaxy"
-                aria-pressed={viewState.mapCameraPreset === 'galaxy'}
-                disabled={!viewState.regions}
-                onclick={overview}>Galaxy</button
-              >
-            </div>
-            {#if localCameraUnavailable}<span
-                id="local-camera-reason"
-                class="sr-only">{localCameraUnavailable}</span
-              >{/if}
-            <MapToolPopout
-              kind="regions"
-              label="Regions 42"
-              title="Galactic regions"
-            >
-              <p data-region-resource-state={viewState.regionState}>
-                {viewState.regionState === 'ready'
-                  ? '42/42 regions'
-                  : 'canonical ly'}
-              </p>
-              {#if viewState.regionState === 'loading'}
-                <p class="region-load-state" role="status">
-                  Loading all 42 authoritative regions…
-                </p>
-              {:else if viewState.regionState === 'failed'}
-                <div class="region-load-state error" role="alert">
-                  <span
-                    >The authoritative region resource failed validation.</span
-                  >
-                  <button type="button" onclick={loadRegions}
-                    >Retry regions</button
-                  >
-                </div>
-              {:else if viewState.regions}
-                <div class="product-region-controls">
-                  <label for="explore-region-picker">
-                    <span>Galactic region</span>
-                    <select
-                      id="explore-region-picker"
-                      value={viewState.selectedRegionId ?? ''}
-                      onchange={(event) =>
-                        selectRegion(event.currentTarget.value || null)}
-                    >
-                      <option value="">No region selected</option>
-                      {#each viewState.regions.regions as region (region.id)}
-                        <option
-                          value={String(region.id)}
-                          data-galaxy-region-option={region.id}
-                        >
-                          {region.id}. {region.name}
-                        </option>
-                      {/each}
-                    </select>
-                  </label>
-                  <div
-                    class="product-region-actions"
-                    role="group"
-                    aria-label="Map views"
-                  >
-                    <button type="button" onclick={overview}
-                      >All 42 regions</button
-                    >
-                    <button
-                      type="button"
-                      disabled={!viewState.selectedRegionId}
-                      onclick={viewSelectedRegion}>View selected</button
-                    >
-                  </div>
-                  <div class="product-region-status" aria-live="polite">
-                    <span
-                      >Selected: <strong
-                        data-selected-region-id={viewState.selectedRegionId ??
-                          ''}>{regionName(viewState.selectedRegionId)}</strong
-                      ></span
-                    >
-                    <span
-                      >Hovered: <strong
-                        data-hovered-region-id={viewState.hoveredRegionId ?? ''}
-                        >{regionName(viewState.hoveredRegionId)}</strong
-                      ></span
-                    >
-                  </div>
-                </div>
-              {/if}
-            </MapToolPopout>
-
-            <MapLayers
-              densityEnabled={showDensity}
-              journeysEnabled={showTravelHeatmap}
-              nebulaeEnabled={viewState.showNebulae}
-              onDensityToggle={toggleDensity}
-              onJourneysToggle={toggleTravelHeatmap}
-              onNebulaeToggle={toggleNebulae}
-              densityCellSizeLy={viewState.lastGoodDensity?.payload
-                .cellSizeLy ?? null}
-              densityGeneration={viewState.lastGoodDensity?.payload
-                .generationId ?? null}
-              {densityCoverage}
-              journeysMaxVisits={travelHeatmapState === 'ready'
-                ? Math.max(
-                    1,
-                    ...(commanderVisits.data?.visits.map(
-                      (visit) => visit.visitCount,
-                    ) ?? []),
-                  )
+        <p class="map-note">{MAP_SOURCES_NOTE}</p>
+        {@render cameraHelp()}
+      </MapToolPopout>
+    {/snippet}
+    <ExploreMapWindow
+      bind:element={mapSection}
+      selectedSystemName={selectedMapName}
+      finderPanelOpen={viewState.finderPanelOpen}
+      onShowFinder={showFinderPanel}
+      hoveredSystemId={viewState.hoveredSystemId}
+      canvasProps={{
+        scene,
+        cameraActions: mapCameraActions,
+        resetCamera: viewState.mapResetCamera,
+        anchorPoint: mapAnchorPoint,
+        onSystemSelect: selectMapSystem,
+        systemInspectHref: (point) =>
+          FINDER_F4_ENABLED
+            ? inspectHref(parseId64(point.systemId64), page.url)
+            : resolve(`/inspect?system=${point.systemId64}`),
+        onSystemInspect: FINDER_F4_ENABLED
+          ? (event, point) => followInspect(event, parseId64(point.systemId64))
+          : undefined,
+        onViewportChange: (viewport) => {
+          if (
+            viewState.starViewportSize?.width !== viewport.width ||
+            viewState.starViewportSize?.height !== viewport.height
+          )
+            viewState.starViewportSize = viewport;
+        },
+        cameraRequest:
+          viewState.cameraRequestRevision ===
+          viewState.appliedCameraRequestRevision
+            ? null
+            : viewState.cameraRequest,
+        cameraRequestRevision: viewState.cameraRequestRevision,
+        focusTarget:
+          viewState.focusRevision === viewState.completedFocusRevision
+            ? null
+            : viewState.focusTarget,
+        focusRevision: viewState.focusRevision,
+        contributionPatch:
+          FINDER_F4_ENABLED && showDensity
+            ? viewState.densityContribution
+            : null,
+        contributionPatchRevision: FINDER_F4_ENABLED
+          ? (viewState.densityContribution?.revision ?? 0)
+          : 0,
+        onRuntimeEvent: handleRuntimeEvent,
+        onTransitionChange: handleCameraTransitionChange,
+      }}
+    >
+      {#snippet beforeCanvas()}
+        <div class="map-layer-toolbar">
+          <div
+            class="map-camera-presets"
+            role="group"
+            aria-label="Camera presets"
+          >
+            <button
+              type="button"
+              data-map-camera-preset="local"
+              aria-pressed={viewState.mapCameraPreset === 'local'}
+              disabled={localCameraUnavailable !== null}
+              aria-describedby={localCameraUnavailable
+                ? 'local-camera-reason'
                 : undefined}
+              title={localCameraUnavailable ?? 'Focus on the selected system'}
+              onclick={centreSelectedSystem}>Local</button
             >
-              {#snippet densityStatus()}
-                <span
-                  role="status"
-                  aria-label="Catalogue density"
-                  data-density-state={densityState}
-                  data-density-reason={densityEnabled
-                    ? densityFailure?.reason
-                    : undefined}
-                  data-density-cell-count={densityCellCount}
-                >
-                  {#if densityState === 'off'}
-                    Density layer hidden
-                  {:else if densityState === 'zoom'}
-                    Zoom out to see known-system density
-                  {:else if densityState === 'loading'}
-                    Loading catalogue density…{viewState.lastGoodDensity
-                      ? ' · showing previous area'
-                      : ''}
-                  {:else if densityState === 'stale'}
-                    {densityCellCount.toLocaleString()} density cells · {densityCoverage}
-                    · stale · {densityFailure?.kind === 'invalid'
-                      ? 'density response invalid'
-                      : 'density refresh unavailable'}
-                  {:else if densityState === 'unavailable'}
-                    Density layer unavailable
-                  {:else if densityState === 'invalid'}
-                    Density response invalid
-                  {:else if densityState === 'none'}
-                    No published density pyramid
-                  {:else if densityState === 'empty'}
-                    No density cells in this area
-                  {:else}
-                    {densityCellCount.toLocaleString()} density cells{viewState
-                      .lastGoodDensity?.area === 'truncated'
-                      ? ` · ${densityCoverage}`
-                      : ''}
-                  {/if}
-                  {#if densityEnabled && densityFailure}
-                    · <button
-                      type="button"
-                      onclick={() => void heatmap.refetch()}>Retry</button
-                    >
-                  {/if}
-                </span>
-              {/snippet}
-              {#snippet journeysStatus()}
-                <span
-                  role="status"
-                  aria-label="My journeys"
-                  data-commander-history-count={travelHeatmapState === 'ready'
-                    ? (commanderVisits.data?.count ?? 0)
-                    : 0}
-                  data-commander-history-state={travelHeatmapState}
-                >
-                  {#if travelHeatmapState === 'checking'}
-                    Checking your sign-in…
-                  {:else if travelHeatmapState === 'auth-error'}
-                    Account check unavailable · <button
-                      type="button"
-                      onclick={() => void auth.bootstrap()}>Retry</button
-                    >
-                  {:else if travelHeatmapState === 'signed-out'}
-                    <a href={resolve('/account')}
-                      >Sign in and import your journals</a
-                    >
-                  {:else if travelHeatmapState === 'summary-error'}
-                    Journal import status unavailable · <button
-                      type="button"
-                      onclick={() => journalSummary.refetch()}>Retry</button
-                    >
-                  {:else if travelHeatmapState === 'off'}
-                    My journeys hidden
-                  {:else if travelHeatmapState === 'no-journals'}
-                    No imported journals yet
-                  {:else if travelHeatmapState === 'zoom'}
-                    Travel history appears when individual-star range is active
-                  {:else if travelHeatmapState === 'loading'}
-                    Reading imported journal visits…
-                  {:else if travelHeatmapState === 'error'}
-                    Travel heatmap unavailable · <button
-                      type="button"
-                      onclick={() => commanderVisits.refetch()}>Retry</button
-                    >
-                  {:else if travelHeatmapState === 'empty'}
-                    No imported journal travel in this view
-                  {:else}
-                    {(commanderVisits.data?.count ?? 0).toLocaleString()} visited
-                    {commanderVisits.data?.mode === 'density'
-                      ? ' cells'
-                      : ' systems'}{commanderVisits.data?.truncated
-                      ? ' · bounded view'
-                      : ''}
-                  {/if}
-                </span>
-              {/snippet}
-              {#snippet nebulaeStatus()}
-                <span
-                  role="status"
-                  aria-label="Nebulae"
-                  data-nebula-resource-state={viewState.nebulaState}
-                >
-                  {#if viewState.nebulaState === 'loading'}
-                    Loading complete nebula inventory…
-                  {:else if viewState.nebulaState === 'failed'}
-                    Nebula layer unavailable · <button
-                      type="button"
-                      onclick={loadNebulae}>Retry</button
-                    >
-                  {:else if viewState.nebulae}
-                    {`${viewState.nebulae.nebulae.length.toLocaleString()} catalogue ${
-                      viewState.nebulae.nebulae.length === 1
-                        ? 'record'
-                        : 'records'
-                    }`} · {nebulaDisplayStatus} ·
-                    <a
-                      href="https://edastro.com/mapcharts/files.html"
-                      target="_blank"
-                      rel="noreferrer">{viewState.nebulae.attribution}</a
-                    >
-                    ·
-                    <a
-                      href="https://edastro.com/mapcharts/files/nebulae-coordinates.csv"
-                      target="_blank"
-                      rel="noreferrer">source CSV</a
-                    >
-                    · {viewState.nebulae.rightsNotice}
-                  {/if}
-                </span>
-              {/snippet}
-            </MapLayers>
+            <button
+              type="button"
+              data-map-camera-preset="galaxy"
+              aria-pressed={viewState.mapCameraPreset === 'galaxy'}
+              disabled={!viewState.regions}
+              onclick={overview}>Galaxy</button
+            >
           </div>
-        {/snippet}
-        {#snippet afterCanvas()}
-          {#if selectedMapSystem}
-            <article
-              class="map-system-card"
-              aria-labelledby="map-system-card-title"
-              data-selected-system-card={selectedMapSystem.id64}
-            >
-              <div class="map-system-card__identity">
-                <span
-                  class="stellar-glyph"
-                  data-stellar-glyph={selectedStarPresentation.glyph}
-                  style:--stellar-core={`rgb(${selectedStarPresentation.coreRgb.map((channel) => Math.round(channel * 255)).join(', ')})`}
-                  style:--stellar-halo={`rgb(${selectedStarPresentation.haloRgb.map((channel) => Math.round(channel * 255)).join(', ')})`}
-                  aria-hidden="true"
-                ></span>
-                <div>
-                  <h3 id="map-system-card-title">
-                    {selectedMapSystem.name ??
-                      `System ${selectedMapSystem.id64}`}
-                  </h3>
+          {#if localCameraUnavailable}<span
+              id="local-camera-reason"
+              class="sr-only">{localCameraUnavailable}</span
+            >{/if}
+          <MapToolPopout
+            kind="regions"
+            label="Regions 42"
+            title="Galactic regions"
+          >
+            <p data-region-resource-state={viewState.regionState}>
+              {viewState.regionState === 'ready'
+                ? '42/42 regions'
+                : 'canonical ly'}
+            </p>
+            {#if viewState.regionState === 'loading'}
+              <p class="region-load-state" role="status">
+                Loading all 42 authoritative regions…
+              </p>
+            {:else if viewState.regionState === 'failed'}
+              <div class="region-load-state error" role="alert">
+                <span>The authoritative region resource failed validation.</span
+                >
+                <button type="button" onclick={loadRegions}
+                  >Retry regions</button
+                >
+              </div>
+            {:else if viewState.regions}
+              <div class="product-region-controls">
+                <label for="explore-region-picker">
+                  <span>Galactic region</span>
+                  <select
+                    id="explore-region-picker"
+                    value={viewState.selectedRegionId ?? ''}
+                    onchange={(event) =>
+                      selectRegion(event.currentTarget.value || null)}
+                  >
+                    <option value="">No region selected</option>
+                    {#each viewState.regions.regions as region (region.id)}
+                      <option
+                        value={String(region.id)}
+                        data-galaxy-region-option={region.id}
+                      >
+                        {region.id}. {region.name}
+                      </option>
+                    {/each}
+                  </select>
+                </label>
+                <div
+                  class="product-region-actions"
+                  role="group"
+                  aria-label="Map views"
+                >
+                  <button type="button" onclick={overview}
+                    >All 42 regions</button
+                  >
+                  <button
+                    type="button"
+                    disabled={!viewState.selectedRegionId}
+                    onclick={viewSelectedRegion}>View selected</button
+                  >
+                </div>
+                <div class="product-region-status" aria-live="polite">
+                  <span
+                    >Selected: <strong
+                      data-selected-region-id={viewState.selectedRegionId ?? ''}
+                      >{regionName(viewState.selectedRegionId)}</strong
+                    ></span
+                  >
+                  <span
+                    >Hovered: <strong
+                      data-hovered-region-id={viewState.hoveredRegionId ?? ''}
+                      >{regionName(viewState.hoveredRegionId)}</strong
+                    ></span
+                  >
                 </div>
               </div>
-              <MapToolPopout
-                kind="selection"
-                label="Details"
-                title="Selected system details"
-              >
-                <p>System ID <code>{selectedMapSystem.id64}</code></p>
-                <dl class="map-system-card__facts">
-                  <div>
-                    <dt>Primary star</dt>
-                    <dd>
-                      {selectedMapSystem.main_star_type ??
-                        'Unknown'}{selectedMapSystem.main_star_subtype
-                        ? ` · ${selectedMapSystem.main_star_subtype}`
-                        : ''}
-                    </dd>
-                  </div>
-                  {#if selectedMapSystem.distance != null}<div>
-                      <dt>Distance</dt>
-                      <dd>{selectedMapSystem.distance.toFixed(1)} ly</dd>
-                    </div>{/if}
-                  {#if selectedMapSystem.population != null}<div>
-                      <dt>Population</dt>
-                      <dd>{population(selectedMapSystem.population) ?? '0'}</dd>
-                    </div>{/if}
-                  {#if selectedMapSystem.primaryEconomy}<div>
-                      <dt>Economy</dt>
-                      <dd>{selectedMapSystem.primaryEconomy}</dd>
-                    </div>{/if}
-                  {#if selectedMapSystem.allegiance}<div>
-                      <dt>Allegiance</dt>
-                      <dd>{selectedMapSystem.allegiance}</dd>
-                    </div>{/if}
-                  {#if selectedMapSystem.security}<div>
-                      <dt>Security</dt>
-                      <dd>{selectedMapSystem.security}</dd>
-                    </div>{/if}
-                </dl>
-              </MapToolPopout>
-            </article>
-            <nav
-              class="map-system-card__actions"
-              aria-label="Selected system actions"
-            >
-              <!-- eslint-disable svelte/no-navigation-without-resolve -- inspectHref resolves the Inspect route -->
-              <a
-                class="inspect-map-action"
-                href={FINDER_F4_ENABLED
-                  ? inspectHref(selectedMapSystem.id64, page.url)
-                  : resolve(`/inspect?system=${selectedMapSystem.id64}`)}
-                onclick={FINDER_F4_ENABLED
-                  ? (event) => followInspect(event, selectedMapSystem!.id64)
-                  : undefined}><span>Inspect {selectedMapName}</span></a
-              >
-              <!-- eslint-enable svelte/no-navigation-without-resolve -->
-              <a href={resolve(`/plan?system=${selectedMapSystem.id64}`)}
-                >Plan here <ArrowRight aria-hidden="true" size={15} /></a
-              >
-            </nav>
-          {/if}
-          <div class="map-window-status">
-            <span
-              class="map-catalogue-status"
-              data-catalogue-star-count={catalogueStarsContribution?.layers[0]
-                ?.targetCount ?? 0}
-            >
-              {#if !starViewport}
-                Zoom in for individual catalogue stars
-              {:else if catalogueStars.isPending && !viewState.appliedCataloguePacket}
-                Loading exact catalogue stars…
-              {:else if catalogueStars.isError}
-                Exact-star layer unavailable
-              {:else}
-                {(
-                  catalogueStarsContribution?.layers[0]?.targetCount ?? 0
-                ).toLocaleString()} exact stars{catalogueStarsContribution
-                  ?.layers[0]?.truncated
-                  ? ' · bounded view'
-                  : ''}
-              {/if}
-            </span>
+            {/if}
+          </MapToolPopout>
 
-            <p
-              class="selection-status"
-              aria-live="polite"
-              data-last-picked-id64={viewState.lastPickedId64}
+          <MapLayers
+            densityEnabled={showDensity}
+            journeysEnabled={showTravelHeatmap}
+            nebulaeEnabled={viewState.showNebulae}
+            onDensityToggle={toggleDensity}
+            onJourneysToggle={toggleTravelHeatmap}
+            onNebulaeToggle={toggleNebulae}
+            densityCellSizeLy={viewState.lastGoodDensity?.payload.cellSizeLy ??
+              null}
+            densityGeneration={viewState.lastGoodDensity?.payload
+              .generationId ?? null}
+            {densityCoverage}
+            journeysMaxVisits={travelHeatmapState === 'ready'
+              ? Math.max(
+                  1,
+                  ...(commanderVisits.data?.visits.map(
+                    (visit) => visit.visitCount,
+                  ) ?? []),
+                )
+              : undefined}
+          >
+            {#snippet densityStatus()}
+              <span
+                role="status"
+                aria-label="Catalogue density"
+                data-density-state={densityState}
+                data-density-reason={densityEnabled
+                  ? densityFailure?.reason
+                  : undefined}
+                data-density-cell-count={densityCellCount}
+              >
+                {#if densityState === 'off'}
+                  Density layer hidden
+                {:else if densityState === 'zoom'}
+                  Zoom out to see known-system density
+                {:else if densityState === 'loading'}
+                  Loading catalogue density…{viewState.lastGoodDensity
+                    ? ' · showing previous area'
+                    : ''}
+                {:else if densityState === 'stale'}
+                  {densityCellCount.toLocaleString()} density cells · {densityCoverage}
+                  · stale · {densityFailure?.kind === 'invalid'
+                    ? 'density response invalid'
+                    : 'density refresh unavailable'}
+                {:else if densityState === 'unavailable'}
+                  Density layer unavailable
+                {:else if densityState === 'invalid'}
+                  Density response invalid
+                {:else if densityState === 'none'}
+                  No published density pyramid
+                {:else if densityState === 'empty'}
+                  No density cells in this area
+                {:else}
+                  {densityCellCount.toLocaleString()} density cells{viewState
+                    .lastGoodDensity?.area === 'truncated'
+                    ? ` · ${densityCoverage}`
+                    : ''}
+                {/if}
+                {#if densityEnabled && densityFailure}
+                  · <button type="button" onclick={() => void heatmap.refetch()}
+                    >Retry</button
+                  >
+                {/if}
+              </span>
+            {/snippet}
+            {#snippet journeysStatus()}
+              <span
+                role="status"
+                aria-label="My journeys"
+                data-commander-history-count={travelHeatmapState === 'ready'
+                  ? (commanderVisits.data?.count ?? 0)
+                  : 0}
+                data-commander-history-state={travelHeatmapState}
+              >
+                {#if travelHeatmapState === 'checking'}
+                  Checking your sign-in…
+                {:else if travelHeatmapState === 'auth-error'}
+                  Account check unavailable · <button
+                    type="button"
+                    onclick={() => void auth.bootstrap()}>Retry</button
+                  >
+                {:else if travelHeatmapState === 'signed-out'}
+                  <a href={resolve('/account')}
+                    >Sign in and import your journals</a
+                  >
+                {:else if travelHeatmapState === 'summary-error'}
+                  Journal import status unavailable · <button
+                    type="button"
+                    onclick={() => journalSummary.refetch()}>Retry</button
+                  >
+                {:else if travelHeatmapState === 'off'}
+                  My journeys hidden
+                {:else if travelHeatmapState === 'no-journals'}
+                  No imported journals yet
+                {:else if travelHeatmapState === 'zoom'}
+                  Travel history appears when individual-star range is active
+                {:else if travelHeatmapState === 'loading'}
+                  Reading imported journal visits…
+                {:else if travelHeatmapState === 'error'}
+                  Travel heatmap unavailable · <button
+                    type="button"
+                    onclick={() => commanderVisits.refetch()}>Retry</button
+                  >
+                {:else if travelHeatmapState === 'empty'}
+                  No imported journal travel in this view
+                {:else}
+                  {(commanderVisits.data?.count ?? 0).toLocaleString()} visited
+                  {commanderVisits.data?.mode === 'density'
+                    ? ' cells'
+                    : ' systems'}{commanderVisits.data?.truncated
+                    ? ' · bounded view'
+                    : ''}
+                {/if}
+              </span>
+            {/snippet}
+            {#snippet nebulaeStatus()}
+              <span
+                role="status"
+                aria-label="Nebulae"
+                data-nebula-resource-state={viewState.nebulaState}
+              >
+                {#if viewState.nebulaState === 'loading'}
+                  Loading complete nebula inventory…
+                {:else if viewState.nebulaState === 'failed'}
+                  Nebula layer unavailable · <button
+                    type="button"
+                    onclick={loadNebulae}>Retry</button
+                  >
+                {:else if viewState.nebulae}
+                  {`${viewState.nebulae.nebulae.length.toLocaleString()} catalogue ${
+                    viewState.nebulae.nebulae.length === 1
+                      ? 'record'
+                      : 'records'
+                  }`} · {nebulaDisplayStatus} ·
+                  <a
+                    href="https://edastro.com/mapcharts/files.html"
+                    target="_blank"
+                    rel="noreferrer">{viewState.nebulae.attribution}</a
+                  >
+                  ·
+                  <a
+                    href="https://edastro.com/mapcharts/files/nebulae-coordinates.csv"
+                    target="_blank"
+                    rel="noreferrer">source CSV</a
+                  >
+                  · {viewState.nebulae.rightsNotice}
+                {/if}
+              </span>
+            {/snippet}
+          </MapLayers>
+        </div>
+      {/snippet}
+      {#snippet afterCanvas()}
+        {#if selectedMapSystem}
+          <article
+            class="map-system-card"
+            aria-labelledby="map-system-card-title"
+            data-selected-system-card={selectedMapSystem.id64}
+          >
+            <div class="map-system-card__identity">
+              <span
+                class="stellar-glyph"
+                data-stellar-glyph={selectedStarPresentation.glyph}
+                style:--stellar-core={`rgb(${selectedStarPresentation.coreRgb.map((channel) => Math.round(channel * 255)).join(', ')})`}
+                style:--stellar-halo={`rgb(${selectedStarPresentation.haloRgb.map((channel) => Math.round(channel * 255)).join(', ')})`}
+                aria-hidden="true"
+              ></span>
+              <div>
+                <h3 id="map-system-card-title">
+                  {selectedMapSystem.name ?? `System ${selectedMapSystem.id64}`}
+                </h3>
+              </div>
+            </div>
+            <MapToolPopout
+              kind="selection"
+              label="Details"
+              title="Selected system details"
             >
-              {#if viewState.lastPickedId64}Spatial pick selected <code
-                  >{viewState.lastPickedId64}</code
-                >.{:else if $selectedSystem.value}Active system <code
-                  >{$selectedSystem.value}</code
-                >.{:else}Select a result to focus the map.{/if}
-            </p>
-          </div>
-        {/snippet}
-      </ExploreMapWindow>
-    {/if}
+              <p>System ID <code>{selectedMapSystem.id64}</code></p>
+              <dl class="map-system-card__facts">
+                <div>
+                  <dt>Primary star</dt>
+                  <dd>
+                    {selectedMapSystem.main_star_type ??
+                      'Unknown'}{selectedMapSystem.main_star_subtype
+                      ? ` · ${selectedMapSystem.main_star_subtype}`
+                      : ''}
+                  </dd>
+                </div>
+                {#if selectedMapSystem.distance != null}<div>
+                    <dt>Distance</dt>
+                    <dd>{selectedMapSystem.distance.toFixed(1)} ly</dd>
+                  </div>{/if}
+                {#if selectedMapSystem.population != null}<div>
+                    <dt>Population</dt>
+                    <dd>{population(selectedMapSystem.population) ?? '0'}</dd>
+                  </div>{/if}
+                {#if selectedMapSystem.primaryEconomy}<div>
+                    <dt>Economy</dt>
+                    <dd>{selectedMapSystem.primaryEconomy}</dd>
+                  </div>{/if}
+                {#if selectedMapSystem.allegiance}<div>
+                    <dt>Allegiance</dt>
+                    <dd>{selectedMapSystem.allegiance}</dd>
+                  </div>{/if}
+                {#if selectedMapSystem.security}<div>
+                    <dt>Security</dt>
+                    <dd>{selectedMapSystem.security}</dd>
+                  </div>{/if}
+              </dl>
+            </MapToolPopout>
+          </article>
+          <nav
+            class="map-system-card__actions"
+            aria-label="Selected system actions"
+          >
+            <!-- eslint-disable svelte/no-navigation-without-resolve -- inspectHref resolves the Inspect route -->
+            <a
+              class="inspect-map-action"
+              href={FINDER_F4_ENABLED
+                ? inspectHref(selectedMapSystem.id64, page.url)
+                : resolve(`/inspect?system=${selectedMapSystem.id64}`)}
+              onclick={FINDER_F4_ENABLED
+                ? (event) => followInspect(event, selectedMapSystem!.id64)
+                : undefined}><span>Inspect {selectedMapName}</span></a
+            >
+            <!-- eslint-enable svelte/no-navigation-without-resolve -->
+            <a href={resolve(`/plan?system=${selectedMapSystem.id64}`)}
+              >Plan here <ArrowRight aria-hidden="true" size={15} /></a
+            >
+          </nav>
+        {/if}
+        <div class="map-window-status">
+          <span
+            class="map-catalogue-status"
+            data-catalogue-star-count={catalogueStarsContribution?.layers[0]
+              ?.targetCount ?? 0}
+          >
+            {#if !starViewport}
+              Zoom in for individual catalogue stars
+            {:else if catalogueStars.isPending && !viewState.appliedCataloguePacket}
+              Loading exact catalogue stars…
+            {:else if catalogueStars.isError}
+              Exact-star layer unavailable
+            {:else}
+              {(
+                catalogueStarsContribution?.layers[0]?.targetCount ?? 0
+              ).toLocaleString()} exact stars{catalogueStarsContribution
+                ?.layers[0]?.truncated
+                ? ' · bounded view'
+                : ''}
+            {/if}
+          </span>
+
+          <p
+            class="selection-status"
+            aria-live="polite"
+            data-last-picked-id64={viewState.lastPickedId64}
+          >
+            {#if viewState.lastPickedId64}Spatial pick selected <code
+                >{viewState.lastPickedId64}</code
+              >.{:else if $selectedSystem.value}Active system <code
+                >{$selectedSystem.value}</code
+              >.{:else}Select a result to focus the map.{/if}
+          </p>
+        </div>
+      {/snippet}
+    </ExploreMapWindow>
   </div>
   <div id="saved-systems"><WatchlistPanel /></div>
   <div id="compare-systems"><ComparePanel /></div>
@@ -2929,7 +2881,7 @@
   }
   .map-window-status {
     display: flex;
-    flex-basis: 100%;
+    flex: 1 1 18rem;
     gap: 0.5rem;
     min-width: 0;
     color: var(--text-muted);
@@ -2956,18 +2908,129 @@
     clip-path: inset(50%);
     white-space: nowrap;
   }
-  .explore-grid {
+  /* Game-style workspace: the map fills the window below the site header,
+     with the Finder as a panel on the left that can be hidden. */
+  .explore-page {
+    width: calc(100% - 1rem);
+    padding: 0.5rem 0 3rem;
+  }
+  .explore-stage {
+    --finder-panel-width: clamp(21rem, 26vw, 27rem);
+    position: relative;
     display: grid;
+    grid-template-columns: var(--finder-panel-width) minmax(0, 1fr);
+    gap: 0.5rem;
+    height: calc(100dvh - var(--explore-stage-top, 7rem) - 0.5rem);
+    min-height: 30rem;
+  }
+  .explore-stage.is-finder-hidden {
     grid-template-columns: minmax(0, 1fr);
   }
-  .explore-grid.is-map-open {
-    grid-template-columns: minmax(17rem, 0.65fr) minmax(0, 1.35fr);
+  .finder-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    min-width: 0;
+    min-height: 0;
+    padding: 0.6rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    background: var(--panel-gloss), var(--bg-deep);
   }
-  .explore-grid.is-map-expanded {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .explore-grid.is-map-expanded .results-panel {
+  .finder-panel[hidden] {
     display: none;
+  }
+  .finder-panel > :global(*) {
+    flex-shrink: 0;
+  }
+  .finder-panel .product-intro {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 0.5rem;
+    margin: 0;
+  }
+  .finder-panel .product-intro h1 {
+    margin-top: 0.2rem;
+    font-size: clamp(1rem, 1.35vw, 1.35rem);
+    line-height: 1.1;
+  }
+  .finder-panel-toggle {
+    padding: 0.35rem 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-pill);
+    background: var(--panel-raised);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .finder-panel-toggle:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  .finder-panel .shortlist-nav {
+    gap: 0.25rem 1rem;
+    margin: 0;
+    font-size: 0.78rem;
+  }
+  .finder-panel .finder-bar {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.35rem;
+    margin: 0;
+    padding: 0.5rem 0.65rem 0.6rem;
+  }
+  .finder-panel .finder-bar .eyebrow {
+    display: none;
+  }
+  .finder-panel .finder-bar :global(h2) {
+    margin: 0;
+    font-size: 0.85rem;
+  }
+  .finder-panel .finder-bar :global(.combobox-wrap > label) {
+    margin-bottom: 0.25rem;
+    font-size: 0.78rem;
+  }
+  .finder-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.4rem 0.75rem;
+  }
+  .finder-panel .page-size {
+    margin: 0;
+    font-size: 0.85rem;
+  }
+  .finder-panel .page-size input {
+    width: 4rem;
+    padding: 0.25rem 0.5rem;
+  }
+  .finder-panel :global(.panel-heading) {
+    min-height: 0;
+    padding: 0.6rem 0.75rem;
+  }
+  .finder-panel .search-scope {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8rem;
+  }
+  /* The results take the rest of the panel and scroll on their own, so the
+     search and archetype controls above them stay in view. */
+  .finder-panel .results-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1 0 auto;
+    min-height: min(26rem, 70%);
+  }
+  .finder-panel .result-list {
+    flex: 1 1 0;
+    min-height: 12rem;
+    max-height: none;
+  }
+  .explore-stage > :global(.explore-map-window) {
+    min-height: 0;
   }
   .result-map-action {
     justify-self: start;
@@ -2982,11 +3045,40 @@
     }
   }
   @media (max-width: 900px) {
-    .explore-grid.is-map-open {
-      grid-template-columns: minmax(0, 1fr);
+    .explore-page {
+      width: calc(100% - 0.5rem);
+      padding-top: 0.25rem;
     }
-    .explore-grid.is-map-open .results-panel {
-      display: none;
+    /* Phone: the Finder and the map take turns. The page scrolls (no nested
+       panel scroll); the map fills the screen once the header scrolls away. */
+    .explore-stage {
+      display: block;
+      height: auto;
+      min-height: 0;
+    }
+    .finder-panel {
+      overflow: visible;
+    }
+    .finder-panel .results-panel {
+      min-height: 0;
+    }
+    .finder-panel .result-list {
+      flex: none;
+      max-height: 70dvh;
+    }
+    .explore-stage > :global(.explore-map-window) {
+      height: calc(100dvh - 0.5rem);
+      min-height: 26rem;
+      scroll-margin-top: 0.25rem;
+    }
+    /* While the Finder is shown, keep the map laid out at the same size off
+       screen, so its canvas never resizes and refetches when it returns. */
+    .explore-stage:not(.is-finder-hidden) > :global(.explore-map-window) {
+      position: absolute;
+      top: 0;
+      left: -300vw;
+      width: 100%;
+      visibility: hidden;
     }
   }
   .committed-anchor,
