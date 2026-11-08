@@ -17,6 +17,7 @@
     onArchetypeChange,
     onMinimumTierChange,
     disabled = false,
+    compact = false,
     rankingTools,
   }: {
     archetype: typeof ANY_ARCHETYPE | ArchetypeKey;
@@ -24,6 +25,8 @@
     onArchetypeChange: (archetype: typeof ANY_ARCHETYPE | ArchetypeKey) => void;
     onMinimumTierChange: (tier: SelectedMinimumTier) => void;
     disabled?: boolean;
+    /** Narrow panel: names only on screen; descriptions stay for assistive tech. */
+    compact?: boolean;
     rankingTools?: Snippet;
   } = $props();
 
@@ -38,7 +41,7 @@
   ];
 </script>
 
-<div class="archetype-controls">
+<div class="archetype-controls" class:is-compact={compact}>
   <fieldset {disabled}>
     <legend>Colony archetype</legend>
     <div class="archetype-choices">
@@ -173,5 +176,40 @@
   }
   .ranking-tools:empty {
     display: none;
+  }
+  .is-compact {
+    gap: 0.5rem;
+    margin-block: 0;
+  }
+  .is-compact fieldset {
+    padding: 0.5rem 0.6rem 0.6rem;
+  }
+  .is-compact legend {
+    font-size: 0.85rem;
+  }
+  .is-compact .archetype-choices {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 9rem), 1fr));
+    gap: 0.3rem;
+  }
+  .is-compact .archetype-choice {
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.5rem;
+  }
+  .is-compact .archetype-choice label {
+    font-size: 0.78rem;
+    line-height: 1.2;
+    overflow-wrap: normal;
+  }
+  .is-compact input {
+    margin: 0;
+  }
+  .is-compact .archetype-choice p {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 </style>

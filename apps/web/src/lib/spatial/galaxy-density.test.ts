@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { buildFixtureCatalogueDensity } from './galaxy-density.fixture';
 import {
+  CATALOGUE_DENSITY_MAXIMUM_SUPPORT_CELLS,
   catalogueDensityRadiusLy,
   catalogueDensitySceneLayer,
   createCatalogueDensityContribution,
@@ -134,8 +135,12 @@ describe('catalogue density truth contract', () => {
     const sparse = catalogueDensityRadiusLy(1, 100, 200);
     const dense = catalogueDensityRadiusLy(100, 100, 200);
 
-    expect(sparse).toBeGreaterThanOrEqual(16);
-    expect(dense).toBeLessThanOrEqual(124);
+    // Past the neighbouring cell (one cell away), so cells cannot read as a
+    // grid of dots, and never beyond 2 cells.
+    expect(sparse).toBeGreaterThanOrEqual(200 * 1.6);
+    expect(dense).toBeLessThanOrEqual(
+      200 * CATALOGUE_DENSITY_MAXIMUM_SUPPORT_CELLS,
+    );
     expect(dense).toBeGreaterThan(sparse);
   });
 });
