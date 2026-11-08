@@ -194,7 +194,10 @@
         <tbody>
           {#each ordered as rating (rating.economy)}
             {@const label = ratingEconomyLabel(rating.economy)}
-            <tr data-rating-economy={rating.economy}>
+            <tr
+              data-rating-economy={rating.economy}
+              class:open={open === rating.economy}
+            >
               <th scope="row">{label}</th>
               <td>
                 <div class="rating-potential">
@@ -284,6 +287,54 @@
 </section>
 
 <style>
+  /* Rows read as raised, rounded strips; the row whose explanation is open is
+     picked out in orange so the pop-out and its row stay linked. */
+  .rating-table {
+    border-collapse: separate;
+    border-spacing: 0 0.4rem;
+  }
+  .rating-table tbody :is(th, td) {
+    border-bottom: 0;
+    background: var(--panel-raised);
+    vertical-align: middle;
+  }
+  .rating-table tbody :is(th, td):first-child {
+    border-radius: var(--radius-pill, 0.7rem) 0 0 var(--radius-pill, 0.7rem);
+  }
+  .rating-table tbody :is(th, td):last-child {
+    border-radius: 0 var(--radius-pill, 0.7rem) var(--radius-pill, 0.7rem) 0;
+  }
+  .rating-table tbody tr.open :is(th, td) {
+    background: color-mix(in srgb, var(--accent) 14%, var(--panel-raised));
+    box-shadow:
+      inset 0 1px var(--accent),
+      inset 0 -1px var(--accent);
+  }
+  .rating-table tbody tr.open :is(th, td):first-child {
+    box-shadow:
+      inset 0 1px var(--accent),
+      inset 0 -1px var(--accent),
+      inset 1px 0 var(--accent);
+  }
+  .rating-table tbody tr.open :is(th, td):last-child {
+    box-shadow:
+      inset 0 1px var(--accent),
+      inset 0 -1px var(--accent),
+      inset -1px 0 var(--accent);
+  }
+  .rating-meter {
+    height: 0.6rem;
+    background: var(--panel-sunken);
+  }
+  .rating-meter > div {
+    background: linear-gradient(90deg, var(--neon), var(--neon-hi));
+  }
+  .rating-table tbody tr.open .rating-meter > div {
+    background: linear-gradient(90deg, var(--accent), var(--accent-hi));
+  }
+  .rating-potential > div:last-child {
+    font-weight: 700;
+  }
   .rating-why {
     border-color: var(--line);
     border-radius: var(--radius, 0.4rem);

@@ -65,13 +65,9 @@
 <WorkspaceHeader />
 <main class="inspect-page product-page">
   {#if systemId}
-    <SystemDetail
-      id64={systemId}
-      {tab}
-      onTabChange={changeTab}
-      autofocusHeading
-    />
-    <nav class="detail-actions" aria-label="System actions">
+    <!-- The actions sit above the system card, as in the concept: Back to
+         Explore at the left, the forward actions at the right. -->
+    <nav class="detail-actions inspect-actions" aria-label="System actions">
       <!-- eslint-disable svelte/no-navigation-without-resolve -- exploreHref resolves the Explore route -->
       <a
         class="secondary-button"
@@ -80,20 +76,28 @@
           ? (event) => followExplore(event, backHref!)
           : undefined}>Back to Explore</a
       >
-      <a
-        class="secondary-button"
-        href={FINDER_F4_ENABLED
-          ? openHref!
-          : resolve(`/explore?system=${systemId}`)}
-        onclick={FINDER_F4_ENABLED
-          ? (event) => followExplore(event, openHref!)
-          : undefined}>Open in Explore</a
-      >
-      <!-- eslint-enable svelte/no-navigation-without-resolve -->
-      <a class="primary-button" href={resolve(`/plan?system=${systemId}`)}
-        >Continue to Plan</a
-      >
+      <span class="inspect-actions-end">
+        <a
+          class="secondary-button"
+          href={FINDER_F4_ENABLED
+            ? openHref!
+            : resolve(`/explore?system=${systemId}`)}
+          onclick={FINDER_F4_ENABLED
+            ? (event) => followExplore(event, openHref!)
+            : undefined}>Open in Explore</a
+        >
+        <!-- eslint-enable svelte/no-navigation-without-resolve -->
+        <a class="primary-button" href={resolve(`/plan?system=${systemId}`)}
+          >Continue to Plan</a
+        >
+      </span>
     </nav>
+    <SystemDetail
+      id64={systemId}
+      {tab}
+      onTabChange={changeTab}
+      autofocusHeading
+    />
   {:else}
     <section
       class="system-detail invalid"
@@ -113,3 +117,26 @@
     </section>
   {/if}
 </main>
+
+<style>
+  .inspect-actions {
+    justify-content: space-between;
+    margin: 0 0 1rem;
+  }
+
+  .inspect-actions-end {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  @media (max-width: 700px) {
+    .inspect-actions-end {
+      flex: 1 1 100%;
+    }
+
+    .inspect-actions-end a {
+      flex: 1 1 100%;
+    }
+  }
+</style>

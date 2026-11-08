@@ -772,6 +772,53 @@ describe('shared system detail', () => {
     expect(within(star).getAllByText('None recorded')).toHaveLength(2);
   });
 
+  it('keeps the overview facts, economy table and the map, list and body card as parts of one panel each so wide screens can set them in columns', async () => {
+    const id64 = parseId64('10477373803');
+    mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+
+    render(SystemDetailTestHost, { props: { id64 } });
+
+    await screen.findByRole('button', { name: 'Why? Agriculture' });
+    const overview = document.querySelector('.overview-panel');
+    expect(overview).not.toBeNull();
+    expect(
+      [...(overview?.children ?? [])].map((child) =>
+        child.classList.contains('detail-grid')
+          ? 'facts'
+          : child.classList.contains('system-ratings')
+            ? 'ratings'
+            : 'other',
+      ),
+    ).toEqual(['facts', 'ratings']);
+
+    await openTab('Bodies');
+    const list = await screen.findByRole('list', { name: 'System bodies' });
+    await fireEvent.click(
+      within(list).getAllByRole('button')[1] as HTMLElement,
+    );
+    await screen.findByRole('article');
+    const panel = document.querySelector('.system-map-panel');
+    expect(
+      [...(panel?.children ?? [])].map(
+        (child) => child.className.split(' ')[0],
+      ),
+    ).toEqual([
+      'system-map-heading',
+      'system-map-truth-note',
+      'system-map-stage',
+      'system-map-legend',
+      'system-map-browser',
+    ]);
+    expect(
+      [...(panel?.querySelector('.system-map-browser')?.children ?? [])].map(
+        (child) => child.tagName,
+      ),
+    ).toEqual(['OL', 'ARTICLE']);
+    expect(
+      panel?.querySelector('.system-map-stage [data-spatial-canvas]'),
+    ).not.toBeNull();
+  });
+
   it('explains the hierarchy schematic and lists unknown positions without changing selection', async () => {
     mockedGetSystem.mockResolvedValue(
       systemDetailFromV3(
@@ -1448,6 +1495,29 @@ describe('shared system detail', () => {
     expect(mockedGetExplanation).toHaveBeenCalledTimes(1);
     await fireEvent.keyDown(window, { key: 'Escape' });
     expect(tourism).toHaveFocus();
+  });
+
+  it('picks out only the economy row whose evidence is open', async () => {
+    mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+    render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });
+    const rows = () =>
+      [...document.querySelectorAll('tr[data-rating-economy]')].filter((row) =>
+        row.classList.contains('open'),
+      );
+    await screen.findByRole('button', { name: 'Why? Agriculture' });
+    expect(rows()).toHaveLength(0);
+    await fireEvent.click(screen.getByRole('button', { name: 'Why? Tourism' }));
+    expect(
+      rows().map((row) => row.getAttribute('data-rating-economy')),
+    ).toEqual(['Tourism']);
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Why? Agriculture' }),
+    );
+    expect(
+      rows().map((row) => row.getAttribute('data-rating-economy')),
+    ).toEqual(['Agriculture']);
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(rows()).toHaveLength(0);
   });
 
   it('retains an open evidence selection across tabs without refetching', async () => {
