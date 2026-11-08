@@ -674,6 +674,9 @@ describe('Babylon spatial adapter boundary', () => {
     expect(product.densityMesh).not.toBeNull();
     expect(product.densityMesh?.thinInstanceCount).toBe(payload.cells.length);
     expect(product.densityMesh?.isPickable).toBe(false);
+    // Blooming the already-soft glow drew every splat at full emissive into
+    // the glow target and laid a flat grey plateau over the disc.
+    expect(product.visualGlow.hasMesh(product.densityMesh!)).toBe(false);
     expect(product.renderedLayers).toEqual([
       {
         contributionId: 'catalogue-density-base',
@@ -844,6 +847,124 @@ describe('Babylon spatial adapter boundary', () => {
     engine.dispose();
   });
 
+  it('reuses one grid line material across zoom rebuilds, so no shader is recompiled', () => {
+    const engine = new NullEngine();
+    const session = createBabylonSession(engine, 'WEBGL2');
+    const events = vi.fn();
+    const camera: GalaxySceneContract['camera'] = {
+      focusLy: { x: 0, y: 0, z: 0 },
+      distanceLy: 1_000,
+      bearingRad: 0,
+      pitchRad: 0.5,
+      projection: 'perspective',
+      revision: 1,
+    };
+    session.execute?.(
+      {
+        type: 'LOAD_SCENE',
+        scene: {
+          kind: 'galaxy',
+          revision: 1,
+          camera,
+          selection: [],
+          contributions: [],
+        },
+      },
+      events,
+    );
+    const scene = engine.scenes.at(-1)!;
+    const before = scene.getMeshByName('galaxy-reference-grid-major')!;
+    const material = before.material!;
+    expect(material).not.toBeNull();
+    for (const [revision, distanceLy] of [
+      [2, 20_000],
+      [3, 400],
+    ] as const) {
+      session.execute?.(
+        { type: 'SET_CAMERA', camera: { ...camera, distanceLy, revision } },
+        events,
+      );
+      const grid = [
+        'galaxy-reference-grid-minor',
+        'galaxy-reference-grid-major',
+        'galaxy-reference-grid-axes',
+      ]
+        .map((name) => scene.getMeshByName(name))
+        .filter((mesh) => mesh !== null);
+      expect(grid.length).toBeGreaterThan(0);
+      // The camera change rebuilt the grid geometry, but every family still
+      // draws with the one material, which was never disposed.
+      expect(before.isDisposed()).toBe(true);
+      // Identity checks without printing Babylon objects on failure.
+      for (const mesh of grid) expect(mesh.material === material).toBe(true);
+      expect(scene.materials.includes(material)).toBe(true);
+    }
+
+    session.dispose();
+  });
+
+  it('keeps the previous frame until a new scene is ready, but never waits forever', () => {
+    const engine = new NullEngine();
+    const session = createBabylonSession(engine, 'WEBGL2');
+    session.execute?.(
+      {
+        type: 'LOAD_SCENE',
+        scene: {
+          kind: 'galaxy',
+          revision: 1,
+          camera: {
+            focusLy: { x: 0, y: 0, z: 0 },
+            distanceLy: 1_000,
+            bearingRad: 0,
+            pitchRad: 0.5,
+            projection: 'perspective',
+            revision: 1,
+          },
+          selection: [],
+          contributions: [],
+        },
+      },
+      vi.fn(),
+    );
+    const scene = engine.scenes.at(-1)!;
+    const draw = vi.spyOn(scene, 'render');
+    const ready = vi.spyOn(scene, 'isReady').mockReturnValue(false);
+    // Not ready: present nothing and ask for another frame.
+    expect(session.render()).toBe(true);
+    expect(draw).not.toHaveBeenCalled();
+    ready.mockReturnValue(true);
+    session.render();
+    expect(draw).toHaveBeenCalledOnce();
+
+    // A material that never becomes ready must not stop drawing for good.
+    session.execute?.(
+      {
+        type: 'SET_CAMERA',
+        camera: {
+          focusLy: { x: 10, y: 0, z: 0 },
+          distanceLy: 1_000,
+          bearingRad: 0,
+          pitchRad: 0.5,
+          projection: 'perspective',
+          revision: 2,
+        },
+      },
+      vi.fn(),
+    );
+    ready.mockReturnValue(false);
+    draw.mockClear();
+    let attempts = 0;
+    while (draw.mock.calls.length === 0 && attempts < 1_000) {
+      session.render();
+      attempts += 1;
+    }
+    expect(draw).toHaveBeenCalledOnce();
+    expect(attempts).toBeGreaterThan(1);
+    expect(attempts).toBeLessThanOrEqual(121);
+
+    session.dispose();
+  });
+
   it('applies the density cross-fade immediately on LOAD_SCENE, without waiting for a camera move', () => {
     const payload = buildFixtureCatalogueDensity(
       [
@@ -893,6 +1014,11 @@ describe('Babylon spatial adapter boundary', () => {
 
     expect(densityMesh?.material?.alpha).toBeCloseTo(0.45, 5);
     expect(starMesh?.material?.alpha).toBeCloseTo(0.5, 5);
+    const glow = scene.effectLayers.find(
+      (layer) => layer.name === 'galaxy-emissive-glow',
+    );
+    expect(glow).toBeDefined();
+    expect(glow!.hasMesh(densityMesh!)).toBe(false);
 
     session.dispose();
     engine.dispose();
@@ -953,6 +1079,12 @@ describe('Babylon spatial adapter boundary', () => {
 
     expect(densityMesh?.material?.alpha).toBeCloseTo(0.45, 5);
     expect(starMesh?.material?.alpha).toBeCloseTo(0.5, 5);
+    // A refreshed density layer must stay out of the glow layer as well.
+    const glow = scene.effectLayers.find(
+      (layer) => layer.name === 'galaxy-emissive-glow',
+    );
+    expect(glow).toBeDefined();
+    expect(glow!.hasMesh(densityMesh!)).toBe(false);
 
     session.dispose();
     engine.dispose();
@@ -1105,6 +1237,57 @@ describe('Babylon spatial adapter boundary', () => {
       session.dispose();
     },
   );
+
+  it('keeps the density layer out of bloom after the only glow mesh is deselected', () => {
+    // A plain G star has no accent ring and there is no commander history, so
+    // the selection marker is the only glow mesh this scene starts with.
+    const plainStar: GalaxySystemPoint = {
+      systemId64: '77',
+      name: 'Plain G star',
+      positionLy: { x: 30, y: 0, z: 0 },
+      primaryStar: { type: 'G' },
+    };
+    const base = densityBatchScene(
+      DENSITY_CROSSFADE_FAR_LY + 1,
+      [plainStar],
+      [],
+    );
+    const engine = new NullEngine();
+    const session = createBabylonSession(engine, 'WEBGL2');
+    const events = vi.fn();
+    session.execute?.(
+      {
+        type: 'LOAD_SCENE',
+        scene: {
+          ...base,
+          selection: [{ kind: 'system', systemId64: plainStar.systemId64 }],
+        },
+      },
+      events,
+    );
+    const scene = engine.scenes.at(-1)!;
+    expect(scene.getMeshByName('selected-system-marker')).not.toBeNull();
+    expect(
+      scene.getMeshByName(`stellar-icon-ring-${plainStar.systemId64}`),
+    ).toBeNull();
+    const glow = scene.effectLayers.find(
+      (layer) => layer.name === 'galaxy-emissive-glow',
+    )!;
+    const densityMesh = scene.getMeshByName('catalogue-density-cells')!;
+    expect(glow.hasMesh(densityMesh)).toBe(false);
+
+    session.execute?.(
+      { type: 'LOAD_SCENE', scene: { ...base, revision: 2, selection: [] } },
+      events,
+    );
+    // Deselection takes the in-place path: same scene, marker removed.
+    expect(engine.scenes.at(-1)).toBe(scene);
+    expect(scene.getMeshByName('selected-system-marker')).toBeNull();
+    expect(glow.hasMesh(densityMesh)).toBe(false);
+
+    session.dispose();
+    engine.dispose();
+  });
 
   it('moves a selected catalogue star into the opaque batch after zoom without changing unrelated stars', () => {
     const selectedPoint = {

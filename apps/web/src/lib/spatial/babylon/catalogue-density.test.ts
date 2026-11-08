@@ -1,14 +1,18 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { VertexBuffer } from '@babylonjs/core/Buffers/buffer.js';
 import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera.js';
+import { Constants } from '@babylonjs/core/Engines/constants.js';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine.js';
+import type { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { Scene } from '@babylonjs/core/scene.js';
 
 import { buildFixtureCatalogueDensity } from '../galaxy-density.fixture';
 import type { CatalogueDensitySceneLayer } from '../galaxy-density';
+import { catalogueDensityRadiusLy } from '../galaxy-density';
 import {
   buildCatalogueDensityKernel,
+  catalogueDensityKernelAlpha,
   catalogueDensityHeatColour,
   CATALOGUE_DENSITY_KERNEL_SIZE,
   CATALOGUE_DENSITY_PRESENTATION_VERSION,
@@ -74,7 +78,10 @@ describe('catalogue density splats', () => {
         cell.centroidLy.y,
         cell.centroidLy.z,
       ]);
-      expect(matrix.m[0]).toBeLessThanOrEqual(100 * 0.62);
+      // Every splat reaches past its one-cell-away neighbours (no dot grid)
+      // but stays within 2 cells.
+      expect(matrix.m[0]).toBeGreaterThanOrEqual(100 * 1.6);
+      expect(matrix.m[0]).toBeLessThanOrEqual(100 * 2);
     }
     expect(matrices[0].m[0]).toBeGreaterThan(matrices[1].m[0]);
     expect(colours[3]).toBeGreaterThan(colours[7]);
@@ -86,8 +93,8 @@ describe('catalogue density splats', () => {
       presentation: {
         version: CATALOGUE_DENSITY_PRESENTATION_VERSION,
         palette: 'cool-sparse-to-warm-dense',
-        blend: 'alpha-combine',
-        maximumSupportRadiusLy: 62,
+        blend: 'additive',
+        maximumSupportRadiusLy: 200,
       },
     });
   });
@@ -158,6 +165,46 @@ describe('catalogue density splats', () => {
         }
       }
     }
+  });
+
+  it('sums equal neighbouring cells to an even glow, not a grid of dots', () => {
+    // Cells sit one cell apart on a lattice. Sample the summed light at the
+    // cell centres, the edge midpoints and the corners of the middle cell.
+    const cellSizeLy = 100;
+    for (const [count, maximum] of [
+      [1, 1_000],
+      [1_000, 1_000],
+    ] as const) {
+      const radius = catalogueDensityRadiusLy(count, maximum, cellSizeLy);
+      const light = (x: number, z: number) => {
+        let total = 0;
+        for (let i = -4; i <= 4; i += 1) {
+          for (let j = -4; j <= 4; j += 1) {
+            const dx = (x - i * cellSizeLy) / radius;
+            const dz = (z - j * cellSizeLy) / radius;
+            total += catalogueDensityKernelAlpha(dx * dx + dz * dz);
+          }
+        }
+        return total;
+      };
+      const samples = [
+        light(0, 0),
+        light(cellSizeLy / 2, 0),
+        light(0, cellSizeLy / 2),
+        light(cellSizeLy / 2, cellSizeLy / 2),
+      ];
+      const ripple =
+        (Math.max(...samples) - Math.min(...samples)) / Math.max(...samples);
+      expect(ripple, `count ${count}`).toBeLessThan(0.02);
+    }
+  });
+
+  it('adds overlapping light instead of painting splats over one another', () => {
+    const { scene } = createScene();
+    const material = createCatalogueDensityMesh(scene, density)!
+      .material as StandardMaterial;
+    expect(material.alphaMode).toBe(Constants.ALPHA_ADD);
+    expect(material.disableDepthWrite).toBe(true);
   });
 
   it('allocates no replacement for missing or empty data and releases owned resources', () => {
