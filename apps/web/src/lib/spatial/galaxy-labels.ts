@@ -35,6 +35,12 @@ export type ProjectedGalaxyLabel = GalaxyLabelCandidate &
     leaderEndXPx: number;
     placement: 'map' | 'atlas-left' | 'atlas-right';
     priority: number;
+    /**
+     * Which of the region displacement slots this label sits in (0 is on its
+     * anchor). Pass it back as `previousDisplacements` on the next layout so a
+     * label only moves when it has to.
+     */
+    displacementIndex: number;
   }>;
 
 export type GalaxyLabelViewport = Readonly<{
@@ -50,6 +56,18 @@ export type GalaxyLabelLayoutOptions = Readonly<{
     left: number;
   }>;
   maximumSystemLabels?: number;
+  /**
+   * Label key → `displacementIndex` from the previous layout. A region name
+   * keeps its slot while that slot is still free and only returns to its
+   * anchor once there is clear room, so a zoom cannot flip it back and forth.
+   */
+  previousDisplacements?: ReadonlyMap<string, number>;
+  /**
+   * While the camera is moving, a region name that already has a slot keeps
+   * exactly that slot, even if it now touches a neighbour. Nothing shuffles
+   * mid-gesture; the next unlocked layout slides names clear once it stops.
+   */
+  lockDisplacements?: boolean;
 }>;
 
 type ScreenProjection = Readonly<{
@@ -495,8 +513,28 @@ function estimateBox(
   };
 }
 
-function overlaps(left: LabelBox, right: LabelBox): boolean {
-  const gap = 6;
+const LABEL_GAP_PX = 6;
+/** Extra room a displaced region name needs before it returns to its anchor. */
+const HOME_CLEARANCE_PX = 24;
+
+/** Slot 0 is the anchor; the rest are tried in this fixed order. */
+const REGION_DISPLACEMENTS = [
+  [0, 0],
+  [0, -42],
+  [0, 42],
+  [96, 0],
+  [-96, 0],
+  [78, -38],
+  [-78, -38],
+  [78, 38],
+  [-78, 38],
+] as const;
+
+function overlaps(
+  left: LabelBox,
+  right: LabelBox,
+  gap: number = LABEL_GAP_PX,
+): boolean {
   return !(
     left.right + gap <= right.left ||
     left.left >= right.right + gap ||
@@ -542,6 +580,12 @@ export function layoutGalaxyLabels(
   });
   projected.sort((left, right) => {
     if (left.priority !== right.priority) return right.priority - left.priority;
+    // Region names are never dropped, only moved, so the order they claim
+    // space in must not depend on where the camera is. Ordering them by
+    // distance from the centre made neighbours swap places as you zoomed.
+    if (left.candidate.kind === 'region' && right.candidate.kind === 'region') {
+      return left.candidate.key.localeCompare(right.candidate.key);
+    }
     const leftDistance = Math.hypot(
       left.screen.xPx - centre.x,
       left.screen.yPx - centre.y,
@@ -564,17 +608,33 @@ export function layoutGalaxyLabels(
   let systemCount = 0;
   const maximumSystems =
     options.maximumSystemLabels ?? DEFAULT_MAXIMUM_SYSTEM_LABELS;
-  const displacements = [
-    [0, 0],
-    [0, -42],
-    [0, 42],
-    [96, 0],
-    [-96, 0],
-    [78, -38],
-    [-78, -38],
-    [78, 38],
-    [-78, 38],
-  ] as const;
+  const clampIntoSafe = (
+    candidate: GalaxyLabelCandidate,
+    xPx: number,
+    yPx: number,
+  ): { x: number; y: number } => {
+    const box = estimateBox(candidate, xPx, yPx);
+    const halfWidth = (box.right - box.left) / 2;
+    const halfHeight = (box.bottom - box.top) / 2;
+    return {
+      x: clamp(
+        xPx,
+        safe.left + halfWidth,
+        viewport.width - safe.right - halfWidth,
+      ),
+      y: clamp(
+        yPx,
+        safe.top + halfHeight,
+        viewport.height - safe.bottom - halfHeight,
+      ),
+    };
+  };
+  const fits = (box: LabelBox, gap: number): boolean =>
+    box.left >= safe.left &&
+    box.right <= viewport.width - safe.right &&
+    box.top >= safe.top &&
+    box.bottom <= viewport.height - safe.bottom &&
+    !occupiedBoxes.some((occupied) => overlaps(occupied, box, gap));
 
   for (const entry of projected) {
     if (entry.candidate.kind === 'system' && systemCount >= maximumSystems) {
@@ -589,23 +649,51 @@ export function layoutGalaxyLabels(
     if (isRegion && !anchorIsInFrame) continue;
     // A system chip is an interactive button: keep it beside its star, not
     // over it, so the star itself stays clickable for a spatial pick.
-    const offsets = isRegion
-      ? displacements
-      : ([[systemLabelOffsetX(entry.candidate), 0]] as const);
-    let placed = false;
-    for (const [offsetX, offsetY] of offsets) {
-      const xPx = entry.screen.xPx + offsetX;
-      const yPx = entry.screen.yPx + offsetY;
-      const box = estimateBox(entry.candidate, xPx, yPx);
-      if (
-        box.left < safe.left ||
-        box.right > viewport.width - safe.right ||
-        box.top < safe.top ||
-        box.bottom > viewport.height - safe.bottom ||
-        occupiedBoxes.some((occupied) => overlaps(occupied, box))
-      ) {
-        continue;
+    const slots: readonly number[] = isRegion
+      ? regionSlotOrder(options.previousDisplacements?.get(entry.candidate.key))
+      : [0];
+    const slotBox = (slot: number): { box: LabelBox; x: number; y: number } => {
+      const [offsetX, offsetY] = isRegion
+        ? REGION_DISPLACEMENTS[slot]!
+        : ([systemLabelOffsetX(entry.candidate), 0] as const);
+      const x = entry.screen.xPx + offsetX;
+      const y = entry.screen.yPx + offsetY;
+      return { box: estimateBox(entry.candidate, x, y), x, y };
+    };
+    let chosen: number | undefined;
+    const previous = isRegion
+      ? options.previousDisplacements?.get(entry.candidate.key)
+      : undefined;
+    const locked =
+      options.lockDisplacements === true &&
+      previous !== undefined &&
+      Number.isInteger(previous) &&
+      previous >= 0 &&
+      previous < REGION_DISPLACEMENTS.length;
+    if (locked) chosen = previous;
+    else if (
+      previous !== undefined &&
+      previous !== 0 &&
+      fits(slotBox(0).box, LABEL_GAP_PX + HOME_CLEARANCE_PX)
+    ) {
+      // Back on its anchor, but only with room to spare: a name that has
+      // just been moved aside must not flip back the moment it fits by a pixel.
+      chosen = 0;
+    }
+    for (const slot of chosen === undefined ? slots : []) {
+      if (fits(slotBox(slot).box, LABEL_GAP_PX)) {
+        chosen = slot;
+        break;
       }
+    }
+    const placed = chosen !== undefined;
+    if (chosen !== undefined) {
+      const slot = slotBox(chosen);
+      // A locked name may sit past a neighbour but never past the safe area.
+      const { x: xPx, y: yPx } = locked
+        ? clampIntoSafe(entry.candidate, slot.x, slot.y)
+        : slot;
+      const box = locked ? estimateBox(entry.candidate, xPx, yPx) : slot.box;
       accepted.push({
         ...entry.candidate,
         xPx,
@@ -615,30 +703,21 @@ export function layoutGalaxyLabels(
         leaderEndXPx: xPx,
         placement: 'map',
         priority: entry.priority,
+        displacementIndex: chosen,
       });
       occupiedBoxes.push(box);
       if (!isRegion) systemCount += 1;
-      placed = true;
-      break;
     }
     if (isRegion && !placed) {
       // Region names are an invariant, not a decluttering budget. If every
       // collision-free displacement fails, keep the source anchor truthful and
       // clamp only the label box into the safe area. Overlap is preferable to
       // silently removing a named region.
-      const anchorBox = estimateBox(
+      const { x: xPx, y: yPx } = clampIntoSafe(
         entry.candidate,
         entry.screen.xPx,
         entry.screen.yPx,
       );
-      const halfWidth = (anchorBox.right - anchorBox.left) / 2;
-      const halfHeight = (anchorBox.bottom - anchorBox.top) / 2;
-      const minX = safe.left + halfWidth;
-      const maxX = viewport.width - safe.right - halfWidth;
-      const minY = safe.top + halfHeight;
-      const maxY = viewport.height - safe.bottom - halfHeight;
-      const xPx = clamp(entry.screen.xPx, minX, maxX);
-      const yPx = clamp(entry.screen.yPx, minY, maxY);
       const box = estimateBox(entry.candidate, xPx, yPx);
       accepted.push({
         ...entry.candidate,
@@ -649,11 +728,40 @@ export function layoutGalaxyLabels(
         leaderEndXPx: xPx,
         placement: 'map',
         priority: entry.priority,
+        displacementIndex: 0,
       });
       occupiedBoxes.push(box);
     }
   }
   return accepted;
+}
+
+/**
+ * The slot a region name held last time first. If a neighbour has taken it,
+ * the nearest other slot comes next, so a name that has to move shifts a short
+ * way instead of hopping to the far side of its anchor.
+ */
+function regionSlotOrder(previous: number | undefined): readonly number[] {
+  const slots = REGION_DISPLACEMENTS.map((_, slot) => slot);
+  if (
+    previous === undefined ||
+    !Number.isInteger(previous) ||
+    previous <= 0 ||
+    previous >= slots.length
+  ) {
+    return slots;
+  }
+  const [px, py] = REGION_DISPLACEMENTS[previous]!;
+  const distance = (slot: number): number => {
+    const [x, y] = REGION_DISPLACEMENTS[slot]!;
+    return Math.hypot(x - px, y - py);
+  };
+  return [
+    previous,
+    ...slots
+      .filter((slot) => slot !== previous)
+      .sort((left, right) => distance(left) - distance(right) || left - right),
+  ];
 }
 
 /** Gap between a star and the left edge of its label chip, in CSS pixels. */

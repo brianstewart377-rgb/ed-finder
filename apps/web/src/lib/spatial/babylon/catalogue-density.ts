@@ -18,12 +18,15 @@ import '@babylonjs/core/Meshes/thinInstanceMesh.js';
 import type { Scene } from '@babylonjs/core/scene.js';
 
 import {
+  CATALOGUE_DENSITY_MAXIMUM_SUPPORT_CELLS,
   catalogueDensityRadiusLy,
   type CatalogueDensitySceneLayer,
 } from '../galaxy-density';
 
 export const CATALOGUE_DENSITY_KERNEL_SIZE = 64;
-export const CATALOGUE_DENSITY_PRESENTATION_VERSION = 'stellar-heatmap-v2';
+export const CATALOGUE_DENSITY_PRESENTATION_VERSION = 'stellar-glow-v3';
+/** Gaussian width as a fraction of the splat radius (about 0.7–0.9 cells). */
+const KERNEL_SIGMA = 0.45;
 
 type DensityHeatColour = readonly [
   red: number,
@@ -36,7 +39,11 @@ function mix(left: number, right: number, amount: number): number {
   return left + (right - left) * amount;
 }
 
-/** Count-only stellar palette: cool sparse cells, warm luminous concentrations. */
+/**
+ * Count-only stellar palette: cool sparse cells, warm luminous concentrations.
+ * The alpha is a per-cell light contribution: neighbouring splats overlap and
+ * add up, so it is kept low and steep enough that only dense regions saturate.
+ */
 export function catalogueDensityHeatColour(
   systemCount: number,
   maximumSystemCount: number,
@@ -61,12 +68,25 @@ export function catalogueDensityHeatColour(
     mix(from[0], to[0], local),
     mix(from[1], to[1], local),
     mix(from[2], to[2], local),
-    0.16 + 0.76 * Math.pow(fraction, 0.72),
+    0.02 + 0.2 * Math.pow(fraction, 2),
   ];
 }
 
 /**
- * A compact presentation halo, not an occupancy map. Alpha is exactly zero
+ * Kernel opacity at a squared distance from the splat centre, in units of the
+ * splat radius: a Gaussian tapered to exactly zero at the edge, so support
+ * stays compact.
+ */
+export function catalogueDensityKernelAlpha(squaredRadius: number): number {
+  if (!(squaredRadius >= 0) || squaredRadius >= 1) return 0;
+  return (
+    Math.exp(-squaredRadius / (2 * KERNEL_SIGMA ** 2)) *
+    (1 - squaredRadius) ** 2
+  );
+}
+
+/**
+ * A compact presentation glow, not an occupancy map. Alpha is exactly zero
  * outside the unit disc; each instance scales it to its declared source-cell
  * radius. The same kernel is used for every cell on both rendering backends.
  */
@@ -77,16 +97,7 @@ export function buildCatalogueDensityKernel(): Uint8Array {
     for (let x = 0; x < size; x += 1) {
       const u = (2 * x) / (size - 1) - 1;
       const v = (2 * y) / (size - 1) - 1;
-      const squaredRadius = u * u + v * v;
-      const alpha =
-        squaredRadius < 1
-          ? Math.min(
-              1,
-              (0.68 * Math.exp(-2.35 * squaredRadius) +
-                0.42 * Math.exp(-9 * squaredRadius)) *
-                (1 - squaredRadius) ** 1.35,
-            )
-          : 0;
+      const alpha = catalogueDensityKernelAlpha(u * u + v * v);
       const offset = (y * size + x) * 4;
       pixels[offset] = 255;
       pixels[offset + 1] = 255;
@@ -185,7 +196,9 @@ export function createCatalogueDensityMesh(
   Object.assign(material, { useVertexColors: true });
   material.opacityTexture = kernel;
   material.alpha = 0.9;
-  material.alphaMode = Constants.ALPHA_COMBINE;
+  // Overlapping splats add up like light, so the result does not depend on
+  // the (unsorted) instance order and equal neighbours form an even glow.
+  material.alphaMode = Constants.ALPHA_ADD;
   material.transparencyMode = Material.MATERIAL_ALPHABLEND;
   material.disableDepthWrite = true;
   material.backFaceCulling = false;
@@ -246,13 +259,14 @@ export function createCatalogueDensityMesh(
       presentation: {
         version: CATALOGUE_DENSITY_PRESENTATION_VERSION,
         primitive: 'camera-facing-thin-instance-quad',
-        kernel: 'compact-core-and-halo-alpha',
+        kernel: 'tapered-gaussian-alpha',
         position: 'source-cell-centroid',
         countTransfer: 'log1p-radius-opacity-and-stellar-palette',
         palette: 'cool-sparse-to-warm-dense',
-        blend: 'alpha-combine',
-        maximumSupportRadiusLy: density.payload.cellSizeLy * 0.62,
-        supportMeaning: 'presentation-halo-not-cell-occupancy',
+        blend: 'additive',
+        maximumSupportRadiusLy:
+          density.payload.cellSizeLy * CATALOGUE_DENSITY_MAXIMUM_SUPPORT_CELLS,
+        supportMeaning: 'presentation-glow-not-cell-occupancy',
       },
     },
   };
