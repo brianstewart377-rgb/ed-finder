@@ -247,15 +247,31 @@ def replay_facts(manifest, vector, body_rows):
 
 
 def _read_chunk(connection, generation_id, ordinal):
+    """Read one stored chunk back exactly as it was written.
+
+    Chunk rows are joined to their chunk receipt instead of being selected
+    through an ``IN (SELECT system_id64 ...)`` list. The semi-join form prices a
+    parallel sequential scan of the 110 GB ``body_mechanics`` relation as a
+    near-tie and then chooses it, so every replayed chunk read the whole table.
+    The joined form resolves to the keyed ``body_mechanics_pkey`` nested loop:
+    one chunk measured 13.6 s / 8,000,718 buffers as a semi-join against 69 ms /
+    5,117 buffers as a join on the retained production database.
+
+    ``system_rating_vector`` is unique on (derived_generation_id, system_id64),
+    so joining that relation to itself still returns exactly the receipt rows.
+    Every read keeps its explicit ``ORDER BY``, so replayed row order and the
+    sealed chunk digest are unchanged.
+    """
     from psycopg import sql
 
     def select(table, columns, order):
-        query = sql.SQL('''SELECT {} FROM v3_derived.{} t WHERE t.derived_generation_id=%s
-            AND t.system_id64 IN (SELECT system_id64 FROM v3_derived.system_rating_vector
-                WHERE derived_generation_id=%s AND chunk_ordinal=%s) ORDER BY {}''').format(
+        query = sql.SQL('''SELECT {} FROM v3_derived.{} t
+            JOIN v3_derived.system_rating_vector v ON v.derived_generation_id=t.derived_generation_id
+                AND v.system_id64=t.system_id64
+            WHERE v.derived_generation_id=%s AND v.chunk_ordinal=%s ORDER BY {}''').format(
             sql.SQL(',').join(sql.Identifier('t', column) for column in columns), sql.Identifier(table),
             sql.SQL(',').join(sql.Identifier('t', column) for column in order))
-        return connection.execute(query, (generation_id, generation_id, ordinal)).fetchall()
+        return connection.execute(query, (generation_id, ordinal)).fetchall()
     return {'vectors': select('system_rating_vector', VECTOR_COLUMNS, ['system_id64']),
             'bodies': select('body_mechanics', BODY_COLUMNS, ['system_id64', 'body_pk']),
             'opportunities': select('economy_opportunity', OPPORTUNITY_COLUMNS,
