@@ -4,6 +4,11 @@ const canvasSelector = 'canvas[data-spatial-canvas]';
 const readySelector = '[role="status"][data-renderer-state="ready"]';
 
 const assertMapWindowLayout = (width: number, height: number) => {
+  // Cypress scrolls the whole document to reach controls inside the Finder
+  // panel. A person does not, so bring the map back before measuring it.
+  cy.get('[data-explore-map-window]').then(($window) => {
+    $window[0].scrollIntoView({ block: 'nearest' });
+  });
   cy.get('[data-explore-map-window]').should(($window) => {
     const window = $window[0];
     const bounds = window.getBoundingClientRect();
@@ -134,18 +139,20 @@ describe('non-product spatial runtime foundation', () => {
 });
 
 // Normal Product API + real Babylon. The diagnostic route above remains a
-// separate foundation check; these cases exercise Explore's window ownership.
+// separate foundation check; these cases exercise Explore's full-window map
+// beside the Finder panel (owner decision 2026-11-07).
 for (const [width, height] of [
   [1280, 800],
   [390, 844],
 ]) {
-  it(`preserves the on-demand map and results at ${width}×${height} with reduced motion`, () => {
+  it(`keeps the full-window map and the Finder together at ${width}×${height} with reduced motion`, () => {
     const mapWindow = '[data-explore-map-window]';
-    const opener = '[data-explore-map-open]';
+    const phone = width <= 900;
     // Use the short seeded name that fits the renderer's phone label bounds.
     // Lossless oversized id64s retain their separate full Product journey.
     const selectedId = '10477373803000';
     const selectedResult = `[data-system-result="${selectedId}"]`;
+    const opener = `${selectedResult} [data-result-map-open]`;
     let initialCanvas: HTMLCanvasElement;
     let resultScrollTop = 0;
     let query = '';
@@ -179,11 +186,10 @@ for (const [width, height] of [
       .its('response.statusCode')
       .should('eq', 200);
     cy.get('[data-system-result]').should('have.length', 3);
-    cy.get(mapWindow).should('not.exist');
-    cy.get(canvasSelector).should('not.exist');
-    cy.get('@windowDensity.all').should('have.length', 0);
-    cy.get('@windowCatalogue.all').should('have.length', 0);
-    cy.get('@windowNebulae.all').should('have.length', 0);
+    // One canvas from the start; at phone width the Finder covers it.
+    cy.get(canvasSelector).should('have.length', 1);
+    cy.get('#finder-panel').should('be.visible');
+    cy.get(mapWindow).should(phone ? 'not.be.visible' : 'be.visible');
     assertNoHorizontalOverflow();
     cy.window().should((window) => {
       expect(
@@ -224,32 +230,44 @@ for (const [width, height] of [
         attributeFilter: ['data-camera-transition-active'],
       });
     });
-    cy.get(opener).focus().click();
-    cy.get(mapWindow)
-      .should('be.visible')
-      .and('have.attr', 'aria-modal', 'false');
-    cy.get('[data-map-window-close]').should('be.focused');
+    cy.get(canvasSelector).then(([canvas]) => {
+      initialCanvas = canvas as HTMLCanvasElement;
+    });
+    // Focus scrolls the button into view inside the result list like a
+    // keyboard user would; measure the list there, then click natively so
+    // Cypress's own scroll-to-top cannot move the list before the click.
+    cy.get(opener).focus();
+    cy.get('.result-list')
+      .invoke('scrollTop')
+      .then((position) => {
+        resultScrollTop = Number(position);
+      });
+    cy.get(opener).then(($button) => $button[0].click());
+    if (phone) {
+      // The Finder and the map take turns on a phone.
+      cy.get('#finder-panel').should('not.be.visible');
+      cy.get('[data-finder-panel-show]').should('be.focused');
+    } else {
+      // On a wide screen the map is already beside the results.
+      cy.get('#finder-panel').should('be.visible');
+      cy.get(opener).should('be.focused');
+    }
+    cy.get(mapWindow).should('be.visible');
     cy.get(`${mapWindow} h2`).should('have.text', 'Achenar · Galaxy map');
     cy.contains(`${mapWindow} a`, 'Inspect Achenar')
       .should('be.visible')
       .and('have.attr', 'href')
       .and('include', `system=${selectedId}`);
     cy.contains(`${mapWindow} a`, 'Plan here').should('be.visible');
+    assertRendererReady();
+    cy.get(canvasSelector).should(([canvas]) => {
+      expect(canvas).to.equal(initialCanvas);
+    });
     assertMapWindowLayout(width, height);
     assertNoHorizontalOverflow();
-    // The same non-modal contract applies at phone width: focus can leave
-    // the map and the surrounding application never becomes inert.
+    // The map is part of the page: focus can leave it and nothing is inert.
     cy.get('a.brand').parents('[inert]').should('have.length', 0);
-    cy.get('a.brand').focus().should('be.focused');
-    cy.get(mapWindow).then(($window) => {
-      // Native nearest scrolling honours the window's scroll margin. Cypress's
-      // top-alignment can place its fractional border just above the viewport.
-      $window[0].scrollIntoView({ block: 'nearest' });
-    });
-    assertRendererReady();
-    cy.get(canvasSelector).then(([canvas]) => {
-      initialCanvas = canvas as HTMLCanvasElement;
-    });
+    cy.get('[inert]').should('not.exist');
     cy.get(`${mapWindow} .spatial-canvas`).should(
       'have.attr',
       'data-camera-transition-active',
@@ -278,54 +296,8 @@ for (const [width, height] of [
       'contain.text',
       'exact stars',
     );
-    // Measure the default selected-system camera after its initial catalogue
-    // load. Camera controls below intentionally change the spatial footprint.
-    cy.wait(500);
-    for (const alias of [
-      '@windowDensity.all',
-      '@windowCatalogue.all',
-      '@windowNebulae.all',
-    ]) {
-      cy.get(alias).then((requests) => {
-        layoutRequestCounts.set(alias, requests.length);
-      });
-    }
-    cy.get('[data-map-window-expand]').click({ scrollBehavior: false });
-    cy.get(mapWindow).should('have.attr', 'data-expanded', 'true');
-    assertMapWindowLayout(width, height);
-    cy.viewport(width - 20, height - 40);
-    cy.wait(500);
-    cy.viewport(width, height);
-    cy.get('[data-map-window-expand]').click({ scrollBehavior: false });
-    cy.get(mapWindow).should('have.attr', 'data-expanded', 'false');
-    cy.get(canvasSelector).should(([canvas]) => {
-      expect(canvas).to.equal(initialCanvas);
-    });
-    // Close from the expanded state as well, so reopening cannot reuse the
-    // disposed canvas's wider viewport footprint.
-    cy.get('[data-map-window-expand]').click({ scrollBehavior: false });
-    cy.get(mapWindow).should('have.attr', 'data-expanded', 'true');
-    cy.get('[data-map-window-close]').click({ scrollBehavior: false });
-    cy.get(canvasSelector).should('not.exist');
-    cy.get(opener).should('be.focused').click();
-    assertRendererReady();
-    cy.get(canvasSelector).then(([canvas]) => {
-      expect(canvas).not.to.equal(initialCanvas);
-      initialCanvas = canvas as HTMLCanvasElement;
-    });
-    cy.get('[data-catalogue-star-count]', { timeout: 20_000 }).should(
-      'contain.text',
-      'exact stars',
-    );
-    cy.wait(500);
-    cy.then(() => {
-      for (const [alias, count] of layoutRequestCounts)
-        cy.get(alias).should('have.length', count);
-    });
-    assertMapWindowLayout(width, height);
-    assertNoHorizontalOverflow();
     cy.screenshot(
-      `product/explore-map-window-open-${Cypress.browser.name}-${width}x${height}`,
+      `product/explore-map-full-window-${Cypress.browser.name}-${width}x${height}`,
       {
         capture: 'viewport',
         overwrite: true,
@@ -415,51 +387,71 @@ for (const [width, height] of [
       .click({ scrollBehavior: false });
     cy.injectAxe();
     cy.checkA11y(mapWindow);
-    // Layers owns the first Escape; the parent window and its one runtime stay.
+    // Layers owns the Escape; the map and its one runtime stay.
     cy.press(Cypress.Keyboard.Keys.ESC);
     cy.get('[data-map-layers-dialog]').should('not.exist');
     cy.get('[data-map-layers-toggle]').should('be.focused');
+    cy.press(Cypress.Keyboard.Keys.ESC);
     cy.get(mapWindow).should('be.visible');
     cy.get(canvasSelector).should(([canvas]) => {
       expect(canvas).to.equal(initialCanvas);
     });
     assertMapWindowLayout(width, height);
     assertNoHorizontalOverflow();
-    cy.get('[data-map-window-expand]').click({ scrollBehavior: false });
-    cy.get(mapWindow).should('have.attr', 'data-expanded', 'true');
-    cy.get('.results-panel').should('not.be.visible');
+    if (!phone) {
+      // Hide Finder gives the map the whole width with the same canvas.
+      cy.get('[data-finder-panel-hide]').click();
+      cy.get('#finder-panel').should('not.be.visible');
+      cy.get('[data-finder-panel-show]').should('be.focused');
+      cy.get(canvasSelector).then(([canvas]) => {
+        expect(canvas).to.equal(initialCanvas);
+        const revision = Number(canvas.getAttribute('data-resize-revision'));
+        cy.viewport(width - 20, height - 40);
+        cy.get(canvasSelector).should(([resized]) => {
+          expect(resized).to.equal(initialCanvas);
+          expect(
+            Number(resized.getAttribute('data-resize-revision')),
+          ).to.be.greaterThan(revision);
+        });
+      });
+      cy.viewport(width, height);
+      assertMapWindowLayout(width, height);
+      assertNoHorizontalOverflow();
+      cy.checkA11y(mapWindow);
+      cy.screenshot(
+        `product/explore-map-finder-hidden-${Cypress.browser.name}-${width}x${height}`,
+        {
+          capture: 'viewport',
+          overwrite: true,
+          disableTimersAndAnimations: false,
+        },
+      );
+    }
+    // Measure the settled map before returning to the Finder. At phone width
+    // the map keeps its size off screen, so the turn starts no map requests.
+    cy.wait(500);
+    for (const alias of [
+      '@windowDensity.all',
+      '@windowCatalogue.all',
+      '@windowNebulae.all',
+    ]) {
+      cy.get(alias).then((requests) => {
+        layoutRequestCounts.set(alias, requests.length);
+      });
+    }
+    cy.get('[data-finder-panel-show]').click({ scrollBehavior: false });
+    cy.get('#finder-panel').should('be.visible');
     cy.get(canvasSelector).should(([canvas]) => {
       expect(canvas).to.equal(initialCanvas);
     });
-    cy.get(canvasSelector).then(([canvas]) => {
-      const revision = Number(canvas.getAttribute('data-resize-revision'));
-      cy.viewport(width - 20, height - 40);
-      cy.get(canvasSelector).should(([resized]) => {
-        expect(resized).to.equal(initialCanvas);
-        expect(
-          Number(resized.getAttribute('data-resize-revision')),
-        ).to.be.greaterThan(revision);
+    if (phone) {
+      cy.wait(500);
+      cy.then(() => {
+        for (const [alias, count] of layoutRequestCounts)
+          cy.get(alias).should('have.length', count);
       });
-    });
-    cy.viewport(width, height);
-    assertMapWindowLayout(width, height);
-    assertNoHorizontalOverflow();
-    cy.checkA11y(mapWindow);
-    cy.screenshot(
-      `product/explore-map-expanded-${Cypress.browser.name}-${width}x${height}`,
-      {
-        capture: 'viewport',
-        overwrite: true,
-        disableTimersAndAnimations: false,
-      },
-    );
-    cy.contains(`${mapWindow} button`, 'Back to results').click({
-      scrollBehavior: false,
-    });
-    cy.get(mapWindow).should('not.exist');
-    cy.get(canvasSelector).should('not.exist');
-    cy.get(opener).should('be.focused');
-    cy.get('.results-panel').should('be.visible');
+    }
+    cy.get(phone ? opener : '[data-finder-panel-hide]').should('be.focused');
     cy.get('.result-list').should(($list) => {
       expect($list[0].scrollTop).to.equal(resultScrollTop);
     });
@@ -478,44 +470,12 @@ for (const [width, height] of [
     cy.then(() => cy.location('search').should('eq', query));
     cy.get('@windowRankings.all').should('have.length', 1);
     cy.get('@windowSearch.all').should('have.length', 0);
-    const suspendedCounts = new Map<string, number>();
-    for (const alias of [
-      '@windowDensity.all',
-      '@windowCatalogue.all',
-      '@windowNebulae.all',
-    ]) {
-      cy.get(alias).then((requests) => {
-        suspendedCounts.set(alias, requests.length);
-      });
-    }
-    // Longer than the existing viewport debounce, bounded to half a second.
-    cy.wait(500);
-    cy.then(() => {
-      for (const [alias, count] of suspendedCounts)
-        cy.get(alias).should('have.length', count);
-    });
-    cy.get(`${selectedResult} [data-result-map-open]`).click();
-    assertRendererReady();
-    cy.get(mapWindow).should('have.attr', 'data-expanded', 'false');
-    cy.get(canvasSelector).should(([canvas]) => {
-      expect(canvas).not.to.equal(initialCanvas);
-    });
     cy.then(() => {
       cy.get(`${mapWindow} .spatial-canvas`)
         .should('have.attr', 'data-camera-bearing', bearing)
         .and('have.attr', 'data-camera-pitch', pitch)
         .and('have.attr', 'data-camera-transition-active', 'false');
     });
-    cy.get('[data-map-layers-toggle]').click({ scrollBehavior: false });
-    cy.get('[data-nebula-toggle]').should('have.attr', 'aria-checked', 'false');
-    cy.press(Cypress.Keyboard.Keys.ESC);
-    cy.get(mapWindow).should('be.visible');
-    cy.press(Cypress.Keyboard.Keys.ESC);
-    cy.get(mapWindow).should('not.exist');
-    cy.get(canvasSelector).should('not.exist');
-    cy.get(`${selectedResult} [data-result-map-open]`).should('be.focused');
-    cy.get('@windowRankings.all').should('have.length', 1);
-    cy.get('@windowSearch.all').should('have.length', 0);
     cy.then(() => {
       expect(cameraTransitions).not.to.include('true');
     });
@@ -523,7 +483,7 @@ for (const [width, height] of [
   });
 }
 
-it('keeps the map within the tablet page width without lifecycle requests', () => {
+it('keeps the map within the tablet page width and Finder turns start no new requests', () => {
   const requests = { search: 0, catalogue: 0, density: 0, nebulae: 0 };
   cy.intercept('POST', '/api/local/search', () => {
     requests.search++;
@@ -543,6 +503,7 @@ it('keeps the map within the tablet page width without lifecycle requests', () =
   cy.get('[data-system-result="10477373803000"] [data-result-select]').click();
   assertNoHorizontalOverflow();
   cy.get('[data-explore-map-open]').click();
+  cy.get('#finder-panel').should('not.be.visible');
   assertRendererReady();
   cy.get('[data-catalogue-star-count]', { timeout: 20_000 }).should(
     'contain.text',
@@ -552,19 +513,15 @@ it('keeps the map within the tablet page width without lifecycle requests', () =
   cy.then(() => {
     const settled = { ...requests };
     assertNoHorizontalOverflow();
-    cy.get('[data-map-window-expand]').click({ scrollBehavior: false });
-    assertNoHorizontalOverflow();
-    cy.viewport(748, 760);
-    cy.wait(500);
-    assertNoHorizontalOverflow();
-    cy.viewport(768, 800);
-    cy.get('[data-map-window-expand]').click({ scrollBehavior: false });
-    cy.get('[data-map-window-close]').click({ scrollBehavior: false });
+    // The map keeps its size off screen while the Finder is shown, so taking
+    // turns never resizes the canvas or refetches its footprint.
+    cy.get('[data-finder-panel-show]').click({ scrollBehavior: false });
+    cy.get('#finder-panel').should('be.visible');
     assertNoHorizontalOverflow();
     cy.get('[data-explore-map-open]').click();
+    cy.get('#finder-panel').should('not.be.visible');
     assertRendererReady();
     cy.wait(500);
     cy.then(() => expect(requests).to.deep.equal(settled));
-    cy.get('[data-map-window-close]').click({ scrollBehavior: false });
   });
 });
