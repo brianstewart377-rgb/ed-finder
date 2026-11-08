@@ -175,6 +175,9 @@ failure-state coverage and containment. Apply §5 before promotion.
 
 ### Phase 2 — map workspace (M09)
 
+> **Superseded in part, 2026-11-07:** the on-demand window below became a
+> full-window map beside a hide-able Finder panel (owner decision §7.6).
+
 Resolve **“the map and controls do not share a useful viewport.”** In
 [`ExploreWorkspace.svelte`](../../../apps/web/src/lib/features/explore/ExploreWorkspace.svelte),
 keep search/archetype/results usable together. **Show on map** opens the selected
@@ -393,3 +396,15 @@ unrelated work. Promotion always retains §5's separate visual gate.
    pixel fidelity or an approved visual baseline. P2d's alignment of the map
    window to `02-map.png` is implemented in this PR (§4), retaining the concept
    pack as placement/styling reference; the other screens follow in turn.
+6. **Full-window map — decided 2026-11-07:** the owner found Explore wasted
+   the space above the map and chose a game-style layout. The Galaxy map is
+   always on screen, filling the window below the site header, with the Finder
+   (search, archetypes, body filters, results) as a panel on its left that
+   **Hide Finder** / **Show Finder** toggles; Saved and Compare stay below.
+   This supersedes the on-demand window of P2b/P2d (Show on map opening it,
+   **Expand**, Close and Back to results) and decision 1's window wording. On a
+   phone the Finder and the map take turns: **Show on map** hides the panel and
+   **Show Finder** restores results exactly (scroll, selection, filters,
+   query). Decision 2 still holds: the map is page content, never modal or
+   inert. Show on map now centres the map on the system; the map keeps one
+   canvas for the life of the page.

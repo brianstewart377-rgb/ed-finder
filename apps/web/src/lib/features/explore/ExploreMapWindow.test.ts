@@ -8,7 +8,7 @@ import {
 } from '@testing-library/svelte';
 import axe from 'axe-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { registerPopout, isTopmostPopout } from '$lib/components/popout-stack';
+import { isTopmostPopout } from '$lib/components/popout-stack';
 import type {
   CameraState,
   RuntimeCommand,
@@ -99,7 +99,7 @@ function managedSession(onStatus: SpatialRuntimeStatusListener) {
   };
 }
 
-describe('Explore map window', () => {
+describe('Explore map', () => {
   let sessions: ReturnType<typeof managedSession>[];
   let disconnect: ReturnType<typeof vi.fn>;
   let opener: HTMLButtonElement;
@@ -108,7 +108,7 @@ describe('Explore map window', () => {
     sessions = [];
     disconnect = vi.fn();
     opener = document.createElement('button');
-    opener.textContent = 'Show on map';
+    opener.textContent = 'Search';
     document.body.append(opener);
     opener.focus();
     vi.stubGlobal('matchMedia', () => ({ matches: true }));
@@ -145,78 +145,74 @@ describe('Explore map window', () => {
     expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(1);
   }
 
-  it('keeps one non-modal canvas through Expand and restores focus after Close', async () => {
-    const onClose = vi.fn(() => view.unmount());
-    const onExpand = vi.fn(() => view.rerender({ expanded: true }));
-    const view = render(ExploreMapWindow, {
+  it('is a page region with one canvas and no window controls, and never takes focus', async () => {
+    render(ExploreMapWindow, {
       canvasProps: { scene: buildGalaxyReviewFixtureScene() },
-      expanded: false,
-      opener,
-      onClose,
-      onExpand,
+      finderPanelOpen: true,
+      onShowFinder: vi.fn(),
     });
     await ready();
-    const dialog = screen.getByRole('dialog', { name: /Galaxy map$/ });
-    expect(dialog).toHaveAccessibleName('Galaxy map');
-    expect(dialog).toHaveAttribute('aria-modal', 'false');
-    expect(dialog).toHaveAttribute('data-expanded', 'false');
-    expect(screen.getByRole('button', { name: 'Close map' })).toHaveFocus();
-    expect(document.querySelector('[inert]')).toBeNull();
-    const canvas = dialog.querySelector('canvas');
-    await fireEvent.click(
-      within(dialog).getByRole('button', { name: 'Expand' }),
-    );
-    expect(dialog).toHaveAttribute('data-expanded', 'true');
-    expect(
-      within(dialog).getByRole('button', { name: 'Restore size' }),
-    ).toHaveAttribute('aria-pressed', 'true');
-    expect(dialog.querySelector('canvas')).toBe(canvas);
-    expect(adapter.create).toHaveBeenCalledOnce();
-    expect(sessions[0]!.runtime.subscribe).toHaveBeenCalledOnce();
-    expect(sessions[0]!.session.dispose).not.toHaveBeenCalled();
-    opener.focus();
-    await fireEvent.keyDown(opener, { key: 'Tab' });
+    const map = screen.getByRole('region', { name: 'Galaxy map' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    for (const name of [
+      'Close map',
+      'Expand',
+      'Restore size',
+      'Back to results',
+      'Show Finder',
+    ])
+      expect(within(map).queryByRole('button', { name })).toBeNull();
+    // Always on the page beside the Finder: mounting must not move focus or
+    // join the pop-out stack that owns Escape.
     expect(opener).toHaveFocus();
-    await fireEvent.click(
-      within(dialog).getByRole('button', { name: 'Close map' }),
-    );
-    expect(onClose).toHaveBeenCalledOnce();
-    await waitFor(() => expect(opener).toHaveFocus());
-    expect(document.querySelector('[data-spatial-canvas]')).toBeNull();
-    expect(sessions[0]!.session.dispose).toHaveBeenCalledOnce();
-    expect(sessions[0]!.unsubscribeResources).toHaveBeenCalledOnce();
-    expect(sessions[0]!.unsubscribed).toHaveBeenCalledOnce();
-    expect(disconnect).toHaveBeenCalledOnce();
+    expect(isTopmostPopout(map)).toBe(false);
+    expect(adapter.create).toHaveBeenCalledOnce();
   });
 
-  it('names the window for the selected system and returns to results through the same close lifecycle', async () => {
-    const onClose = vi.fn(() => view.unmount());
-    const view = render(ExploreMapWindow, {
+  it('names the map for the selected system', async () => {
+    render(ExploreMapWindow, {
       canvasProps: { scene: buildGalaxyReviewFixtureScene() },
       selectedSystemName: 'Sol',
-      expanded: false,
-      opener,
-      onClose,
-      onExpand: vi.fn(),
+      finderPanelOpen: true,
+      onShowFinder: vi.fn(),
     });
     await ready();
-    const dialog = screen.getByRole('dialog', { name: 'Sol · Galaxy map' });
-    expect(dialog).toHaveAttribute('aria-modal', 'false');
-    await fireEvent.click(
-      within(dialog).getByRole('button', { name: 'Back to results' }),
-    );
-    expect(onClose).toHaveBeenCalledOnce();
-    await waitFor(() => expect(opener).toHaveFocus());
-    expect(sessions[0]!.session.dispose).toHaveBeenCalledOnce();
-    expect(document.querySelector('[data-spatial-canvas]')).toBeNull();
+    expect(
+      screen.getByRole('region', { name: 'Sol · Galaxy map' }),
+    ).toBeInTheDocument();
+  });
+
+  it('offers Show Finder only while the Finder panel is hidden, without rebuilding the canvas', async () => {
+    const onShowFinder = vi.fn();
+    const view = render(ExploreMapWindow, {
+      canvasProps: { scene: buildGalaxyReviewFixtureScene() },
+      finderPanelOpen: true,
+      onShowFinder,
+    });
+    await ready();
+    const map = screen.getByRole('region', { name: 'Galaxy map' });
+    const canvas = map.querySelector('canvas');
+    expect(map).toHaveAttribute('data-finder-panel-open', 'true');
+    await view.rerender({ finderPanelOpen: false });
+    const show = within(map).getByRole('button', { name: 'Show Finder' });
+    expect(show).toHaveAttribute('aria-controls', 'finder-panel');
+    expect(show).toHaveAttribute('aria-expanded', 'false');
+    await fireEvent.click(show);
+    expect(onShowFinder).toHaveBeenCalledOnce();
+    await view.rerender({ finderPanelOpen: true });
+    expect(
+      within(map).queryByRole('button', { name: 'Show Finder' }),
+    ).toBeNull();
+    expect(map.querySelector('canvas')).toBe(canvas);
+    expect(adapter.create).toHaveBeenCalledOnce();
+    expect(sessions[0]!.session.dispose).not.toHaveBeenCalled();
   });
 
   it('places camera controls below the real canvas while retaining every existing action and readout', async () => {
     render(ExploreMapWindow, {
       canvasProps: { scene: buildGalaxyReviewFixtureScene() },
-      expanded: false,
-      onClose: vi.fn(),
-      onExpand: vi.fn(),
+      finderPanelOpen: true,
+      onShowFinder: vi.fn(),
     });
     await ready();
     const canvas = screen.getByRole('application');
@@ -245,69 +241,11 @@ describe('Explore map window', () => {
     ).toBeInTheDocument();
   });
 
-  it('handles Escape only at the top of the shared tool stack and unregisters on close', async () => {
-    const onClose = vi.fn(() => view.unmount());
-    const view = render(ExploreMapWindow, {
-      canvasProps: {},
-      expanded: false,
-      opener,
-      onClose,
-      onExpand: vi.fn(),
-    });
-    await ready();
-    const dialog = screen.getByRole('dialog', { name: /Galaxy map$/ });
-    expect(isTopmostPopout(dialog)).toBe(true);
-    const tool = document.createElement('div');
-    document.body.append(tool);
-    const unregister = registerPopout(tool);
-    await fireEvent.keyDown(window, { key: 'Escape' });
-    expect(onClose).not.toHaveBeenCalled();
-    unregister();
-    tool.remove();
-    await fireEvent.keyDown(window, { key: 'Escape' });
-    expect(onClose).toHaveBeenCalledOnce();
-    await waitFor(() => expect(opener).toHaveFocus());
-    expect(isTopmostPopout(dialog)).toBe(false);
-  });
-
-  it('keeps the window in the viewport after resize without changing focus or rebuilding the canvas', async () => {
-    const view = render(ExploreMapWindow, {
-      canvasProps: { scene: buildGalaxyReviewFixtureScene() },
-      expanded: true,
-      onClose: vi.fn(),
-      onExpand: vi.fn(),
-    });
-    await ready();
-    const dialog = screen.getByRole('dialog', { name: 'Galaxy map' });
-    const scroll = vi.fn();
-    dialog.scrollIntoView = scroll;
-    vi.spyOn(dialog, 'getBoundingClientRect').mockReturnValue({
-      top: -20,
-      bottom: 748,
-    } as DOMRect);
-    await fireEvent(window, new Event('resize'));
-    await waitFor(() =>
-      expect(scroll).toHaveBeenCalledWith({
-        behavior: 'instant',
-        block: 'start',
-      }),
-    );
-    expect(screen.getByRole('button', { name: 'Close map' })).toHaveFocus();
-    expect(adapter.create).toHaveBeenCalledOnce();
-    view.unmount();
-    scroll.mockClear();
-    await fireEvent(window, new Event('resize'));
-    expect(scroll).not.toHaveBeenCalled();
-  });
-
-  it('allows the background Body filters tool to own Escape without closing the map', async () => {
-    const onClose = vi.fn();
+  it('leaves Escape to the Body filters tool and keeps the map', async () => {
     render(ExploreMapWindow, {
       canvasProps: {},
-      expanded: false,
-      opener,
-      onClose,
-      onExpand: vi.fn(),
+      finderPanelOpen: true,
+      onShowFinder: vi.fn(),
     });
     await ready();
     render(BodyFilters, {
@@ -323,56 +261,19 @@ describe('Explore map window', () => {
     await fireEvent.keyDown(window, { key: 'Escape' });
     expect(filters).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
-    expect(onClose).not.toHaveBeenCalled();
+    await fireEvent.keyDown(window, { key: 'Escape' });
     expect(
-      screen.getByRole('dialog', { name: /Galaxy map$/ }),
+      screen.getByRole('region', { name: /Galaxy map$/ }),
     ).toBeInTheDocument();
+    expect(sessions[0]!.session.dispose).not.toHaveBeenCalled();
   });
 
-  it('lets expanded background autocomplete consume Escape before closing the map', async () => {
-    const input = document.createElement('input');
-    input.setAttribute('role', 'combobox');
-    input.setAttribute('aria-expanded', 'true');
-    const dismissSuggestions = vi.fn((event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      input.setAttribute('aria-expanded', 'false');
-      event.preventDefault();
-    });
-    input.addEventListener('keydown', dismissSuggestions);
-    document.body.append(input);
-    const onClose = vi.fn(() => view.unmount());
-    const view = render(ExploreMapWindow, {
-      canvasProps: {},
-      expanded: false,
-      opener,
-      onClose,
-      onExpand: vi.fn(),
-    });
-    await ready();
-    input.focus();
-    await fireEvent.keyDown(input, { key: 'Escape' });
-    expect(dismissSuggestions).toHaveBeenCalledOnce();
-    expect(input).toHaveAttribute('aria-expanded', 'false');
-    expect(input).toHaveFocus();
-    expect(onClose).not.toHaveBeenCalled();
-    expect(
-      screen.getByRole('dialog', { name: /Galaxy map$/ }),
-    ).toBeInTheDocument();
-    await fireEvent.keyDown(input, { key: 'Escape' });
-    expect(onClose).toHaveBeenCalledOnce();
-    await waitFor(() => expect(opener).toHaveFocus());
-    input.remove();
-  });
-
-  it('keeps the existing hover card Escape before closing its enclosing map', async () => {
+  it('keeps the hover card Escape and the map after it', async () => {
     const scene = buildGalaxyReviewFixtureScene();
-    const onClose = vi.fn(() => view.unmount());
-    const view = render(ExploreMapWindow, {
+    render(ExploreMapWindow, {
       canvasProps: { scene },
-      expanded: false,
-      opener,
-      onClose,
-      onExpand: vi.fn(),
+      finderPanelOpen: true,
+      onShowFinder: vi.fn(),
     });
     await ready();
     sessions[0]!.emit({ type: 'TARGET_HOVERED', target: scene.selection[0] });
@@ -380,28 +281,10 @@ describe('Explore map window', () => {
     within(tooltip).getByRole('button', { name: 'Select' }).focus();
     await fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
-    expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole('application')).toHaveFocus();
     await fireEvent.keyDown(window, { key: 'Escape' });
-    expect(onClose).toHaveBeenCalledOnce();
-  });
-
-  it('returns focus to the stable fallback if the opening result has been replaced', async () => {
-    const fallback = document.createElement('input');
-    document.body.append(fallback);
-    const view = render(ExploreMapWindow, {
-      canvasProps: {},
-      expanded: false,
-      opener,
-      fallbackFocus: fallback,
-      onClose: () => view.unmount(),
-      onExpand: vi.fn(),
-    });
-    await ready();
-    opener.remove();
-    await fireEvent.click(screen.getByRole('button', { name: 'Close map' }));
-    await waitFor(() => expect(fallback).toHaveFocus());
-    fallback.remove();
+    expect(screen.getByRole('application')).toBeInTheDocument();
+    expect(sessions[0]!.session.dispose).not.toHaveBeenCalled();
   });
 
   it('disposes managed GPU sessions, observers and queued frames before rebuilding retained CPU context', async () => {
@@ -415,10 +298,8 @@ describe('Explore map window', () => {
     for (let cycle = 0; cycle < 3; cycle += 1) {
       const view = render(ExploreMapWindow, {
         canvasProps: { scene, onRuntimeEvent: events },
-        expanded: cycle === 1,
-        opener,
-        onClose: () => view.unmount(),
-        onExpand: vi.fn(),
+        finderPanelOpen: cycle !== 1,
+        onShowFinder: vi.fn(),
       });
       await ready();
       const record = sessions[cycle]!;
@@ -440,7 +321,7 @@ describe('Explore map window', () => {
         revision: 9 + cycle,
       };
       record.emit({ type: 'CAMERA_CHANGED', camera: moved });
-      await fireEvent.click(screen.getByRole('button', { name: 'Close map' }));
+      view.unmount();
       expect(retainedCamera).toEqual(moved);
       expect(record.session.dispose).toHaveBeenCalledOnce();
       expect(record.unsubscribeResources).toHaveBeenCalledOnce();
@@ -467,9 +348,8 @@ describe('Explore map window', () => {
         focusTarget: scene.selection[0],
         focusRevision: 1,
       },
-      expanded: false,
-      onClose: vi.fn(),
-      onExpand: vi.fn(),
+      finderPanelOpen: true,
+      onShowFinder: vi.fn(),
     });
     await ready();
     await waitFor(() =>
@@ -491,17 +371,16 @@ describe('Explore map window', () => {
     ).toHaveAttribute('data-camera-transition-active', 'false');
   });
 
-  it('keeps the original Reset view camera through a suspended canvas rebuild', async () => {
+  it('keeps the original Reset view camera through a canvas rebuild', async () => {
     const original = buildGalaxyReviewFixtureScene();
     const resetCamera = original.camera;
     const first = render(ExploreMapWindow, {
       canvasProps: { scene: original, resetCamera },
-      expanded: false,
-      onClose: () => first.unmount(),
-      onExpand: vi.fn(),
+      finderPanelOpen: true,
+      onShowFinder: vi.fn(),
     });
     await ready();
-    await fireEvent.click(screen.getByRole('button', { name: 'Close map' }));
+    first.unmount();
     const currentCamera = {
       ...resetCamera,
       focusLy: { x: 600, y: 50, z: 80 },
@@ -513,9 +392,8 @@ describe('Explore map window', () => {
         scene: { ...original, camera: currentCamera },
         resetCamera,
       },
-      expanded: false,
-      onClose: vi.fn(),
-      onExpand: vi.fn(),
+      finderPanelOpen: true,
+      onShowFinder: vi.fn(),
     });
     await ready();
     await fireEvent.click(screen.getByRole('button', { name: 'Reset view' }));
@@ -530,17 +408,19 @@ describe('Explore map window', () => {
     expect(sessions[0]!.session.dispose).toHaveBeenCalledOnce();
   });
 
-  it('has no axe violations with the real canvas controls in the non-modal window', async () => {
-    const { container } = render(ExploreMapWindow, {
-      canvasProps: { scene: buildGalaxyReviewFixtureScene() },
-      expanded: false,
-      onClose: vi.fn(),
-      onExpand: vi.fn(),
-    });
-    await ready();
-    const result = await axe.run(container, {
-      rules: { 'color-contrast': { enabled: false } },
-    });
-    expect(result.violations).toEqual([]);
-  });
+  it.each([true, false])(
+    'has no axe violations with the real canvas controls (Finder panel open: %s)',
+    async (finderPanelOpen) => {
+      const { container } = render(ExploreMapWindow, {
+        canvasProps: { scene: buildGalaxyReviewFixtureScene() },
+        finderPanelOpen,
+        onShowFinder: vi.fn(),
+      });
+      await ready();
+      const result = await axe.run(container, {
+        rules: { 'color-contrast': { enabled: false } },
+      });
+      expect(result.violations).toEqual([]);
+    },
+  );
 });
