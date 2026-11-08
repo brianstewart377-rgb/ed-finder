@@ -363,9 +363,7 @@ describe('Explore load and interaction work budget', () => {
         enabled,
         applicationStores,
       );
-      // Keep the pre-M09 visible-map workload directly comparable. Separate
-      // closed-default tests assert that no map work starts before Show on map.
-      viewState.mapOpen = true;
+      // The map is always on screen beside the Finder panel.
       const mounted = render(ExploreWorkloadTestHost, {
         viewState,
         installPage(model) {
@@ -549,9 +547,10 @@ describe('Explore load and interaction work budget', () => {
         },
       });
       const assertCleanup = async () => {
-        // Open explicitly on the selected result before measuring M09's
-        // presentation-only lifecycle. This first focus may stream its visible
-        // viewport; subsequent Expand/Close/reopen must reuse that context.
+        // Focus the selected result before measuring the presentation-only
+        // lifecycle. This first focus may stream its visible viewport; hiding
+        // and restoring the Finder panel must reuse the one canvas and start
+        // no new work for the same footprint.
         const layersClose = screen.queryByRole('button', {
           name: 'Close map layers',
         });
@@ -563,34 +562,23 @@ describe('Explore load and interaction work budget', () => {
         await settle();
         const visibleApi = work().api;
         const camera = viewState.retainedCamera?.camera;
-        await fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
+        await fireEvent.click(
+          screen.getByRole('button', { name: 'Hide Finder' }),
+        );
         await settle();
+        expect(viewState.finderPanelOpen).toBe(false);
         expect(work().api).toEqual(visibleApi);
         expect(adapter).toHaveBeenCalledTimes(1);
         expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(
           1,
         );
         await fireEvent.click(
-          screen.getByRole('button', { name: 'Close map' }),
+          screen.getByRole('button', { name: 'Show Finder' }),
         );
         await settle();
-        expect(opener).toHaveFocus();
-        expect(disposals).toHaveBeenCalledTimes(1);
-        expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(
-          0,
-        );
-        expect(work().api).toEqual(visibleApi);
-        expect(frames.size).toBe(0);
-        // Advancing a closed workspace cannot revive viewport streaming.
-        await settle();
-        expect(work().api).toEqual(visibleApi);
-        await fireEvent.click(opener);
-        await settle();
-        expect(adapter).toHaveBeenCalledTimes(2);
-        expect(disposals).toHaveBeenCalledTimes(1);
-        expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(
-          1,
-        );
+        expect(viewState.finderPanelOpen).toBe(true);
+        expect(adapter).toHaveBeenCalledTimes(1);
+        expect(disposals).not.toHaveBeenCalled();
         expect(viewState.retainedCamera?.camera).toEqual(camera);
         expect(viewState.showNebulae).toBe(false);
         expect(work().api).toEqual(visibleApi);
@@ -600,8 +588,8 @@ describe('Explore load and interaction work budget', () => {
         expect(document.querySelectorAll('[data-spatial-canvas]')).toHaveLength(
           0,
         );
-        expect(adapter).toHaveBeenCalledTimes(2);
-        expect(disposals).toHaveBeenCalledTimes(2);
+        expect(adapter).toHaveBeenCalledTimes(1);
+        expect(disposals).toHaveBeenCalledTimes(1);
         expect(work().activeQueries).toBe(0);
         expect(work().api).toEqual(requestsBeforeUnmount);
         expect(frames.size).toBe(0);
