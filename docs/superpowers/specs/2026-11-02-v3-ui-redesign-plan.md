@@ -2,13 +2,16 @@
 
 ## 1. Status and authority
 
-**2026-11-02 — implementation plan; no deployment authority.** Phase 1 is
-**done-pending-merge in [PR #998](../../../../../pull/998)**. Phase 4 is
-**implemented (#1002)**, P5a is **implemented (#1003)** and P5b is
-**implemented in this PR**, each pending
-Product E2E/visual acceptance before promotion; none is deployed. The other
-phases below retain their recorded status; implementation is not a claim of
-shipped behaviour.
+**2026-11-02 — implementation plan; no deployment authority.**
+
+**Status update — 2026-11-08:** P1 (#998), P2a (#1005), P3 (#1006), P4 (#1002),
+P5a (#1003) and P5b (#1004) are merged and live since the tenth F2d release
+`96644cad`. P6a (#1008, with the home page alignment in #1013) is live since the
+eleventh, `a894b181`. P2b (#1009) and P2d (#1012) were merged, then superseded
+by the full-window Explore map (#1029, §7 decision 6), which is also live in
+`a894b181`. P2c and P6b are not started. Concept-alignment follow-up slices are
+open as #1014–#1023. [ROADMAP](../../ROADMAP.md) remains the authority for what
+is live.
 
 The owner's 1 November 2026 concept pack is committed as reference in
 [`2026-11-01-ui-concept-pack/`](2026-11-01-ui-concept-pack/README.md), except the
@@ -148,16 +151,16 @@ No slice needs a SQL migration or new backend contract.
 | Phase / slice | Contents | Migration? | Visual? |
 |---|---|---|---|
 | P0 | This plan, ROADMAP link and CHANGES entry | No | No |
-| P1 | Shared tokens, Saira headings, glossy panels, opt-in pill actions, tabs, chips and pop-out skins; **done-pending-merge, #998** | No | Yes |
-| P2a | Extract Explore view state from layout ownership; retain query, filters, selection, result scroll and spatial context through layout changes; **implemented in this PR** | No | Verify unchanged |
-| P2b | M09: on-demand map window, **Show on map**, **Expand**, close/reopen and state preservation using the existing canvas; **implemented in this PR** | No | Yes |
+| P1 | Shared tokens, Saira headings, glossy panels, opt-in pill actions, tabs, chips and pop-out skins; **merged (#998)** | No | Yes |
+| P2a | Extract Explore view state from layout ownership; retain query, filters, selection, result scroll and spatial context through layout changes; **merged (#1005)** | No | Verify unchanged |
+| P2b | M09: on-demand map window, **Show on map**, **Expand**, close/reopen and state preservation using the existing canvas; **merged (#1009), superseded by the full-window map (#1029, §7.6)** | No | Yes |
 | P2c | Explore main-task tabs and shared movable/dockable tool behaviour; keep Layers and map controls accessible in the window | No | Yes |
-| P2d | Map window aligned to the owner's concept placement/styling: canvas first, camera controls below, Regions and Sources pop-outs, compact selection/footer actions; **implemented in this PR** | No | Yes |
-| P3 | Finder control polish: archetype/results priority, existing count-group tabs, persistent chips and truthful scope gaps; all 19 existing count controls retained; **implemented in this PR** | No | Yes |
-| P4 | Inspect **Overview / Bodies / Stations** tabs; evidence explanation pop-out and retained Sources & freshness; **implemented (#1002)** | No | Yes |
-| P5a | Plan **System layout / Build order** tabs; facility preview pop-out with explicit **Add to plan**; **implemented (#1003)** | No | Yes |
-| P5b | Review/export pop-out over the plan, per-item unresolved-information links and explicit **DRAFT** export; **implemented in this PR** | No | Yes |
-| P6a | Home polish: existing hero actions and three tool cards adopt the kit; truthful Review/export entry wording completed in P5b; **implemented in this PR** | No | Yes |
+| P2d | Map window aligned to the owner's concept placement/styling: canvas first, camera controls below, Regions and Sources pop-outs, compact selection/footer actions; **merged (#1012), superseded by the full-window map (#1029, §7.6)** | No | Yes |
+| P3 | Finder control polish: archetype/results priority, existing count-group tabs, persistent chips and truthful scope gaps; all 19 existing count controls retained; **merged (#1006)** | No | Yes |
+| P4 | Inspect **Overview / Bodies / Stations** tabs; evidence explanation pop-out and retained Sources & freshness; **merged (#1002)** | No | Yes |
+| P5a | Plan **System layout / Build order** tabs; facility preview pop-out with explicit **Add to plan**; **merged (#1003)** | No | Yes |
+| P5b | Review/export pop-out over the plan, per-item unresolved-information links and explicit **DRAFT** export; **merged (#1004)** | No | Yes |
+| P6a | Home polish: existing hero actions and three tool cards adopt the kit; truthful Review/export entry wording completed in P5b; **merged (#1008, #1013)** | No | Yes |
 | P6b | Final visual sweep across the complete journey, responsive layouts and all tool states | No | Yes |
 
 ### Phase 1 — shared design kit
@@ -215,7 +218,7 @@ checks through the real canvas. Apply §5 to every visible slice.
 Keyboard docking/resize is deferred to P2c. The phone window fills the available
 workspace and remains non-modal at every width; closing restores the results.
 
-**P2d is implemented in this PR.** The
+**P2d was merged in #1012 and later superseded by the full-window map (#1029).** The
 [`2026-11-01-ui-concept-pack/`](2026-11-01-ui-concept-pack/README.md) folder is
 the reference for placement and styling: `02-map.png` defines the map window,
 with `01-finder.png` supplying the surrounding Finder context. This is not a
@@ -291,7 +294,7 @@ Touch `routes/plan/+page.svelte`, `lib/features/plan/PlanWorkspace.svelte`,
 Both / Orbital / Surface tabs, but make facility selection a preview; only
 **Add to plan** mutates the plan. Closing a preview adds nothing.
 
-Review/export is **implemented in this PR** and opens over the current plan.
+Review/export is **merged (#1004)** and opens over the current plan.
 Each unknown slot, body with missing data, prediction-only surface slot and
 blocked/invalid build-order item reported by the existing evaluation links to the
 relevant body/slot editor or build, activates its task tab and moves focus there.
@@ -394,7 +397,7 @@ unrelated work. Promotion always retains §5's separate visual gate.
    is now in the repository (see §1). P2b was built before the images were
    available and follows this plan's description only; it makes no claim of
    pixel fidelity or an approved visual baseline. P2d's alignment of the map
-   window to `02-map.png` is implemented in this PR (§4), retaining the concept
+   window to `02-map.png` was merged in #1012 (§4), retaining the concept
    pack as placement/styling reference; the other screens follow in turn.
 6. **Full-window map — decided 2026-11-07:** the owner found Explore wasted
    the space above the map and chose a game-style layout. The Galaxy map is

@@ -11,6 +11,22 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-08 — Docs: roadmap and UI redesign plan brought up to date
+
+Docs only. The roadmap summary said the Colony Planner was live "through S5b"
+and that the S5c economy bars were "not deployed", but they shipped in
+`96644cad` (#1000). It also listed the camera controls, Layers pop-out, hover
+cards, viewport streaming, scope/radius, body hierarchy and Inspect freshness as
+"in review" after they went live in `96644cad`, and described UI redesign phase 1
+as "done-pending-merge". The summary now records what is live and what remains
+(P2c, P6b, the open #1014–#1023 follow-ups, and Planner S6/S7). The decision-gates
+table no longer lists the production promotion authority as blocked on host
+provisioning and CPython 3.14, which was resolved by the 2026-09-10 bootstrap. Its
+recovery row now records that scheduled backups run but no restore has been
+rehearsed. The UI redesign plan's status paragraph and slice table replace
+"implemented in this PR" with merged PR numbers and mark P2b/P2d as superseded
+by the full-window map (#1029). No code, workflow, SQL or production change.
+
 ## 2026-11-07 — Eleventh F2d release `a894b181` accepted: full-window Explore map live
 
 Records the eleventh accepted F2d release, approved by the owner. Release run
