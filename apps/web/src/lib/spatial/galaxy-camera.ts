@@ -28,6 +28,16 @@ export const GALAXY_CAMERA_NAVIGATION_BOUNDS_LY: Bounds3Ly = {
 };
 
 export type GalaxyCameraViewport = Readonly<{ width: number; height: number }>;
+
+/** Sagittarius A*, the centre the galaxy map keeps in view. */
+export const GALAXY_NAVIGATION_CENTRE_LY: Vec3Ly = {
+  x: 25.21875,
+  y: -20.90625,
+  z: 25_899.96875,
+};
+/** Encloses every known system with a margin (Beagle Point is ~39,500 ly out). */
+export const GALAXY_NAVIGATION_RADIUS_LY = 50_000;
+
 /** Canvas-local CSS pixels, independent of the renderer's device pixel ratio. */
 export type GalaxyCameraPoint = Readonly<{ x: number; y: number }>;
 export type GalaxyCameraPinch = readonly [GalaxyCameraPoint, GalaxyCameraPoint];
@@ -241,14 +251,17 @@ export function elevateGalaxyCameraByPixels(
 }
 
 /**
- * Intersect a screen ray with the galactic x/z plane through the current focus
- * Y. At shallow pitches some pixels see above the horizon: those have no
- * forward intersection, so callers must fall back to unanchored navigation.
+ * Intersect a screen ray with a galactic x/z plane: by default the one through
+ * the current focus Y, or `planeYLy` (for example the plane the region fills
+ * are drawn on, which an elevated focus is not on). Rays that never reach the
+ * plane going forward (above the horizon at shallow pitches) have no
+ * intersection, so callers must fall back to unanchored navigation.
  */
 export function galaxyCameraPlanePoint(
   camera: CameraState,
   point: GalaxyCameraPoint,
   viewport: GalaxyCameraViewport,
+  planeYLy?: number,
 ): Vec3Ly | null {
   const state = normalizeGalaxyCamera(camera);
   validateViewport(viewport);
@@ -291,14 +304,14 @@ export function galaxyCameraPlanePoint(
         z: forward.z + screenOffset.z,
       }
     : forward;
-  if (direction.y >= -1e-9) return null;
-  const travel = (state.focusLy.y - origin.y) / direction.y;
-  if (travel < 0 || !Number.isFinite(travel)) return null;
+  const planeY =
+    planeYLy === undefined ? state.focusLy.y : finite(planeYLy, 'plane y');
+  if (Math.abs(direction.y) <= 1e-9) return null;
+  const travel = (planeY - origin.y) / direction.y;
+  if (travel <= 0 || !Number.isFinite(travel)) return null;
   const x = origin.x + direction.x * travel;
   const z = origin.z + direction.z * travel;
-  return Number.isFinite(x) && Number.isFinite(z)
-    ? { x, y: state.focusLy.y, z }
-    : null;
+  return Number.isFinite(x) && Number.isFinite(z) ? { x, y: planeY, z } : null;
 }
 
 function anchorGalaxyCamera(
@@ -586,4 +599,70 @@ export function interpolateGalaxyCamera(
     projection: source.projection,
     revision: target.revision,
   });
+}
+
+function focusOffsetLy(camera: CameraState): number {
+  return Math.hypot(
+    camera.focusLy.x - GALAXY_NAVIGATION_CENTRE_LY.x,
+    camera.focusLy.z - GALAXY_NAVIGATION_CENTRE_LY.z,
+  );
+}
+
+/**
+ * How far the focus may sit from the galactic centre at this range. Once the
+ * whole galaxy fits on screen the answer is zero, so a zoomed-out galaxy stays
+ * centred; zoomed in, the focus may travel anywhere inside the galaxy.
+ */
+export function galaxyFocusAllowanceLy(
+  camera: CameraState,
+  viewport: GalaxyCameraViewport,
+): number {
+  const state = normalizeGalaxyCamera(camera);
+  validateViewport(viewport);
+  const halfSpanLy =
+    state.distanceLy *
+    Math.tan(GALAXY_CAMERA_FOV_RAD / 2) *
+    Math.min(1, viewport.width / viewport.height);
+  return Math.max(0, GALAXY_NAVIGATION_RADIUS_LY - halfSpanLy);
+}
+
+/**
+ * Keep the galaxy on screen after a pan, zoom or pinch. Pass the camera the
+ * gesture started from: a view that is already further out than allowed (a
+ * restored link, a fly-to) is never yanked back in one jump. It can move
+ * towards the centre freely, cannot drift further out, and zooming out draws
+ * it in only as fast as the allowance shrinks.
+ */
+export function keepGalaxyInView(
+  next: CameraState,
+  viewport: GalaxyCameraViewport,
+  previous?: CameraState,
+): CameraState {
+  const state = normalizeGalaxyCamera(next);
+  const allowance = galaxyFocusAllowanceLy(state, viewport);
+  let limit = allowance;
+  if (previous) {
+    const shrink = Math.max(
+      0,
+      galaxyFocusAllowanceLy(previous, viewport) - allowance,
+    );
+    limit = Math.max(allowance, focusOffsetLy(previous) - shrink);
+  }
+  const offset = focusOffsetLy(state);
+  // The gesture's own camera is already normalised; return it untouched so
+  // repeated gestures never accumulate rounding in the bearing.
+  if (offset <= limit) return next;
+  const scale = limit / offset;
+  return {
+    ...next,
+    focusLy: {
+      x:
+        GALAXY_NAVIGATION_CENTRE_LY.x +
+        (state.focusLy.x - GALAXY_NAVIGATION_CENTRE_LY.x) * scale,
+      y: state.focusLy.y,
+      z:
+        GALAXY_NAVIGATION_CENTRE_LY.z +
+        (state.focusLy.z - GALAXY_NAVIGATION_CENTRE_LY.z) * scale,
+    },
+  };
 }

@@ -54,7 +54,7 @@
         onclick={onShowFinder}>Show Finder</button
       >
     {/if}
-    <SpatialCanvas {...canvasProps} controlsBelow />
+    <SpatialCanvas {...canvasProps} controlsOverlay />
   </div>
   <footer class="map-window-footer">
     {@render afterCanvas?.()}
@@ -118,21 +118,6 @@
     min-height: 0;
     height: auto;
     border: 1px solid var(--line);
-  }
-  .map-window-content :global(.nearby-systems) {
-    margin: 0;
-    font-size: 0.75rem;
-    max-height: 25%;
-    overflow: auto;
-  }
-  .map-window-content :global(.nearby-systems summary) {
-    padding: 0.15rem 0;
-  }
-  .map-window-content :global(.renderer-status) {
-    min-height: 0;
-    margin: 0;
-    padding: 0;
-    font-size: 0.7rem;
   }
   .map-window-footer {
     display: flex;

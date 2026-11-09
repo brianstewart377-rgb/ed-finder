@@ -21,6 +21,7 @@ import {
 import * as density from './galaxy-density';
 import {
   elevateGalaxyCameraByPixels,
+  GALAXY_NAVIGATION_CENTRE_LY,
   orbitGalaxyCamera,
   panGalaxyCamera,
 } from './galaxy-camera';
@@ -1591,10 +1592,10 @@ describe('SpatialCanvas', () => {
       // hidden: they must not vanish and reappear once the camera stops.
       expect(layout).toHaveBeenCalledOnce();
       expect(layout.mock.calls[0]?.[1].revision).toBe(revision);
-      // Still moving: region names keep their slots, nothing is re-shuffled.
-      expect(layout.mock.calls[0]?.[3]).toMatchObject({
-        lockDisplacements: true,
-      });
+      // Region names never jump aside: the layout only remembers which were
+      // faded, and gets the lookup that keeps each name inside its region.
+      expect(layout.mock.calls[0]?.[3]).toHaveProperty('previouslyMuted');
+      expect(layout.mock.calls[0]?.[3]).not.toHaveProperty('lockDisplacements');
       expect(layer).not.toHaveClass('labels-moving');
       await vi.advanceTimersByTimeAsync(100);
       // Choosing which names exist scans the catalogue, so it waits.
@@ -1611,16 +1612,13 @@ describe('SpatialCanvas', () => {
     expect(layout).toHaveBeenCalledOnce();
     expect(layout.mock.calls[0]?.[0]).toHaveLength(3);
     expect(layout.mock.calls[0]?.[1].revision).toBe(4);
-    // Settled: names may now ease clear of one another.
-    expect(layout.mock.calls[0]?.[3]).toMatchObject({
-      lockDisplacements: false,
-    });
+    expect(layout.mock.calls[0]?.[3]).not.toHaveProperty('lockDisplacements');
     await vi.advanceTimersByTimeAsync(1_000);
     expect(candidates).toHaveBeenCalledOnce();
     expect(layout).toHaveBeenCalledOnce();
   });
 
-  it('puts names on their anchors with no easing and eases only the shift that clears a neighbour', () => {
+  it('puts names on their points with no easing and eases only the fade of a crowded name', () => {
     const source = readFileSync(
       resolve(process.cwd(), 'src/lib/spatial/SpatialCanvas.svelte'),
       'utf8',
@@ -1635,12 +1633,12 @@ describe('SpatialCanvas', () => {
     // A name that trails its star during a drag reads as the wrong star, so
     // left/top follow the camera exactly...
     expect(rule('\\.galaxy-label')).not.toMatch(/transition|will-change/u);
-    // ...and only the region name's own sideways shift is eased.
+    // ...and a region name never slides aside: only its fade is eased.
     const region = rule('\\.galaxy-label--region');
-    expect(region).toMatch(/--label-dx/u);
-    expect(region).toMatch(/--label-dy/u);
-    expect(region).toMatch(/transition: transform/u);
-    expect(source).toMatch(/style:left=\{`\$\{label\.anchorXPx\}px`\}/u);
+    expect(region).not.toMatch(/--label-dx|--label-dy|(?<![-\w])transform:/u);
+    expect(region).toMatch(/transition: opacity/u);
+    expect(rule('\\.galaxy-label--region\\.is-muted')).toMatch(/opacity/u);
+    expect(source).toMatch(/style:left=\{`\$\{label\.xPx\}px`\}/u);
   });
 
   it('distinguishes a click from a pan and cancels interrupted gestures without picking', async () => {
@@ -1960,6 +1958,121 @@ describe('SpatialCanvas', () => {
     expect(lastGalaxyCamera().distanceLy).toBeLessThan(zoomed.distanceLy);
     screen.getByRole('button', { name: 'Zoom out' }).click();
     expect(lastGalaxyCamera().focusLy).toEqual(zoomed.focusLy);
+  });
+
+  it('floats the controls over the map and still zooms when scrolled over them', async () => {
+    const fixture = buildGalaxyReviewFixtureScene();
+    const scene = {
+      ...fixture,
+      camera: { ...fixture.camera, distanceLy: 1_000 },
+    };
+    const view = render(SpatialCanvas, {
+      props: { scene, controlsOverlay: true },
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveAttribute(
+        'data-renderer-state',
+        'ready',
+      ),
+    );
+    const surface = view.container.querySelector('.map-systems-surface')!;
+    const bar = surface.querySelector('.map-overlay-bar')!;
+    expect(bar).not.toBeNull();
+    expect(
+      bar.contains(
+        screen.getByRole('group', { name: 'Galaxy camera controls' }),
+      ),
+    ).toBe(true);
+    expect(bar.contains(screen.getByRole('status'))).toBe(true);
+    const canvas = view.container.querySelector('canvas')!;
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({
+      left: 100,
+      top: 50,
+      width: 640,
+      height: 360,
+    } as DOMRect);
+    adapter.runtimes[0]!.dispatch.mockClear();
+    const wheel = new WheelEvent('wheel', {
+      deltaY: -240,
+      clientX: 200,
+      clientY: 390,
+      bubbles: true,
+      cancelable: true,
+    });
+    bar.querySelector('button')!.dispatchEvent(wheel);
+    expect(wheel.defaultPrevented).toBe(true);
+    expect(lastGalaxyCamera().distanceLy).toBeLessThan(1_000);
+    // A pop-out opened from the bar (Sources) keeps its own scrolling.
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    const inside = document.createElement('p');
+    dialog.append(inside);
+    bar.append(dialog);
+    const runtime = adapter.runtimes[0]!;
+    runtime.dispatch.mockClear();
+    const dialogWheel = new WheelEvent('wheel', {
+      deltaY: -240,
+      clientX: 200,
+      clientY: 300,
+      bubbles: true,
+      cancelable: true,
+    });
+    inside.dispatchEvent(dialogWheel);
+    expect(dialogWheel.defaultPrevented).toBe(false);
+    expect(
+      runtime.dispatch.mock.calls.filter(
+        ([command]) => command.type === 'SET_CAMERA',
+      ),
+    ).toHaveLength(0);
+    dialog.remove();
+  });
+
+  it('keeps a zoomed-out galaxy centred when dragged or wheel-zoomed off centre', async () => {
+    const fixture = buildGalaxyReviewFixtureScene();
+    const scene = {
+      ...fixture,
+      camera: {
+        ...fixture.camera,
+        focusLy: GALAXY_NAVIGATION_CENTRE_LY,
+        distanceLy: 150_000,
+      },
+    };
+    const view = render(SpatialCanvas, { props: { scene } });
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveAttribute(
+        'data-renderer-state',
+        'ready',
+      ),
+    );
+    const host = view.container.querySelector('.spatial-canvas')!;
+    const canvas = view.container.querySelector('canvas')!;
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({
+      left: 100,
+      top: 50,
+      width: 640,
+      height: 360,
+    } as DOMRect);
+    const runtime = adapter.runtimes[0]!;
+    runtime.dispatch.mockClear();
+    // A long drag that would otherwise throw the galaxy off the screen.
+    pointer(host, 'pointerdown', 1, 320, 180);
+    pointer(window, 'pointermove', 1, 620, 340);
+    pointer(window, 'pointerup', 1, 620, 340);
+    expect(lastGalaxyCamera().focusLy).toEqual(GALAXY_NAVIGATION_CENTRE_LY);
+    // Zooming in a little towards a corner may not pull it away either while
+    // the whole galaxy still fits.
+    host.dispatchEvent(
+      new WheelEvent('wheel', {
+        deltaY: -40,
+        clientX: 120,
+        clientY: 60,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    const zoomed = lastGalaxyCamera();
+    expect(zoomed.distanceLy).toBeLessThan(150_000);
+    expect(zoomed.focusLy).toEqual(GALAXY_NAVIGATION_CENTRE_LY);
   });
 
   it('queues camera movements until an in-flight transition settles', async () => {
