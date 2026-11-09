@@ -2644,6 +2644,40 @@
             {/snippet}
           </MapLayers>
         </div>
+        <div class="map-window-status">
+          <span
+            class="map-catalogue-status"
+            data-catalogue-star-count={catalogueStarsContribution?.layers[0]
+              ?.targetCount ?? 0}
+          >
+            {#if !starViewport}
+              Zoom in for individual catalogue stars
+            {:else if catalogueStars.isPending && !viewState.appliedCataloguePacket}
+              Loading exact catalogue stars…
+            {:else if catalogueStars.isError}
+              Exact-star layer unavailable
+            {:else}
+              {(
+                catalogueStarsContribution?.layers[0]?.targetCount ?? 0
+              ).toLocaleString()} exact stars{catalogueStarsContribution
+                ?.layers[0]?.truncated
+                ? ' · bounded view'
+                : ''}
+            {/if}
+          </span>
+
+          <p
+            class="selection-status"
+            aria-live="polite"
+            data-last-picked-id64={viewState.lastPickedId64}
+          >
+            {#if viewState.lastPickedId64}Spatial pick selected <code
+                >{viewState.lastPickedId64}</code
+              >.{:else if $selectedSystem.value}Active system <code
+                >{$selectedSystem.value}</code
+              >.{:else}Select a result to focus the map.{/if}
+          </p>
+        </div>
       {/snippet}
       {#snippet afterCanvas()}
         {#if selectedMapSystem}
@@ -2725,40 +2759,6 @@
             >
           </nav>
         {/if}
-        <div class="map-window-status">
-          <span
-            class="map-catalogue-status"
-            data-catalogue-star-count={catalogueStarsContribution?.layers[0]
-              ?.targetCount ?? 0}
-          >
-            {#if !starViewport}
-              Zoom in for individual catalogue stars
-            {:else if catalogueStars.isPending && !viewState.appliedCataloguePacket}
-              Loading exact catalogue stars…
-            {:else if catalogueStars.isError}
-              Exact-star layer unavailable
-            {:else}
-              {(
-                catalogueStarsContribution?.layers[0]?.targetCount ?? 0
-              ).toLocaleString()} exact stars{catalogueStarsContribution
-                ?.layers[0]?.truncated
-                ? ' · bounded view'
-                : ''}
-            {/if}
-          </span>
-
-          <p
-            class="selection-status"
-            aria-live="polite"
-            data-last-picked-id64={viewState.lastPickedId64}
-          >
-            {#if viewState.lastPickedId64}Spatial pick selected <code
-                >{viewState.lastPickedId64}</code
-              >.{:else if $selectedSystem.value}Active system <code
-                >{$selectedSystem.value}</code
-              >.{:else}Select a result to focus the map.{/if}
-          </p>
-        </div>
       {/snippet}
     </ExploreMapWindow>
   </div>
@@ -2880,9 +2880,12 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* Sits at the right of the map heading, so nothing is stacked under the
+     map: the canvas keeps the whole window height. */
   .map-window-status {
     display: flex;
-    flex: 1 1 18rem;
+    flex: 1 1 16rem;
+    justify-content: flex-end;
     gap: 0.5rem;
     min-width: 0;
     color: var(--text-muted);
@@ -2895,7 +2898,7 @@
     text-overflow: ellipsis;
   }
   .selection-status {
-    margin: 0 0 0 auto;
+    margin: 0;
     min-height: 0;
     padding: 0;
     border: 0;

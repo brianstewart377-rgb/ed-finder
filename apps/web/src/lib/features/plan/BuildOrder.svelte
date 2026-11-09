@@ -6,6 +6,7 @@
   } from '$lib/api';
   import {
     facilityFitsLocation,
+    locationLabel,
     nonCurrentLocation,
     shortBodyName,
     type PlannerLocation,
@@ -82,17 +83,7 @@
     );
   }
   function locationName(bodyRef: string | null): string {
-    const location = bodyRef ? locationById.get(bodyRef) : undefined;
-    if (location) return shortBodyName(location.name, systemName);
-    const nonCurrent = bodies ? nonCurrentLocation(bodies, bodyRef) : null;
-    if (nonCurrent) {
-      const state =
-        nonCurrent.lifecycle_state === 'RETIRED'
-          ? 'retired'
-          : 'missing from the latest data';
-      return `${shortBodyName(nonCurrent.name, systemName)} (${state})`;
-    }
-    return 'Unplaced';
+    return locationLabel(bodyRef, locations, bodies, systemName);
   }
   function moveOptions(site: PlannerSite): PlannerLocation[] {
     const facility = facilityById.get(site.facility_id);

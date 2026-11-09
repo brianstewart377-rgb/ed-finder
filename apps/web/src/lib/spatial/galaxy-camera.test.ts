@@ -14,9 +14,13 @@ import {
   GALAXY_CAMERA_MIN_DISTANCE_LY,
   GALAXY_CAMERA_MIN_PITCH_RAD,
   GALAXY_CAMERA_NAVIGATION_BOUNDS_LY,
+  GALAXY_NAVIGATION_CENTRE_LY,
+  GALAXY_NAVIGATION_RADIUS_LY,
   galaxyCameraPlanePoint,
   galaxyCameraPose,
+  galaxyFocusAllowanceLy,
   interpolateGalaxyCamera,
+  keepGalaxyInView,
   normalizeGalaxyCamera,
   orbitGalaxyCamera,
   panGalaxyCamera,
@@ -550,5 +554,101 @@ describe('renderer-neutral Galaxy camera', () => {
     ).toThrow(RangeError);
     expect(camera.revision).toBe(4);
     expect(camera.focusLy).toEqual({ x: 123.5, y: -45.25, z: 678.125 });
+  });
+});
+
+describe('keeping the galaxy on screen', () => {
+  const centre = GALAXY_NAVIGATION_CENTRE_LY;
+  const halfSpan = (distanceLy: number) =>
+    distanceLy * Math.tan(GALAXY_CAMERA_FOV_RAD / 2);
+  const at = (offsetLy: number, distanceLy: number, y = 7): CameraState => ({
+    focusLy: { x: centre.x + offsetLy * 0.6, y, z: centre.z + offsetLy * 0.8 },
+    distanceLy,
+    bearingRad: 0.3,
+    pitchRad: Math.PI / 2,
+    projection: 'perspective',
+    revision: 9,
+  });
+  const offsetOf = (state: CameraState) =>
+    Math.hypot(state.focusLy.x - centre.x, state.focusLy.z - centre.z);
+  // The galaxy just fits on screen at this range.
+  const fitDistance =
+    GALAXY_NAVIGATION_RADIUS_LY / Math.tan(GALAXY_CAMERA_FOV_RAD / 2);
+
+  it('allows no offset once the whole galaxy fits, and the rest of the radius when zoomed in', () => {
+    expect(galaxyFocusAllowanceLy(at(0, fitDistance * 1.2), viewport)).toBe(0);
+    expect(galaxyFocusAllowanceLy(at(0, 4_000), viewport)).toBeCloseTo(
+      GALAXY_NAVIGATION_RADIUS_LY - halfSpan(4_000),
+      6,
+    );
+    // The shorter side of a portrait screen decides how much is visible.
+    expect(
+      galaxyFocusAllowanceLy(at(0, 4_000), { width: 360, height: 720 }),
+    ).toBeCloseTo(GALAXY_NAVIGATION_RADIUS_LY - halfSpan(4_000) / 2, 6);
+  });
+
+  it('keeps a zoomed-out galaxy centred however far it is dragged', () => {
+    const wide = at(0, fitDistance * 1.2);
+    const dragged = keepGalaxyInView(
+      at(30_000, fitDistance * 1.2),
+      viewport,
+      wide,
+    );
+    expect(offsetOf(dragged)).toBeCloseTo(0, 6);
+    expect(dragged.focusLy.y).toBe(7);
+    expect(dragged.revision).toBe(9);
+  });
+
+  it('lets a zoomed-in view travel anywhere inside the galaxy but not beyond it', () => {
+    const close = at(0, 4_000);
+    const allowance = GALAXY_NAVIGATION_RADIUS_LY - halfSpan(4_000);
+    const inside = at(allowance - 100, 4_000);
+    expect(keepGalaxyInView(inside, viewport, close)).toEqual(inside);
+    const beyond = keepGalaxyInView(
+      at(allowance + 20_000, 4_000),
+      viewport,
+      close,
+    );
+    expect(offsetOf(beyond)).toBeCloseTo(allowance, 6);
+    // Pulled straight back towards the centre, not sideways.
+    expect(
+      (beyond.focusLy.z - centre.z) / (beyond.focusLy.x - centre.x),
+    ).toBeCloseTo(0.8 / 0.6, 6);
+  });
+
+  it('never yanks a view that already sits further out, but lets it come back', () => {
+    const restored = at(30_000, fitDistance * 1.2);
+    // Dragging further out is held where it was...
+    expect(
+      offsetOf(
+        keepGalaxyInView(at(40_000, fitDistance * 1.2), viewport, restored),
+      ),
+    ).toBeCloseTo(30_000, 6);
+    // ...dragging back towards the centre is followed exactly...
+    const back = at(10_000, fitDistance * 1.2);
+    expect(keepGalaxyInView(back, viewport, restored)).toEqual(back);
+    // ...and zooming in keeps it exactly where it is.
+    const zoomedIn = at(30_000, fitDistance);
+    expect(keepGalaxyInView(zoomedIn, viewport, restored)).toEqual(zoomedIn);
+  });
+
+  it('draws the view in as you zoom out, only as fast as the allowance shrinks', () => {
+    // Already further out than this range allows (12,370 ly here).
+    const before = at(20_000, 100_000);
+    const shrink =
+      galaxyFocusAllowanceLy(before, viewport) -
+      galaxyFocusAllowanceLy(at(0, 110_000), viewport);
+    const zoomedOut = keepGalaxyInView(at(20_000, 110_000), viewport, before);
+    expect(shrink).toBeGreaterThan(0);
+    expect(offsetOf(zoomedOut)).toBeCloseTo(20_000 - shrink, 6);
+    // Inside the allowance, zooming out leaves the view alone.
+    const inside = at(5_000, 110_000);
+    expect(keepGalaxyInView(inside, viewport, at(5_000, 100_000))).toBe(inside);
+  });
+
+  it('applies the plain limit when there is no earlier camera', () => {
+    expect(
+      offsetOf(keepGalaxyInView(at(30_000, fitDistance * 1.2), viewport)),
+    ).toBe(0);
   });
 });

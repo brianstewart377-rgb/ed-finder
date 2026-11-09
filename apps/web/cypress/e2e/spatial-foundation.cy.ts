@@ -40,10 +40,20 @@ const assertMapWindowLayout = (width: number, height: number) => {
     expect(
       canvas.height,
       'canvas gets the main share of the workspace',
-    ).to.be.at.least(width < 700 ? height * 0.55 : bounds.height * 0.6);
-    expect(controls.top, 'camera controls sit below canvas').to.be.at.least(
-      canvas.bottom,
+    ).to.be.at.least(width < 700 ? height * 0.6 : bounds.height * 0.75);
+    // Like the in-game map, the controls float over the bottom of the map
+    // instead of taking space below it.
+    expect(controls.top, 'camera controls sit over the canvas').to.be.at.least(
+      canvas.top,
     );
+    expect(
+      controls.bottom,
+      'camera controls end inside the canvas',
+    ).to.be.at.most(canvas.bottom);
+    expect(
+      controls.left,
+      'camera controls start inside the canvas',
+    ).to.be.at.least(canvas.left);
   });
 };
 

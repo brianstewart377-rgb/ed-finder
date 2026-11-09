@@ -682,6 +682,20 @@ describe('Colony planner browser-kept main path', () => {
         `plan/system-layout-${Cypress.browser.name}-${width}x${height}`,
         { capture: 'fullPage', overwrite: true },
       );
+      // The read-only schematic marks the planned builds and never makes the
+      // page itself scroll sideways.
+      cy.get('[data-plan-schematic]')
+        .should('be.visible')
+        .and('contain.text', 'schematic not to scale');
+      cy.get('[data-plan-schematic] [data-schematic-marker="true"]').should(
+        'have.length.at.least',
+        1,
+      );
+      cy.injectAxe();
+      cy.checkA11y('[data-plan-schematic]');
+      cy.document().should((document) => {
+        expect(document.documentElement.scrollWidth).to.be.at.most(width + 1);
+      });
       let storedBeforeTab: string | null;
       cy.window().then((window) => {
         storedBeforeTab = window.localStorage.getItem(planStorageKey);
@@ -853,6 +867,37 @@ describe('Colony planner browser-kept main path', () => {
         capture: 'viewport',
         overwrite: true,
       });
+      // The Build order and Export tabs show their own panel and keep the
+      // DRAFT export button in view.
+      cy.get(`${reviewDialog} [role="tab"]`)
+        .contains(/^Build order$/)
+        .click();
+      cy.get(`${reviewDialog} table`).should('be.visible');
+      cy.get(`${reviewDialog} #plan-review-panel-overview`).should(
+        'not.be.visible',
+      );
+      cy.checkA11y(reviewDialog);
+      cy.screenshot(
+        `plan/review-build-order-${Cypress.browser.name}-${width}x${height}`,
+        { capture: 'viewport', overwrite: true },
+      );
+      cy.get(`${reviewDialog} [role="tab"]`)
+        .contains(/^Export$/)
+        .click();
+      cy.get(reviewDialog)
+        .contains('h3', 'Before you export')
+        .should('be.visible');
+      cy.get(reviewDialog)
+        .contains('button', 'Export DRAFT plan')
+        .should('be.visible');
+      cy.checkA11y(reviewDialog);
+      cy.screenshot(
+        `plan/review-export-${Cypress.browser.name}-${width}x${height}`,
+        { capture: 'viewport', overwrite: true },
+      );
+      cy.get(`${reviewDialog} [role="tab"]`)
+        .contains(/^Overview$/)
+        .click();
       cy.get(
         `${reviewDialog} [data-review-kind="unknown-slot"][data-body-ref="star-a"][data-slot-kind="orbital"]`,
       ).click();
@@ -925,6 +970,7 @@ describe('Colony planner browser-kept main path', () => {
       });
       cy.contains('button', /^Abandon plan$/).click();
       cy.get('[data-plan-build-order] [data-plan-site]').should('not.exist');
+      cy.contains('summary', /^Import$/).click();
       cy.contains('button', /^Import plan$/).click();
       cy.get('input[aria-label="Import plan file"]').selectFile(draftPath, {
         force: true,
@@ -991,6 +1037,7 @@ describe('Colony planner browser-kept main path', () => {
       cy.window().then((window) => {
         cy.stub(window, 'confirm').as('confirmRaven').returns(true);
       });
+      cy.contains('summary', /^Import$/).click();
       cy.contains('button', /^Import from Raven$/).click();
       cy.get(
         'input[aria-label="Import Raven Colonial layout file"]',

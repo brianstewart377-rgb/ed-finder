@@ -11,6 +11,94 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+## 2026-11-07 — Galaxy map: region names stay in their regions, the galaxy stays on screen, controls float over the map
+
+Two owner reports. Region names "bounce like popcorn" while zooming: the
+solver pushed a crowded name into one of nine nearby slots, which could be in
+a neighbouring region, and re-solved after every pause in the scroll
+(measured locally over one 14-notch zoom: 125 slot changes across 38 names).
+Region names now never move away from their own region. Each sits on its
+region's name point; a region whose name point has left the screen keeps its
+name at the nearest visible point still inside the region (found with the
+region lookup grid), so zooming into a region no longer loses its name; and a
+name that would overlap a more important one is drawn faded instead of being
+pushed aside, with a fade-in that waits for clear room so it cannot flicker.
+The current, selected and hovered regions are never faded, every region whose
+name point is in frame is still named, and only the fade is eased. Second,
+the map could be dragged off screen: the pan limit was only a box, ±250,000 ly
+until the density layer had loaded and then the catalogue's bounding
+box, which still let a zoomed-out galaxy slide mostly out of view. Pans, wheel
+zooms and pinches now keep the
+focus within a disc around Sagittarius A* whose radius shrinks as the view
+widens: once the whole galaxy fits it stays centred, and zoomed in it can be
+explored but never dragged away. A view that is already further out (a
+restored link or a fly-to) is never yanked back; it can only move inward, and
+zooming out draws it in no faster than the allowance shrinks. Third, the map
+wasted about 130 px under the canvas on stacked controls and status lines. The
+camera controls, range/grid/position readout and renderer status now float in
+a slim bar over the bottom of the map (scrolling over it still zooms), the
+Nearby systems list floats at the top right, and the star count and selection
+status sit in the map heading, so the canvas fills the window like the in-game
+map. The selected-system card and its Inspect / Plan links still appear under
+the map when a system is selected.
+
+## 2026-11-04 — UI redesign: Inspect action row and economy rows
+
+First slice of bringing the Inspect page closer to the concept image. Web only; no API, SQL, workflow or provenance change, and nothing is deployed.
+
+- **Actions at the top.** "Back to Explore" (left) and "Open in Explore" and "Continue to Plan" (right) now sit in one row above the system card instead of under it, so they are in view without scrolling. The links, labels and Finder-context behaviour are unchanged.
+- **Economy rows.** The seven economy potentials are now raised, rounded strips with a blue bar. The row whose "Why?" explanation is open is picked out with an orange bar and outline, so the pop-out and its row stay visibly linked. This marks only which row is open; it adds no score, ranking or eligibility claim, and the table, its columns and its keyboard behaviour are unchanged.
+- **Not in this slice.** The concept's three-column layout (bodies list, system map and economy bars side by side) is the next slice.
+
+## 2026-11-04 — UI redesign: Plan two-column layout from 1100px
+
+The Plan page already had a two-column layout (the system or build-order pane on the left, the summary on the right, as in the concept image), but it only switched on at 1400px wide, so a 1280px screen got one long stacked column. It now switches on at 1100px. Nothing else changes: same panes, same order, same behaviour, and phones and narrow windows keep the single column. Web only; no API, SQL, workflow or provenance change, and nothing is deployed.
+
+Checked with the product Plan browser tests run locally at 1280x900 (all five pass, including the facility picker staying inside the viewport) and by looking at the System layout and Build order screenshots.
+
+## 2026-11-04 — UI redesign: Review & export pop-out layout
+
+First slice of bringing the Colony Planner's Review & export pop-out closer to the concept image. Web only; no API, SQL, workflow or provenance change, and nothing is deployed.
+
+- **Wider, two columns.** On screens 900 px and wider the pop-out is wider and sets the plan summary beside the unresolved items and plan checks, so the unresolved list is no longer far down a long scroll. Narrower screens keep one column.
+- **Unresolved banner.** When the review lists unresolved items, an orange banner at the top gives the same count as the "Unresolved information" heading and a "Go to first item" button that only moves keyboard focus to the first listed item; it opens and changes nothing. The button is absent while the body and build editors are unavailable. The wording says "unresolved", not "needs information", because the list also includes blocked and invalid builds.
+- **Export stays in view.** The "Export DRAFT plan" button and the rulebook line sit in a footer that stays at the bottom of the pop-out while the lists scroll. The button, its label and the DRAFT download are unchanged.
+- **Not in this slice.** The concept's Overview / Build order / Export tabs inside the pop-out, the "Before you export" notes and the schematic are not built: they need wording and content decisions that are not made yet.
+
+## 2026-11-04 — UI redesign: Plan header primary action and one-row header
+
+Small slice of bringing the Colony Planner header closer to the concept image. Web only (one class name and some CSS); no API, SQL, workflow or provenance change, and nothing is deployed.
+
+- **One primary action.** "Review & export" is now the orange button in the planner header, so the page's main next step stands out from the quieter Import, Export, Abandon and view buttons. Its label, behaviour and keyboard handling are unchanged.
+- **One row on wide screens.** From 1340 px wide the planner name and the header buttons share one row, with slightly more compact buttons so all seven fit beside the name. Narrower screens keep the title above the buttons, as before. Checked at 1280, 1366, 1440 and 1920 px: no button leaves the page and nothing scrolls sideways.
+- **Not in this slice.** The concept's Import menu and the system schematic change how the other buttons are grouped or add a new view, and need a design decision.
+
+## 2026-11-04 — UI redesign: Plan Import menu
+
+Part of bringing the Colony Planner header closer to the concept image. Web only; no API, SQL, workflow or provenance change, and nothing is deployed.
+
+- **One Import menu.** "Import plan" and "Import from Raven" now sit inside a single "Import" menu in the planner header. The menu is a plain disclosure (it opens with Enter or Space, and closes after a choice, on Escape — returning focus to "Import" — or on a click elsewhere). The two choices, their file pickers, the confirmation prompts and what each import does are unchanged. The header is shorter, so it fits on one row at 1280 px as well.
+- **Not changed.** "Export DRAFT plan" and "Abandon plan" stay as separate buttons.
+
+## 2026-11-04 — UI redesign: Review & export tabs and export notes
+
+Second slice of the Review & export pop-out, stacked on the layout slice above. Web only; no API, SQL, workflow or provenance change, and nothing is deployed.
+
+- **Three tabs.** The pop-out now has Overview, Build order and Export tabs. Overview holds what the pop-out showed before (plan summary, unresolved items, plan checks). Every panel stays mounted, only the selected one is shown, and the pop-out opens on Overview each time. The tabs use the arrow keys, Home and End, with only the selected tab in the tab order. "Go to first item" switches back to Overview before it moves focus.
+- **Build order table.** Lists each build in plan order with its location, status and check result. A build the API has not checked yet reads "Not evaluated", and a plan with no builds says so instead of showing an empty table. On a narrow screen the table scrolls sideways inside the pop-out, and that scroll area can be reached with the keyboard. Locations use the same wording as the Build order task (a shared helper, so the two cannot drift).
+- **Before you export.** The Export tab says in plain words what the DRAFT file holds (the system ID64, the planned builds in order with their status, and the slot counts you have entered) and what it leaves out (the catalogue facts, the Overview points and the unresolved items), that the plan stays in this browser, and the file name. These statements match what `exportPlan` writes and use no eligibility wording.
+- **Unchanged.** The "Export DRAFT plan" button, its label and the downloaded file are the same, and the button stays in the footer on every tab.
+
+## 2026-11-04 — UI redesign: Plan system schematic
+
+Adds the concept's system picture to the Colony Planner's System layout tab. Web only; no API, SQL, workflow or provenance change, and nothing is deployed.
+
+- **Schematic above the body list.** A strip headed "System layout · schematic not to scale" shows the star at the left, the bodies in their recorded order along an orbit line, and the belts. It uses the same data as the body list below it, so it cannot disagree with it. Moons are not drawn; a planet shows "+N moons" instead.
+- **Planned-build markers.** A dashed marker above a body names what is planned there: "Primary Port", the facility name for a single build, or "N builds". A build on a moon is marked on the planet it orbits. Demolished, unplaced and no-longer-current builds are not marked; the list below still shows them.
+- **Read-only.** The picture adds no buttons or links. The body list stays the only place to select a body, enter slot counts or add a build. The body you select is outlined in the picture, and a long system scrolls sideways inside the picture (keyboard reachable) without making the page scroll.
+- **Spoken description.** The picture is one labelled image whose description lists the bodies, moon counts and builds in plain words, because the same facts are in the list.
+- **Not in this slice.** Planet class and star type captions, per-status marker styles, moon discs and clicking a body in the picture are not built.
+
 ## 2026-11-07 — Eleventh F2d release `a894b181` accepted: full-window Explore map live
 
 Records the eleventh accepted F2d release, approved by the owner. Release run

@@ -201,6 +201,31 @@ export function shortBodyName(name: string, systemName: string): string {
     : name;
 }
 
+/**
+ * How a build's location reads in a list: the body's short name, a note when
+ * the body is retired or missing from the latest data, or "Unplaced".
+ */
+export function locationLabel(
+  bodyRef: string | null,
+  locations: PlannerLocation[],
+  bodies: PlanBodiesV1 | undefined,
+  systemName: string,
+): string {
+  const location = bodyRef
+    ? locations.find((candidate) => candidate.body_ref === bodyRef)
+    : undefined;
+  if (location) return shortBodyName(location.name, systemName);
+  const nonCurrent = bodies ? nonCurrentLocation(bodies, bodyRef) : null;
+  if (nonCurrent) {
+    const state =
+      nonCurrent.lifecycle_state === 'RETIRED'
+        ? 'retired'
+        : 'missing from the latest data';
+    return `${shortBodyName(nonCurrent.name, systemName)} (${state})`;
+  }
+  return 'Unplaced';
+}
+
 export function facilityFitsLocation(
   facility: PlanFacilityV1,
   location: PlannerLocation,
