@@ -181,6 +181,53 @@ describe('Review & export', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('summarises the unresolved count in a banner whose button moves to the first listed item', async () => {
+    const input = props();
+    const { container } = render(ReviewExport, input);
+    // The tool takes focus on opening; the jump happens after that.
+    await waitFor(() => expect(screen.getByRole('dialog')).toHaveFocus());
+    const heading = screen.getByRole('heading', {
+      name: /^Unresolved information \((\d+)\)$/,
+    });
+    const count = Number(/\((\d+)\)/.exec(heading.textContent ?? '')?.[1]);
+    expect(count).toBeGreaterThan(1);
+    const banner = container.querySelector('[data-review-banner]');
+    expect(banner).toHaveTextContent(`${count} unresolved items`);
+    const first = container.querySelector<HTMLButtonElement>(
+      '.review-unresolved-list button:not(:disabled)',
+    );
+    await fireEvent.click(
+      within(banner as HTMLElement).getByRole('button', {
+        name: 'Go to first item',
+      }),
+    );
+    expect(first).toHaveFocus();
+    // Only moving focus: nothing is opened or changed until the item is used.
+    expect(input.onbody).not.toHaveBeenCalled();
+    expect(input.onstep).not.toHaveBeenCalled();
+  });
+
+  it('shows no banner when nothing is listed, and no jump button while editors are unavailable', () => {
+    const empty = props();
+    const first = render(ReviewExport, {
+      ...empty,
+      bodies: undefined,
+      locations: [],
+      evaluation: null,
+    });
+    expect(first.container.querySelector('[data-review-banner]')).toBeNull();
+    first.unmount();
+
+    const offline = props();
+    const second = render(ReviewExport, { ...offline, canNavigate: false });
+    expect(
+      second.container.querySelector('[data-review-banner]'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Go to first item' }),
+    ).not.toBeInTheDocument();
+  });
+
   it('keeps the system, item counts and separate Now/After Tier 2 and Tier 3 balances', () => {
     render(ReviewExport, props());
     expect(screen.getByText('Compact Test System')).toBeVisible();
