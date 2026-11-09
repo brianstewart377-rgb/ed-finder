@@ -3,6 +3,12 @@ import type { Bounds3Ly, CameraState, Vec3Ly } from './contracts';
 export const GALAXY_CAMERA_FOV_RAD = 0.72;
 export const GALAXY_CAMERA_MIN_DISTANCE_LY = 2;
 export const GALAXY_CAMERA_MAX_DISTANCE_LY = 250_000;
+/**
+ * The distance of the app's "local" view of a system: where Explore centres a
+ * selected result and where a flight to a selected system ends (never farther
+ * than the camera already is).
+ */
+export const GALAXY_LOCAL_VIEW_DISTANCE_LY = 400;
 export const GALAXY_CAMERA_MIN_PITCH_RAD = 0.12;
 export const GALAXY_CAMERA_MAX_PITCH_RAD = Math.PI / 2;
 export const GALAXY_CAMERA_ZOOM_SENSITIVITY = 0.001;

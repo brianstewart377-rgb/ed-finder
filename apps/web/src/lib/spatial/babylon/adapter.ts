@@ -45,6 +45,7 @@ import type {
 } from '../contracts';
 import {
   GALAXY_CAMERA_FOV_RAD,
+  GALAXY_LOCAL_VIEW_DISTANCE_LY,
   galaxyCameraPose,
   normalizeGalaxyCamera,
   interpolateGalaxyCamera,
@@ -2787,9 +2788,15 @@ export const createBabylonSession = (
           (candidate) => candidate.systemId64 === targetId,
         );
         if (!point) return { status: 'unsupported', command: command.type };
+        // End at the local view, or where the camera already is when that is
+        // closer. This must not depend on the marker size, which is fixed when
+        // the scene is built and says nothing about where the commander is now.
         const distance = Math.max(
           12,
-          Math.min(product.cameraState.distanceLy, product.markerSizeLy * 24),
+          Math.min(
+            product.cameraState.distanceLy,
+            GALAXY_LOCAL_VIEW_DISTANCE_LY,
+          ),
         );
         moveCamera(
           focusGalaxyCamera(product.cameraState, point.positionLy, distance),
