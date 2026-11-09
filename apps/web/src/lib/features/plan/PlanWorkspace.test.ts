@@ -151,7 +151,11 @@ function mockWidth(wide: boolean) {
 }
 
 function buildOrderTab() {
-  return screen.getByRole('tab', { name: 'Build order' });
+  // The Review pop-out has a tab of the same name; this is the page's own tab.
+  const [tab] = screen
+    .getAllByRole('tab', { name: 'Build order' })
+    .filter((candidate) => !candidate.closest('[role="dialog"]'));
+  return tab;
 }
 
 function systemLayoutTab() {
@@ -1152,7 +1156,13 @@ describe('Review and DRAFT export', () => {
     expect(
       within(review).getByRole('button', { name: 'Export DRAFT plan' }),
     ).toBeEnabled();
-    expect(screen.queryByRole('tabpanel')).toBeNull();
+    // The page's own task panels are not mounted yet (the Review pop-out has
+    // its own tab panels).
+    expect(
+      screen
+        .queryAllByRole('tabpanel')
+        .filter((panel) => !review.contains(panel)),
+    ).toEqual([]);
 
     catalogueRequest.resolve(catalogue);
     await advance(0);

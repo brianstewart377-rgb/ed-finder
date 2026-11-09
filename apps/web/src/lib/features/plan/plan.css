@@ -457,6 +457,53 @@
     align-items: start;
   }
 }
+/* The Review tabs reuse the task-tab look but sit flush in the pop-out. */
+.review-tabs[role='tablist'] {
+  margin: 0.75rem 0 0.5rem;
+}
+.review-table-wrap {
+  overflow-x: auto;
+}
+.review-table-wrap:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.review-build-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.review-build-table :is(th, td) {
+  padding: 0.45rem 0.3rem;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+.review-build-table thead th {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+.review-build-table tbody th {
+  min-width: 6rem;
+  font-weight: 600;
+  white-space: normal;
+}
+@media (min-width: 600px) {
+  .review-build-table :is(th, td) {
+    padding: 0.45rem 0.6rem;
+  }
+}
+.review-status {
+  text-transform: capitalize;
+}
+.review-notes {
+  display: grid;
+  gap: 0.6rem;
+  padding-left: 1.1rem;
+  line-height: 1.5;
+}
 /* Export stays in view while the lists scroll. */
 .review-footer {
   position: sticky;

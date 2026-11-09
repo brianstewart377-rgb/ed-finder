@@ -853,6 +853,37 @@ describe('Colony planner browser-kept main path', () => {
         capture: 'viewport',
         overwrite: true,
       });
+      // The Build order and Export tabs show their own panel and keep the
+      // DRAFT export button in view.
+      cy.get(`${reviewDialog} [role="tab"]`)
+        .contains(/^Build order$/)
+        .click();
+      cy.get(`${reviewDialog} table`).should('be.visible');
+      cy.get(`${reviewDialog} #plan-review-panel-overview`).should(
+        'not.be.visible',
+      );
+      cy.checkA11y(reviewDialog);
+      cy.screenshot(
+        `plan/review-build-order-${Cypress.browser.name}-${width}x${height}`,
+        { capture: 'viewport', overwrite: true },
+      );
+      cy.get(`${reviewDialog} [role="tab"]`)
+        .contains(/^Export$/)
+        .click();
+      cy.get(reviewDialog)
+        .contains('h3', 'Before you export')
+        .should('be.visible');
+      cy.get(reviewDialog)
+        .contains('button', 'Export DRAFT plan')
+        .should('be.visible');
+      cy.checkA11y(reviewDialog);
+      cy.screenshot(
+        `plan/review-export-${Cypress.browser.name}-${width}x${height}`,
+        { capture: 'viewport', overwrite: true },
+      );
+      cy.get(`${reviewDialog} [role="tab"]`)
+        .contains(/^Overview$/)
+        .click();
       cy.get(
         `${reviewDialog} [data-review-kind="unknown-slot"][data-body-ref="star-a"][data-slot-kind="orbital"]`,
       ).click();
