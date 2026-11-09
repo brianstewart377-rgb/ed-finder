@@ -189,6 +189,15 @@ Small slice of bringing the Colony Planner header closer to the concept image. W
 - **One primary action.** "Review & export" is now the orange button in the planner header, so the page's main next step stands out from the quieter Import, Export, Abandon and view buttons. Its label, behaviour and keyboard handling are unchanged.
 - **One row on wide screens.** From 1340 px wide the planner name and the header buttons share one row, with slightly more compact buttons so all seven fit beside the name. Narrower screens keep the title above the buttons, as before. Checked at 1280, 1366, 1440 and 1920 px: no button leaves the page and nothing scrolls sideways.
 - **Not in this slice.** The concept's Import menu and the system schematic change how the other buttons are grouped or add a new view, and need a design decision.
+## 2026-11-04 — UI redesign: Plan system schematic
+
+Adds the concept's system picture to the Colony Planner's System layout tab. Web only; no API, SQL, workflow or provenance change, and nothing is deployed.
+
+- **Schematic above the body list.** A strip headed "System layout · schematic not to scale" shows the star at the left, the bodies in their recorded order along an orbit line, and the belts. It uses the same data as the body list below it, so it cannot disagree with it. Moons are not drawn; a planet shows "+N moons" instead.
+- **Planned-build markers.** A dashed marker above a body names what is planned there: "Primary Port", the facility name for a single build, or "N builds". A build on a moon is marked on the planet it orbits. Demolished, unplaced and no-longer-current builds are not marked; the list below still shows them.
+- **Read-only.** The picture adds no buttons or links. The body list stays the only place to select a body, enter slot counts or add a build. The body you select is outlined in the picture, and a long system scrolls sideways inside the picture (keyboard reachable) without making the page scroll.
+- **Spoken description.** The picture is one labelled image whose description lists the bodies, moon counts and builds in plain words, because the same facts are in the list.
+- **Not in this slice.** Planet class and star type captions, per-status marker styles, moon discs and clicking a body in the picture are not built.
 
 ## 2026-11-03 — UI redesign: home page to concept
 

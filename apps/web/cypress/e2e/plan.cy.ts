@@ -682,6 +682,20 @@ describe('Colony planner browser-kept main path', () => {
         `plan/system-layout-${Cypress.browser.name}-${width}x${height}`,
         { capture: 'fullPage', overwrite: true },
       );
+      // The read-only schematic marks the planned builds and never makes the
+      // page itself scroll sideways.
+      cy.get('[data-plan-schematic]')
+        .should('be.visible')
+        .and('contain.text', 'schematic not to scale');
+      cy.get('[data-plan-schematic] [data-schematic-marker="true"]').should(
+        'have.length.at.least',
+        1,
+      );
+      cy.injectAxe();
+      cy.checkA11y('[data-plan-schematic]');
+      cy.document().should((document) => {
+        expect(document.documentElement.scrollWidth).to.be.at.most(width + 1);
+      });
       let storedBeforeTab: string | null;
       cy.window().then((window) => {
         storedBeforeTab = window.localStorage.getItem(planStorageKey);
