@@ -17,8 +17,10 @@
   [explanations](../CHANGES.md#2026-11-01--finder-f4e-per-archetype-explanations),
   and [saved lists and compare](../CHANGES.md#2026-11-01--finder-f4c-mode--and-reference-safe-saved-surfaces).
 - **Live Inspect:** [Ratings V4 with explanations](../CHANGES.md#2026-10-25--inspect-shows-ratings-v4-ring-hotspots-and-station-economies).
-- **Live Colony Planner `/plan`:** through S5b, with S3b surface slot predictions,
-  Raven layout import and the floating facility picker ([current programme](../CLAUDE.md#current-programme)).
+- **Live Colony Planner `/plan`:** through S5c (per-port economy bars, live since
+  `96644cad`), with S3b surface slot predictions, Raven layout import, the floating
+  facility picker, System layout / Build order tabs and the Review & export pop-out
+  ([current programme](../CLAUDE.md#current-programme)).
 - **Live system-name search works again** (2026-11-02): migration `023` and the V3
   autocomplete route (#978) are live in `a8d1b794`; the Galaxy map shows stars in
   their spectral colours (#980) and reports the nebula inventory honestly (#981).
@@ -34,10 +36,16 @@
   near the core (by design no name is dropped) are the next map items.
 - **Galaxy and System Map fixes live in `9ff456e0`:** the density/local-star
   hand-off and density error state, Finder markers independent of catalogue
-  stars, and System Map planet classes with a legend; camera controls, the Layers
-  pop-out, hover cards, viewport streaming, scope/radius, hierarchy and Inspect
-  freshness are in review.
-- **UI redesign:** [six-phase plan and PR slices](superpowers/specs/2026-11-02-v3-ui-redesign-plan.md); phase 1 is done-pending-merge in #998, followed by map workspace, Finder, Inspect, Plan/Review & export and home polish.
+  stars, and System Map planet classes with a legend. Camera controls, the Layers
+  pop-out, hover cards, viewport streaming, scope/radius, the System Map body
+  hierarchy and Inspect freshness followed in `96644cad`.
+- **UI redesign:** [six-phase plan and PR slices](superpowers/specs/2026-11-02-v3-ui-redesign-plan.md).
+  Live: the design kit (P1, #998), route-owned Explore view state (P2a), Finder
+  control polish (P3), Inspect tabs (P4), Plan tabs and the Review & export
+  pop-out (P5a, P5b) and home polish (P6a). The on-demand map window (P2b/P2d) is
+  superseded by the full-window Explore map (#1029, owner decision 2026-11-07).
+  Remaining: the Finder / Saved / Compare task tabs (P2c) and the final visual
+  sweep (P6b); follow-up polish PRs #1014–#1023 are open.
 - **V2 route retirement:** the [mounted-route inventory](development/v3-v2-route-retirement.md)
   lists the candidates; removal waits on the [owner decision](development/v3-v2-route-retirement.md#owner-decision-and-proposed-response-contract)
   for routes that still have code callers ([residue plan](development/v2-decommission-roadmap.md#track-b--v2-manifest--sql-tree-long-horizon--finish-v3)).
@@ -46,10 +54,10 @@
 - **Live EDDN listener and Spansh nightly refresh remain follow-ups:** the
   [2026-10-21 worker is code only](../CHANGES.md#2026-10-21--v3-eddn-station-sighting-worker-and-v3_observe-proposal-code-only), and refresh has
   [measurement tooling](development/spansh-delta-measurement.md); a broader owner enablement decision is not recorded here.
-- **Planner next:** S5c economy bars are implemented and the
-  [S5a/S5b/S5c split is documented](superpowers/specs/2026-10-30-v3-colony-planner-design.md#7-slices).
-  This visual change needs Product E2E/visual acceptance before promotion; it
-  is not deployed.
+- **Planner next:** S5c economy bars shipped in `96644cad` (#1000). The remaining
+  [slices](superpowers/specs/2026-10-30-v3-colony-planner-design.md#7-slices) are
+  S6 (account-saved plans, which needs a migration and its own governed apply)
+  and S7 (mark the legacy V2 planner endpoints "not available on V3").
 - **Open owner decisions:** [Any-mode tier semantics](superpowers/specs/2026-10-10-v3-finder-f4-archetype-ui-design.md#owner-questions)
   (custom weights were answered URL-only on 2026-11-01), the V2 route retirement above,
   plus Spansh's [change-admission policy (D3)](development/spansh-delta-measurement.md#the-overlap-from-the-second-night)
@@ -1274,8 +1282,8 @@ evidence-interpretation, and Digital Twin owner.
 | Scoring and judgement | Ratings V4.0 is frozen by PR #646. Seven independent raw scores; archetype judgement and Finder ranking remain later layers. |
 | Derived-data bootstrap | Implement recovered canonical inputs, bounded generation builds, complete validation and atomic publication/rollback through reviewed production controls. |
 | Live checkpoint | Supply the still-missing non-production database/config, container runtime, origin/edge and receipt authorities before first mutation. |
-| Production app promotion authority | Provision the two designated non-secret paths (`/etc/ed-finder/v3-production/api.env`, `/var/lib/ed-finder/v3-production/receipts`) at the recorded owner uid and mode, author the api env snapshot, and capture stat-only existence/owner/mode evidence before the target can be authorized. An exact CPython 3.14 mutation runtime is still absent from the host, and the live loopback bindings must match the reviewed single-active-origin cutover model, whose authority and edge configuration are now published but not yet applied to the host. |
-| V3 DB maintenance/recovery | Supply current PG18 population/invariant evidence and an executable reviewed backup/restore/PITR procedure. Until then, recovery remains fail-closed. |
+| Production app promotion authority | Resolved: the target is `authorized` (paths provisioned and pinned, exact CPython 3.14.7 on the host, edge cutover applied) and has accepted governed promotions since the 2026-09-10 bootstrap. Each promotion still runs only through the governed workflow with owner approval; see the [release boundary](operations/v3-production-application-release.md). |
+| V3 DB maintenance/recovery | Scheduled backups now run (Sunday full, Monday–Saturday differential, Sunday verify; [backup status](../deploy/v3-production/backup/README.md)), but no restore has been rehearsed. Supply the rehearsed restore/PITR evidence ([A5 restore practice](operations/v3-restore-rehearsal.md)) before claiming recovery readiness. Until then, recovery remains fail-closed. |
 
 The merged V3 search/spatial decision and Ratings V4.0 freeze are architecture
 and scoring authority. Their merge does not establish production build or
