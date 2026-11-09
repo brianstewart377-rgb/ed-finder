@@ -1450,6 +1450,29 @@ describe('shared system detail', () => {
     expect(tourism).toHaveFocus();
   });
 
+  it('picks out only the economy row whose evidence is open', async () => {
+    mockedGetSystem.mockResolvedValue(referenceSystemDetail());
+    render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });
+    const rows = () =>
+      [...document.querySelectorAll('tr[data-rating-economy]')].filter((row) =>
+        row.classList.contains('open'),
+      );
+    await screen.findByRole('button', { name: 'Why? Agriculture' });
+    expect(rows()).toHaveLength(0);
+    await fireEvent.click(screen.getByRole('button', { name: 'Why? Tourism' }));
+    expect(
+      rows().map((row) => row.getAttribute('data-rating-economy')),
+    ).toEqual(['Tourism']);
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Why? Agriculture' }),
+    );
+    expect(
+      rows().map((row) => row.getAttribute('data-rating-economy')),
+    ).toEqual(['Agriculture']);
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(rows()).toHaveLength(0);
+  });
+
   it('retains an open evidence selection across tabs without refetching', async () => {
     mockedGetSystem.mockResolvedValue(referenceSystemDetail());
     render(SystemDetailTestHost, { props: { id64: parseId64('10477373803') } });

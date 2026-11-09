@@ -146,6 +146,13 @@ opening the map on a result; it is now one shared constant
 (`GALAXY_LOCAL_VIEW_DISTANCE_LY`) so the three cannot drift apart. The flight is
 unchanged otherwise (700 ms, eased, interruptible, instant under reduced
 motion). No API, data or renderer contract changes.
+## 2026-11-04 — UI redesign: Inspect action row and economy rows
+
+First slice of bringing the Inspect page closer to the concept image. Web only; no API, SQL, workflow or provenance change, and nothing is deployed.
+
+- **Actions at the top.** "Back to Explore" (left) and "Open in Explore" and "Continue to Plan" (right) now sit in one row above the system card instead of under it, so they are in view without scrolling. The links, labels and Finder-context behaviour are unchanged.
+- **Economy rows.** The seven economy potentials are now raised, rounded strips with a blue bar. The row whose "Why?" explanation is open is picked out with an orange bar and outline, so the pop-out and its row stay visibly linked. This marks only which row is open; it adds no score, ranking or eligibility claim, and the table, its columns and its keyboard behaviour are unchanged.
+- **Not in this slice.** The concept's three-column layout (bodies list, system map and economy bars side by side) is the next slice.
 
 ## 2026-11-03 — UI redesign: home page to concept
 
