@@ -166,6 +166,13 @@ First slice of bringing the Colony Planner's Review & export pop-out closer to t
 - **Unresolved banner.** When the review lists unresolved items, an orange banner at the top gives the same count as the "Unresolved information" heading and a "Go to first item" button that only moves keyboard focus to the first listed item; it opens and changes nothing. The button is absent while the body and build editors are unavailable. The wording says "unresolved", not "needs information", because the list also includes blocked and invalid builds.
 - **Export stays in view.** The "Export DRAFT plan" button and the rulebook line sit in a footer that stays at the bottom of the pop-out while the lists scroll. The button, its label and the DRAFT download are unchanged.
 - **Not in this slice.** The concept's Overview / Build order / Export tabs inside the pop-out, the "Before you export" notes and the schematic are not built: they need wording and content decisions that are not made yet.
+## 2026-11-04 — UI redesign: Plan Import menu
+
+Part of bringing the Colony Planner header closer to the concept image. Web only; no API, SQL, workflow or provenance change, and nothing is deployed.
+
+- **One Import menu.** "Import plan" and "Import from Raven" now sit inside a single "Import" menu in the planner header. The menu is a plain disclosure (it opens with Enter or Space, and closes after a choice, on Escape — returning focus to "Import" — or on a click elsewhere). The two choices, their file pickers, the confirmation prompts and what each import does are unchanged. The header is shorter, so it fits on one row at 1280 px as well.
+- **Not changed.** "Export DRAFT plan" and "Abandon plan" stay as separate buttons.
+
 ## 2026-11-04 — UI redesign: Plan header primary action and one-row header
 
 Small slice of bringing the Colony Planner header closer to the concept image. Web only (one class name and some CSS); no API, SQL, workflow or provenance change, and nothing is deployed.
