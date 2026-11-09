@@ -166,6 +166,13 @@ First slice of bringing the Colony Planner's Review & export pop-out closer to t
 - **Unresolved banner.** When the review lists unresolved items, an orange banner at the top gives the same count as the "Unresolved information" heading and a "Go to first item" button that only moves keyboard focus to the first listed item; it opens and changes nothing. The button is absent while the body and build editors are unavailable. The wording says "unresolved", not "needs information", because the list also includes blocked and invalid builds.
 - **Export stays in view.** The "Export DRAFT plan" button and the rulebook line sit in a footer that stays at the bottom of the pop-out while the lists scroll. The button, its label and the DRAFT download are unchanged.
 - **Not in this slice.** The concept's Overview / Build order / Export tabs inside the pop-out, the "Before you export" notes and the schematic are not built: they need wording and content decisions that are not made yet.
+## 2026-11-04 — UI redesign: Plan header primary action and one-row header
+
+Small slice of bringing the Colony Planner header closer to the concept image. Web only (one class name and some CSS); no API, SQL, workflow or provenance change, and nothing is deployed.
+
+- **One primary action.** "Review & export" is now the orange button in the planner header, so the page's main next step stands out from the quieter Import, Export, Abandon and view buttons. Its label, behaviour and keyboard handling are unchanged.
+- **One row on wide screens.** From 1340 px wide the planner name and the header buttons share one row, with slightly more compact buttons so all seven fit beside the name. Narrower screens keep the title above the buttons, as before. Checked at 1280, 1366, 1440 and 1920 px: no button leaves the page and nothing scrolls sideways.
+- **Not in this slice.** The concept's Import menu and the system schematic change how the other buttons are grouped or add a new view, and need a design decision.
 
 ## 2026-11-03 — UI redesign: home page to concept
 

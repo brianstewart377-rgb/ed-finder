@@ -967,6 +967,17 @@ describe('Review and DRAFT export', () => {
     return screen.getByRole('dialog', { name: 'Review & export' });
   }
 
+  it('marks Review & export as the one primary header action', async () => {
+    seedReviewPlan();
+    render(PlanWorkspaceTestHost);
+    await advance(300);
+    const primary = document.querySelectorAll(
+      '.plan-header-actions .plan-review-button',
+    );
+    expect(primary).toHaveLength(1);
+    expect(primary[0]).toHaveAccessibleName('Review & export');
+  });
+
   it.each(['Close', 'Escape'] as const)(
     'opens Review from the header without another request, and %s returns focus to its opener',
     async (action) => {

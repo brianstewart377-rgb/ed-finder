@@ -609,6 +609,7 @@
         <button
           bind:this={reviewTrigger}
           type="button"
+          class="plan-review-button"
           aria-haspopup="dialog"
           aria-expanded={reviewOpen}
           aria-controls={reviewOpen ? 'plan-review-export' : undefined}
