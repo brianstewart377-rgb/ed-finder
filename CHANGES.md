@@ -153,6 +153,11 @@ First slice of bringing the Inspect page closer to the concept image. Web only; 
 - **Actions at the top.** "Back to Explore" (left) and "Open in Explore" and "Continue to Plan" (right) now sit in one row above the system card instead of under it, so they are in view without scrolling. The links, labels and Finder-context behaviour are unchanged.
 - **Economy rows.** The seven economy potentials are now raised, rounded strips with a blue bar. The row whose "Why?" explanation is open is picked out with an orange bar and outline, so the pop-out and its row stay visibly linked. This marks only which row is open; it adds no score, ranking or eligibility claim, and the table, its columns and its keyboard behaviour are unchanged.
 - **Not in this slice.** The concept's three-column layout (bodies list, system map and economy bars side by side) is the next slice.
+## 2026-11-04 — UI redesign: Plan two-column layout from 1100px
+
+The Plan page already had a two-column layout (the system or build-order pane on the left, the summary on the right, as in the concept image), but it only switched on at 1400px wide, so a 1280px screen got one long stacked column. It now switches on at 1100px. Nothing else changes: same panes, same order, same behaviour, and phones and narrow windows keep the single column. Web only; no API, SQL, workflow or provenance change, and nothing is deployed.
+
+Checked with the product Plan browser tests run locally at 1280x900 (all five pass, including the facility picker staying inside the viewport) and by looking at the System layout and Build order screenshots.
 
 ## 2026-11-03 — UI redesign: home page to concept
 
