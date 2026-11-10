@@ -1,0 +1,76 @@
+name: edfinder-map-test
+
+# Normal V3 API and release web image, isolated from the Review Lab and the
+# legacy PostgreSQL 16 local stack. Populate the database before starting API.
+services:
+  map-postgres:
+    image: ghcr.io/brianstewart377-rgb/ed-finder/mirror/postgres:18-alpine
+    environment:
+      POSTGRES_DB: edfinder_map_test
+      POSTGRES_USER: map_test_user
+      POSTGRES_PASSWORD: map_test_local_only
+      PGDATA: /var/lib/postgresql/data/map-test-pgdata
+    ports:
+      - "127.0.0.1:55434:5432"
+    volumes:
+      - map_test_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U map_test_user -d edfinder_map_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [map-test]
+
+  map-redis:
+    image: ghcr.io/brianstewart377-rgb/ed-finder/mirror/redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [map-test]
+
+  map-api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://map_test_user:map_test_local_only@map-postgres:5432/edfinder_map_test
+      REDIS_URL: redis://map-redis:6379/0
+      CORS_ORIGINS: http://127.0.0.1:4175
+      EDDN_SIMULATION_INGEST_ENABLED: "false"
+      AUTH_COOKIE_SECURE: "false"
+      LOG_LEVEL: WARNING
+      BUILD_SHA: ${MAP_TEST_BUILD_SHA:?Set MAP_TEST_BUILD_SHA to the exact 40-character source commit}
+    depends_on:
+      map-postgres: { condition: service_healthy }
+      map-redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks: [map-test]
+
+  map-web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        BUILD_SHA: ${MAP_TEST_BUILD_SHA:?Set MAP_TEST_BUILD_SHA to the exact 40-character source commit}
+        VITE_FINDER_F4_ENABLED: "1"
+    environment:
+      EDFINDER_API_UPSTREAM: map-api:8000
+    ports:
+      - "127.0.0.1:4175:8080"
+    depends_on:
+      map-api: { condition: service_healthy }
+    networks: [map-test]
+
+networks:
+  map-test:
+
+volumes:
+  map_test_postgres_data:
