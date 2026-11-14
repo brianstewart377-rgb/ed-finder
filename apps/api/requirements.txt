@@ -1,12 +1,12 @@
 # apps/api — runtime dependencies for the FastAPI service only.
 # Importer-only libraries (ijson, Psycopg 3, tqdm) live in
 # apps/importer/requirements.txt and are NOT installed into this image.
-asyncpg==0.31.0
-fastapi==0.141.1
-uvicorn[standard]==0.52.4
+asyncpg==0.32.0
+fastapi==0.162.2
+uvicorn[standard]==0.54.0
 redis[asyncio]==8.1.0
-pydantic==2.13.5
-pydantic-settings==2.15.0
+pydantic==2.14.3
+pydantic-settings==2.16.2
 slowapi==0.1.10
 httpx==0.28.1
 
@@ -18,7 +18,7 @@ defusedxml==0.7.1
 # EDDN_SIMULATION_INGEST_ENABLED, see config.py. Needed to actually connect
 # to the EDDN ZMQ relay; without it the ingest task degrades to a no-op
 # (logs a warning, sleeps) even when enabled.
-pyzmq==27.2.0
+pyzmq==27.3.0
 
 # Windows-only zmq.asyncio compatibility shim (root-caused 2026-08-08).
 # On Windows, asyncio's default ProactorEventLoop doesn't implement the
@@ -34,11 +34,11 @@ pyzmq==27.2.0
 # instead of raising, with no application code changes needed. A no-op on
 # Linux (production): this code path is only reached when the running
 # loop is an instance of asyncio.ProactorEventLoop, which is Windows-only.
-tornado==6.5.8
+tornado==6.6
 
 # OpenGraph share-card rendering (/api/share/og/{id64}).
-Pillow==12.3.0
+Pillow==13.0.0
 
 # Optional error tracking (GlitchTip/Sentry-API-compatible). Only active
 # when SENTRY_DSN is set — see config.py and docs/operations/glitchtip-error-tracking.md.
-sentry-sdk==2.68.1
+sentry-sdk==2.74.0
